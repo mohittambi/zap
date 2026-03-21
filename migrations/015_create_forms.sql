@@ -1,5 +1,5 @@
 -- eautomate: forms — form definitions (categories, sub_categories, form_payload)
-CREATE TABLE forms (
+CREATE TABLE IF NOT EXISTS forms (
     id SERIAL PRIMARY KEY,
     category VARCHAR(100) NOT NULL,
     sub_category VARCHAR(100) NOT NULL,
@@ -13,5 +13,5 @@ CREATE TABLE forms (
     UNIQUE(category, sub_category)
 );
 
-CREATE INDEX idx_forms_category ON forms(category);
-CREATE INDEX idx_forms_sub_category ON forms(sub_category);
+CREATE INDEX IF NOT EXISTS idx_forms_category ON forms(category);
+CREATE INDEX IF NOT EXISTS idx_forms_sub_category ON forms(sub_category);

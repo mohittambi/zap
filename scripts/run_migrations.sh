@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Create database (if missing) and run migrations 001-016 in order.
 # Requires DATABASE_URL (e.g. from .env). Use: npm run migrate
+#
+# Migrations use CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS so
+# re-running is safe: already-applied steps no-op; remaining steps apply.
 set -e
 cd "$(dirname "$0")/.."
 

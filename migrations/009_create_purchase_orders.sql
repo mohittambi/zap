@@ -2,7 +2,7 @@
 -- Maps to /incoming_purchase_orders/listing_order_details/:sku_id
 -- Denormalized: each row = one PO line with full PO + SKU details
 
-CREATE TABLE listing_order_details (
+CREATE TABLE IF NOT EXISTS listing_order_details (
     id BIGINT PRIMARY KEY,
     po_number VARCHAR(50),
     po_secondary_sku VARCHAR(100) NOT NULL REFERENCES listings(sku_id),
@@ -33,4 +33,4 @@ CREATE TABLE listing_order_details (
     calculated_po_status VARCHAR(50)
 );
 
-CREATE INDEX idx_listing_order_details_po_secondary_sku ON listing_order_details(po_secondary_sku);
+CREATE INDEX IF NOT EXISTS idx_listing_order_details_po_secondary_sku ON listing_order_details(po_secondary_sku);

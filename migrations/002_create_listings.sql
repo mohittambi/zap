@@ -1,7 +1,7 @@
 -- eautomate: listings table (main product/SKU table)
 -- Maps to /listings/sku/:sku_id API response
 
-CREATE TABLE listings (
+CREATE TABLE IF NOT EXISTS listings (
     id BIGINT PRIMARY KEY,
     sku_id VARCHAR(100) UNIQUE NOT NULL,
     master_sku VARCHAR(100),

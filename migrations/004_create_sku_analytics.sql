@@ -2,7 +2,7 @@
 -- Maps to /listings/analytics/sku/:sku_id — inward/outward tracking
 -- Append-only with fetched_at for historical tracking
 
-CREATE TABLE sku_analytics (
+CREATE TABLE IF NOT EXISTS sku_analytics (
     id BIGSERIAL PRIMARY KEY,
     sku_id VARCHAR(100) NOT NULL REFERENCES listings(sku_id),
     inward_30d INT DEFAULT 0,
@@ -14,4 +14,4 @@ CREATE TABLE sku_analytics (
     fetched_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX sku_analytics_sku_date_idx ON sku_analytics (sku_id, fetched_at);
+CREATE INDEX IF NOT EXISTS sku_analytics_sku_date_idx ON sku_analytics (sku_id, fetched_at);

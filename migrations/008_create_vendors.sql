@@ -1,7 +1,7 @@
 -- eautomate: vendors, vendor_sku, vendor_specialties
 -- Maps to /vendors/sku/:sku_id — returns vendor_sku rows with nested vendor + specialties
 
-CREATE TABLE vendors (
+CREATE TABLE IF NOT EXISTS vendors (
     id BIGINT PRIMARY KEY,
     vendor_name VARCHAR(200),
     created_by VARCHAR(100),
@@ -16,7 +16,7 @@ CREATE TABLE vendors (
     vendor_contact_number VARCHAR(50)
 );
 
-CREATE TABLE vendor_specialties (
+CREATE TABLE IF NOT EXISTS vendor_specialties (
     id BIGINT PRIMARY KEY,
     vendor_id BIGINT NOT NULL REFERENCES vendors(id),
     vendor_speciality VARCHAR(100),
@@ -26,10 +26,10 @@ CREATE TABLE vendor_specialties (
     updated_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_vendor_specialties_vendor ON vendor_specialties(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_specialties_vendor ON vendor_specialties(vendor_id);
 
 -- vendor-SKU associations with cost_price
-CREATE TABLE vendor_sku (
+CREATE TABLE IF NOT EXISTS vendor_sku (
     id BIGINT PRIMARY KEY,
     vendor_id BIGINT NOT NULL REFERENCES vendors(id),
     sku_id VARCHAR(100) NOT NULL REFERENCES listings(sku_id),
@@ -40,4 +40,4 @@ CREATE TABLE vendor_sku (
     UNIQUE (vendor_id, sku_id)
 );
 
-CREATE INDEX idx_vendor_sku_sku ON vendor_sku(sku_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_sku_sku ON vendor_sku(sku_id);

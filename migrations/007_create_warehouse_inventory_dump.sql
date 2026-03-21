@@ -2,7 +2,7 @@
 -- Maps to /warehouse_inventory_dump/sku_id/by_page/:sku_id
 -- Each row = one ADD or REMOVE operation
 
-CREATE TABLE warehouse_inventory_dump (
+CREATE TABLE IF NOT EXISTS warehouse_inventory_dump (
     id BIGSERIAL PRIMARY KEY,
     warehouse_id BIGINT NOT NULL REFERENCES warehouses(id),
     sku_id VARCHAR(100) NOT NULL REFERENCES listings(sku_id),
@@ -14,5 +14,5 @@ CREATE TABLE warehouse_inventory_dump (
     updated_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_warehouse_inventory_dump_sku ON warehouse_inventory_dump(sku_id);
-CREATE INDEX idx_warehouse_inventory_dump_created ON warehouse_inventory_dump(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_dump_sku ON warehouse_inventory_dump(sku_id);
+CREATE INDEX IF NOT EXISTS idx_warehouse_inventory_dump_created ON warehouse_inventory_dump(created_at DESC);

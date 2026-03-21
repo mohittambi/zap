@@ -1,7 +1,7 @@
 -- eautomate: bins table
 -- Warehouse bin locations for a SKU — maps to bins[] in listing API response
 
-CREATE TABLE bins (
+CREATE TABLE IF NOT EXISTS bins (
     id BIGINT PRIMARY KEY,
     warehouse_id BIGINT NOT NULL REFERENCES warehouses(id),
     sku_id VARCHAR(100) NOT NULL REFERENCES listings(sku_id),
