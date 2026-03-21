@@ -1,0 +1,5 @@
+Form ID,Submitted By (Username),Submission Date (YYYY-MM-DD),Response Data (JSON)
+[NOTE: Form submissions are recorded automatically when staff submit a form through the app — do not fill manually. This sheet is for reference only.],,,
+1,sales.saumya@ecraftindia.com,2024-01-15,"{""ajio_dispatch_count"":""10"",""amazon_dispatch_count"":""25"",""flipkart_dispatch_count"":""15"",""pending_orders_count"":""8"",""remarks"":""All clear for the day""}"
+1,warehouse.manager@ecraftindia.com,2024-01-15,"{""ajio_dispatch_count"":""8"",""amazon_dispatch_count"":""20"",""flipkart_dispatch_count"":""12"",""pending_orders_count"":""5"",""remarks"":""Short staffed in morning shift""}"
+2,design.team@ecraftindia.com,2024-01-15,"{""sku_design_count"":""5"",""sku_upload_count"":""3"",""notes"":""Completed Ganesha canvas series""}"

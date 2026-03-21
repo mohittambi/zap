@@ -1,0 +1,10 @@
+Permission ID,Resource,Action,Description
+[NOTE: Permissions are predefined by the system — do not modify. These are referenced when assigning roles.],,,
+1,* (all),* (all),Admin wildcard — full access to every resource and action
+2,listings,read,View product listings
+3,analytics,read,View SKU analytics and movement data
+4,packs_combos,read,View pack and combo component definitions
+5,warehouse_inventory,read,View warehouse inventory dump and movements
+6,purchase_orders,read,View purchase orders
+7,vendors,read,View vendor directory and specialties
+8,inventory,read,View inventory channel / secondary listings

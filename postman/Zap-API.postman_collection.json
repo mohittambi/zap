@@ -1,0 +1,497 @@
+{
+  "info": {
+    "name": "Zap API",
+    "description": "eautomate API mirror — listings, inventory, analytics. RBAC-protected. Use Auth group to login first, then use token or API key for other requests.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000/api" },
+    { "key": "token", "value": "" },
+    { "key": "api_key", "value": "zap_seed_admin_key" },
+    { "key": "sku_id", "value": "" },
+    { "key": "vendor_id", "value": "" },
+    { "key": "warehouse_id", "value": "" },
+    { "key": "form_id", "value": "" },
+    { "key": "user_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": "{{base_url}}/auth/login",
+            "description": "Returns JWT. Use token in Authorization header for other requests."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  if (j.token) pm.collectionVariables.set('token', j.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me (current user)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/auth/me",
+            "description": "Requires auth (Bearer token or X-API-Key)."
+          }
+        },
+        {
+          "name": "Refresh API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/auth/refresh-api-key",
+            "description": "Admin only. Returns new API key."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Listings",
+      "item": [
+        {
+          "name": "SKU names",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/listings/sku/names"
+          }
+        },
+        {
+          "name": "SKU detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/listings/sku/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["listings", "sku", "{{sku_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Listings paginated",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/listings/by_page_v4?search_keyword=&page=1&count=100",
+              "host": ["{{base_url}}"],
+              "path": ["listings", "by_page_v4"],
+              "query": [
+                { "key": "search_keyword", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "count", "value": "100" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Inbound summary by SKU",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/listings/inbound_summary/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["listings", "inbound_summary", "{{sku_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Incoming quantity by SKU",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/listings/incoming-quantity/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["listings", "incoming-quantity", "{{sku_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "SKU analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/listings/analytics/sku/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["listings", "analytics", "sku", "{{sku_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Packs & Combos",
+      "item": [
+        {
+          "name": "Pack/combo by SKU",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/packs_combos/sku/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["packs_combos", "sku", "{{sku_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Warehouse Inventory",
+      "item": [
+        {
+          "name": "Warehouse inventory by SKU (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/warehouse_inventory_dump/sku_id/by_page/{{sku_id}}?page=1&count=200",
+              "host": ["{{base_url}}"],
+              "path": ["warehouse_inventory_dump", "sku_id", "by_page", "{{sku_id}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "count", "value": "200" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Purchase Orders",
+      "item": [
+        {
+          "name": "Listing order details by SKU",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/incoming_purchase_orders/listing_order_details/{{sku_id}}?page=1&count=200",
+              "host": ["{{base_url}}"],
+              "path": ["incoming_purchase_orders", "listing_order_details", "{{sku_id}}"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "count", "value": "200" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vendors",
+      "item": [
+        {
+          "name": "All vendors",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/vendors/all"
+          }
+        },
+        {
+          "name": "Vendor by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/vendors/{{vendor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["vendors", "{{vendor_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Vendor listings (SKUs)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/vendors/listings/{{vendor_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["vendors", "listings", "{{vendor_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Vendors by SKU",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/vendors/sku/{{sku_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["vendors", "sku", "{{sku_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "Packs and combos paginated",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/inventory/secondary_listings/packs_and_combos/paginated?search_keyword=&page=1&count=1000",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "secondary_listings", "packs_and_combos", "paginated"],
+              "query": [
+                { "key": "search_keyword", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "count", "value": "1000" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Secondary listings paginated",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/inventory/secondary_listings/paginated?search_keyword=&page=1&count=1000",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "secondary_listings", "paginated"],
+              "query": [
+                { "key": "search_keyword", "value": "" },
+                { "key": "page", "value": "1" },
+                { "key": "count", "value": "1000" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "SKU-wise details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/inventory/secondary_listings/sku_wise_details?secondary_sku=&sku=",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "secondary_listings", "sku_wise_details"],
+              "query": [
+                { "key": "secondary_sku", "value": "" },
+                { "key": "sku", "value": "" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Forms",
+      "item": [
+        {
+          "name": "Categories",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/forms/categories"
+          }
+        },
+        {
+          "name": "Sub-categories by category",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/forms/categories/:category",
+              "host": ["{{base_url}}"],
+              "path": ["forms", "categories", ":category"],
+              "variable": [{ "key": "category", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "Form by category and sub-category",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/forms/categories/:category/:sub_category",
+              "host": ["{{base_url}}"],
+              "path": ["forms", "categories", ":category", ":sub_category"],
+              "variable": [
+                { "key": "category", "value": "" },
+                { "key": "sub_category", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Form response",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/forms/response/{{form_id}}?submitted_by={{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["forms", "response", "{{form_id}}"],
+              "query": [{ "key": "submitted_by", "value": "{{user_id}}" }]
+            }
+          }
+        },
+        {
+          "name": "Today's submission",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/forms/today/{{form_id}}/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["forms", "today", "{{form_id}}", "{{user_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Warehouses",
+      "item": [
+        {
+          "name": "All warehouses",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": "{{base_url}}/warehouses"
+          }
+        },
+        {
+          "name": "Warehouse by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/warehouses/{{warehouse_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["warehouses", "{{warehouse_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bins",
+      "item": [
+        {
+          "name": "Bins list (paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/bins?page=1&limit=100&warehouse_id=&sku_id=",
+              "host": ["{{base_url}}"],
+              "path": ["bins"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "100" },
+                { "key": "warehouse_id", "value": "" },
+                { "key": "sku_id", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bin by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/bins/:id",
+              "host": ["{{base_url}}"],
+              "path": ["bins", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+Warehouse ID,SKU Code,Bin Location Code,Available Quantity
+[Warehouse ID from Warehouse sheet e.g. 22230],[Product SKU stored in this bin e.g. CRTOR500],[Bin code in format ZONE-ROW-COL-SHELF e.g. C-08-07-5-A],[Current available quantity in this specific bin]
+22230,CRTOR500,B-05-10-2-B,120
+22230,CRTOR500,C-08-07-5-A,80
+22230,MSGB589,C-08-07-5-A,47
+22230,MSGB589,D-04-05-4-A,51
+22230,MSAC503,A-02-03-1-C,30
+22231,VGNS101,A-01-01-1-A,200
+22231,HBMBX202,B-03-04-2-B,150

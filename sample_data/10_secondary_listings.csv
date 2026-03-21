@@ -1,0 +1,7 @@
+Channel SKU,Master SKU,Inventory SKU,Pack Combo SKU,SKU Type,Bypass Status,Platform Stock,Warehouse Stock
+[SKU code used on the sales channel e.g. CRTOR500-FK],[Your master SKU e.g. CRTOR500],[Inventory tracking SKU usually same as master],[Combo parent SKU or NA],[SINGLE or COMBO],[ACTIVE means live on channel INACTIVE means unlisted],[Qty currently shown on the platform],[Qty available in warehouse]
+CRTOR500-FK,CRTOR500,CRTOR500,NA,SINGLE,ACTIVE,120,120
+MSGB589-AMZ,MSGB589,MSGB589,NA,SINGLE,ACTIVE,98,98
+MSAC503-NYK,MSAC503,MSAC503,NA,SINGLE,INACTIVE,0,30
+VGNS101-FK,VGNS101,VGNS101,NA,SINGLE,ACTIVE,200,200
+HBMBX202-AMZ,HBMBX202,HBMBX202,NA,SINGLE,ACTIVE,150,150

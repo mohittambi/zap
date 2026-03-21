@@ -1,0 +1,11 @@
+Role ID,Permission ID
+[NOTE: Role-to-permission assignments are predefined — do not modify. Role 1 = Admin  Role 2 = Warehouse Manager  Role 3 = Viewer  Role 4 = Vendor.],
+1,1
+2,5
+2,6
+2,8
+3,2
+3,3
+3,4
+4,6
+4,7

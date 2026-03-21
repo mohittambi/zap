@@ -1,0 +1,6 @@
+Role ID,Role Name,Description
+[NOTE: These roles are predefined by the system — do not modify or add new rows unless discussed with the technical team.],,
+1,admin,Full access to all resources and settings
+2,warehouse_manager,Warehouse and inventory operations access
+3,viewer,Read-only access to listings analytics and inventory
+4,vendor,Vendor directory and purchase order read access

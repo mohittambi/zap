@@ -1,0 +1,42 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "migrate": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/run_migrations.sh', { env: process.env, stdio: 'inherit', cwd: process.cwd() })\"",
+    "seed": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/run_seed_local.sh seeds/001_rbac_seed.sql', { env: process.env, stdio: 'inherit' })\"",
+    "seed:forms": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/run_seed_local.sh seeds/002_forms_seed.sql', { env: process.env, stdio: 'inherit' })\"",
+    "seed:sample": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/load_sample_data.sh', { env: process.env, stdio: 'inherit' })\"",
+    "test:db": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); const pg=require('pg'); const c=new pg.Client({connectionString:process.env.DATABASE_URL}); c.connect().then(()=>c.query('SELECT 1 AS ok')).then(r=>{console.log('PG OK:',r.rows[0]);c.end();}).catch(e=>{console.error(e.message);process.exit(1);})\"",
+    "test": "tsx --test --import ./tests/setup.mjs tests/unit/pagination.test.ts tests/unit/rbac.test.ts tests/unit/errors.test.ts tests/api/integration.test.mjs",
+    "test:unit": "tsx --test tests/unit/pagination.test.ts tests/unit/rbac.test.ts tests/unit/errors.test.ts",
+    "test:api": "tsx --test --import ./tests/setup.mjs tests/api/integration.test.mjs"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "next": "16.1.6",
+    "pg": "^8.11.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}

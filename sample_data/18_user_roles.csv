@@ -1,0 +1,6 @@
+User Email,Role Name
+[Staff email from Users sheet e.g. john@ecraftindia.com],[Role name from Roles sheet — admin / warehouse_manager / viewer / vendor]
+admin@ecraftindia.com,admin
+warehouse.manager@ecraftindia.com,warehouse_manager
+sales.saumya@ecraftindia.com,viewer
+vendor.portal@ecraftindia.com,vendor

@@ -1,0 +1,6 @@
+	 ID,Warehouse Name
+[Unique numeric ID e.g. 22230],[Full name of this warehouse location e.g. Jaipur Main Warehouse]
+22230,Jaipur Main Warehouse
+22231,Jaipur Secondary Storage
+22232,Delhi Returns & QC Hub
+22233,Mumbai Overflow Store

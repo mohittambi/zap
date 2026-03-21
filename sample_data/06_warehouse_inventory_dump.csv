@@ -1,0 +1,7 @@
+Warehouse ID,SKU Code,Operation (ADD/REMOVE),Quantity,Bin Location,Staff Username,Date
+[NOTE: This sheet is the operational stock movement log — it is auto-recorded by the warehouse app. Do not fill manually.],,,,,, 
+22230,CRTOR500,ADD,200,B-05-10-2-B,akshit229,10-Jan-2024 10:00
+22230,MSGB589,ADD,150,C-08-07-5-A,akshit229,10-Jan-2024 11:00
+22230,MSAC503,ADD,100,A-02-03-1-C,warehouse.manager,12-Jan-2024 09:30
+22230,CRTOR500,REMOVE,20,B-05-10-2-B,warehouse.manager,15-Jan-2024 14:00
+22231,VGNS101,ADD,200,A-01-01-1-A,akshit229,16-Jan-2024 10:00

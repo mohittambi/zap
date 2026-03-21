@@ -1,0 +1,172 @@
+// @ts-nocheck
+import { query } from '@/server/db';
+
+export async function getSkuNames() {
+  const result = await query(
+    `SELECT sku_id, description FROM listings ORDER BY sku_id`
+  );
+  return result.rows;
+}
+
+export async function getListingBySku(skuId) {
+  const listingResult = await query(
+    `SELECT id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+            inventory_bypass_on, ops_tag, category, description, meta_fields,
+            img_hd, img_white, img_wdim, img_link1, img_link2, no_of_constituents,
+            actual_weight, dimension, bulk_price, keyword_pool, material_info,
+            available_quantity, raw_created_at, raw_updated_at
+     FROM listings WHERE sku_id = $1`,
+    [skuId]
+  );
+  const listing = listingResult.rows[0];
+  if (!listing) return null;
+
+  const binsResult = await query(
+    `SELECT id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted
+     FROM bins WHERE sku_id = $1 AND is_deleted = false`,
+    [skuId]
+  );
+
+  return {
+    id: Number(listing.id),
+    sku_id: listing.sku_id,
+    master_sku: listing.master_sku,
+    inventory_sku_id: listing.inventory_sku_id,
+    pack_combo_sku_id: listing.pack_combo_sku_id,
+    sku_type: listing.sku_type,
+    inventory_bypass_on: listing.inventory_bypass_on,
+    ops_tag: listing.ops_tag,
+    category: listing.category,
+    description: listing.description,
+    meta_fields: listing.meta_fields,
+    img_hd: listing.img_hd,
+    img_white: listing.img_white,
+    img_wdim: listing.img_wdim,
+    img_link1: listing.img_link1,
+    img_link2: listing.img_link2,
+    no_of_constituents: listing.no_of_constituents,
+    actual_weight: Number(listing.actual_weight ?? 0),
+    dimension: listing.dimension,
+    created_at: listing.raw_created_at,
+    updated_at: listing.raw_updated_at,
+    bulk_price: Number(listing.bulk_price ?? 0),
+    keyword_pool: listing.keyword_pool,
+    material_info: listing.material_info,
+    bins: binsResult.rows.map((b) => ({
+      id: Number(b.id),
+      warehouse_id: Number(b.warehouse_id),
+      sku_id: b.sku_id,
+      bin_id: b.bin_id,
+      available_quantity: b.available_quantity,
+      is_deleted: b.is_deleted ? 1 : 0,
+    })),
+    available_quantity: listing.available_quantity,
+  };
+}
+
+export async function getListingsByPage(searchKeyword, page, count) {
+  const offset = (page - 1) * count;
+  let whereClause = '';
+  const params = [];
+  if (searchKeyword) {
+    params.push(`%${searchKeyword}%`);
+    whereClause = `WHERE sku_id ILIKE $1 OR description ILIKE $1 OR keyword_pool ILIKE $1 OR category ILIKE $1`;
+  }
+
+  const countResult = await query(
+    `SELECT COUNT(*)::int AS total FROM listings ${whereClause}`,
+    params
+  );
+  const total = countResult.rows[0].total;
+
+  const limitParam = params.length + 1;
+  const offsetParam = params.length + 2;
+  const listParams = [...params, count, offset];
+  const listWhere = params.length ? 'WHERE sku_id ILIKE $1 OR description ILIKE $1 OR keyword_pool ILIKE $1 OR category ILIKE $1' : '';
+  const listQuery = `SELECT id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+     inventory_bypass_on, ops_tag, category, description, meta_fields,
+     img_hd, img_white, img_wdim, img_link1, img_link2, no_of_constituents,
+     actual_weight, dimension, bulk_price, keyword_pool, material_info,
+     available_quantity, raw_created_at, raw_updated_at
+     FROM listings ${listWhere}
+     ORDER BY id LIMIT $${limitParam} OFFSET $${offsetParam}`;
+
+  const listResult = await query(listQuery, listParams);
+  const content = listResult.rows;
+
+  const skuIds = content.map((r) => r.sku_id);
+  const binsBySku: Record<string, unknown[]> = {};
+  if (skuIds.length > 0) {
+    const binsResult = await query(
+      `SELECT id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted
+       FROM bins WHERE sku_id = ANY($1) AND is_deleted = false`,
+      [skuIds]
+    );
+    for (const b of binsResult.rows) {
+      if (!binsBySku[b.sku_id]) binsBySku[b.sku_id] = [];
+      binsBySku[b.sku_id].push({
+        id: Number(b.id),
+        warehouse_id: Number(b.warehouse_id),
+        sku_id: b.sku_id,
+        bin_id: b.bin_id,
+        available_quantity: b.available_quantity,
+        is_deleted: b.is_deleted ? 1 : 0,
+      });
+    }
+  }
+
+  return {
+    total,
+    current_page: page,
+    per_page_count: count,
+    curr_page_count: content.length,
+    content: content.map((l) => ({
+      id: Number(l.id),
+      sku_id: l.sku_id,
+      master_sku: l.master_sku,
+      inventory_sku_id: l.inventory_sku_id,
+      pack_combo_sku_id: l.pack_combo_sku_id,
+      sku_type: l.sku_type,
+      inventory_bypass_on: l.inventory_bypass_on,
+      ops_tag: l.ops_tag,
+      category: l.category,
+      description: l.description,
+      meta_fields: l.meta_fields,
+      img_hd: l.img_hd,
+      img_white: l.img_white,
+      img_wdim: l.img_wdim,
+      img_link1: l.img_link1,
+      img_link2: l.img_link2,
+      no_of_constituents: l.no_of_constituents,
+      actual_weight: Number(l.actual_weight ?? 0),
+      dimension: l.dimension,
+      created_at: l.raw_created_at,
+      updated_at: l.raw_updated_at,
+      bulk_price: Number(l.bulk_price ?? 0),
+      keyword_pool: l.keyword_pool,
+      material_info: l.material_info,
+      bins: binsBySku[l.sku_id] || [],
+      available_quantity: l.available_quantity,
+    })),
+  };
+}
+
+export async function getInboundSummary(skuId) {
+  const result = await query(
+    `SELECT id, sku_id, summary_date, quantity, source, raw_data
+     FROM inbound_summary WHERE sku_id = $1 ORDER BY summary_date DESC`,
+    [skuId]
+  );
+  if (result.rows.length === 0) return [];
+  return result.rows.map((r) => ({ ...r, raw_data: r.raw_data || undefined }));
+}
+
+export async function getIncomingQuantity(skuId) {
+  const result = await query(
+    `SELECT id, sku_id, quantity, expected_date, source, raw_data
+     FROM incoming_quantity WHERE sku_id = $1 ORDER BY expected_date`,
+    [skuId]
+  );
+  if (result.rows.length === 0) return [];
+  return result.rows.map((r) => ({ ...r, raw_data: r.raw_data || undefined }));
+}
