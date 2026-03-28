@@ -80,7 +80,7 @@ export async function getSecondaryListingsPaginated(searchKeyword, page, count) 
   const params = [];
   if (searchKeyword) {
     params.push(`%${searchKeyword}%`);
-    whereClause = `WHERE secondary_sku ILIKE $1 OR master_sku ILIKE $1 OR inventory_sku_id ILIKE $1`;
+    whereClause = `WHERE secondary_sku ILIKE $1 OR master_sku ILIKE $1 OR inventory_sku_id ILIKE $1 OR COALESCE(pack_combo_sku_id::text,'') ILIKE $1`;
   }
 
   const countResult = await query(
@@ -108,6 +108,7 @@ export async function getSecondaryListingsPaginated(searchKeyword, page, count) 
     inventory_bypass_status: r.inventory_bypass_status,
     ais_quantity: r.ais_quantity,
     available_quantity: r.available_quantity,
+    effective_available_quantity: r.available_quantity,
   }));
 
   return {

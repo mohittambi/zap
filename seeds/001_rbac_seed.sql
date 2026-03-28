@@ -21,7 +21,9 @@ INSERT INTO permissions (resource, action, description) VALUES
   ('packs_combos', 'read', 'Pack/combo components'),
   ('warehouse_inventory', 'read', 'Warehouse inventory dump'),
   ('purchase_orders', 'read', 'Purchase orders'),
+  ('purchase_orders', 'create', 'Create inbound/vendor purchase orders'),
   ('vendors', 'read', 'Vendors'),
+  ('vendors', 'create', 'Create vendors'),
   ('inventory', 'read', 'Inventory secondary listings'),
   ('forms', 'read', 'Forms categories and submissions'),
   ('warehouses', 'read', 'Warehouses list and by id'),
@@ -36,7 +38,11 @@ ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r, permissions p
-WHERE r.name = 'warehouse_manager' AND p.resource IN ('warehouse_inventory', 'inventory', 'forms', 'warehouses', 'bins') AND p.action = 'read'
+WHERE r.name = 'warehouse_manager' AND (
+  (p.resource IN ('warehouse_inventory', 'inventory', 'forms', 'warehouses', 'bins') AND p.action = 'read')
+  OR (p.resource = 'vendors' AND p.action IN ('read', 'create'))
+  OR (p.resource = 'purchase_orders' AND p.action IN ('read', 'create'))
+)
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id)

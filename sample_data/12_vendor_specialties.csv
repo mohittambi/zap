@@ -1,12 +1,11 @@
-Vendor ID,Specialty / Product Category
-[Same Vendor ID as in Vendor sheet e.g. 12304],[Material or product type this vendor specialises in e.g. Resin]
-12304,Resin
-12304,Crystal
-12305,Foam
-12305,Plastic
-12306,Resin
-12306,Terracotta
-12307,Canvas Print
-12307,MDF Wood
-12308,Bamboo
-12308,Jute
+Specialty Row ID,Vendor ID,Specialty / Product Category
+620001,12304,Resin
+620002,12304,Crystal
+620003,12305,Foam
+620004,12305,Plastic
+620005,12306,Resin
+620006,12306,Terracotta
+620007,12307,Canvas Print
+620008,12307,MDF Wood
+620009,12308,Bamboo
+620010,12308,Jute

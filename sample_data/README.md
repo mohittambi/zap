@@ -1,12 +1,16 @@
 # Data Collection Sheets — Filling Guide
 
-These CSV files are business data templates. Share them with the relevant person to collect master data.
-Each sheet has:
-- **Row 1** — Column headers in plain English
-- **Row 2** — Instructions / format hints for each column (shown in `[brackets]`)
-- **Rows 3+** — Sample data rows showing what real entries look like
+These CSV files are business data templates and are also loaded by `npm run seed:sample` (see `scripts/load_sample_data.sh`).
 
-When filling the sheets, add your data below Row 2. Row 2 is a guide and should be removed before importing into the database.
+Each sheet has a **header row** plus **data rows**. (Older versions used a second “hint” row in `[brackets]`; that row must not be present when importing — the copies in this repo are import-ready.)
+
+**Load order:** run `npm run migrate`, then `npm run seed` (RBAC), then `npm run seed:sample`.
+
+If sample data was already loaded and you see duplicate-key errors, reset and reload with:
+
+`npm run seed:sample:replace`
+
+That truncates the sample tables (and CASCADE may clear `catalogue_items`, `focus_list_items`, and `listing_embeddings` tied to those listings), removes the four `14_users.csv` accounts, then loads again.
 
 ---
 

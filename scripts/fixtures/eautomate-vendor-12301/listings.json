@@ -1,0 +1,48 @@
+[
+  {
+    "id": 1150,
+    "vendor_id": 12301,
+    "sku_id": "CTEALIGHT_JASMINE_SO10",
+    "cost_price": 50,
+    "modified_by": "sales.dipashree.chaudhary",
+    "created_at": "-000001-11-30T00:00:00.000000Z",
+    "updated_at": "2025-03-03T10:40:12.000000Z",
+    "listing": {
+      "id": 3426,
+      "sku_id": "CTEALIGHT_JASMINE_SO10",
+      "master_sku": "CTEALIGHT_JASMINE_SO10",
+      "inventory_sku_id": "CTEALIGHT_JASMINE_SO10",
+      "pack_combo_sku_id": "NA",
+      "sku_type": "SINGLE",
+      "inventory_bypass_on": "NO",
+      "ops_tag": "LS",
+      "category": "Candles",
+      "description": "New",
+      "meta_fields": "New",
+      "img_hd": "http://www.tech.intellozene.com/Media/CTEALIGHT_JASMINE_SO10_main_hd.jpg",
+      "img_white": "http://www.tech.intellozene.com/Media/CTEALIGHT_JASMINE_SO10_main_w.jpg",
+      "img_wdim": "http://www.tech.intellozene.com/Media/CTEALIGHT_JASMINE_SO10_main_w.jpg",
+      "img_link1": "http://www.tech.intellozene.com/Media/CTEALIGHT_JASMINE_SO10_other_1.jpg",
+      "img_link2": "http://www.tech.intellozene.com/Media/CTEALIGHT_JASMINE_SO10_other_2.jpg",
+      "no_of_constituents": 1,
+      "actual_weight": 0,
+      "dimension": "4.445Cm x 4.445Cm x 1.27Cm / 1.75\" x 1.75\" x 0.5\"",
+      "created_at": "-000001-11-30T00:00:00.000000Z",
+      "updated_at": "-000001-11-30T00:00:00.000000Z",
+      "bulk_price": 40,
+      "keyword_pool": "New",
+      "material_info": "Wax",
+      "bins": [
+        {
+          "id": 52834,
+          "warehouse_id": 22230,
+          "sku_id": "CTEALIGHT_JASMINE_SO10",
+          "bin_id": "B-07-03-5-B",
+          "available_quantity": 143,
+          "is_deleted": 0
+        }
+      ],
+      "available_quantity": 2410
+    }
+  }
+]

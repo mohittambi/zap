@@ -6,7 +6,9 @@ import type { AuthUser, Permission } from "./rbac";
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 
-async function loadUserWithRoles(userId: number): Promise<AuthUser | null> {
+export async function loadUserWithRoles(
+  userId: number
+): Promise<AuthUser | null> {
   const userResult = await query(
     `SELECT id, email, created_at FROM users WHERE id = $1`,
     [userId]

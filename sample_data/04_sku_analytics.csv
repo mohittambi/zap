@@ -1,7 +1,6 @@
 SKU Code,Inward Qty (30 days),Inward Qty (60 days),Inward Qty (90 days),Outward Qty (30 days),Outward Qty (60 days),Outward Qty (90 days),Last Synced On
-[NOTE: This sheet is auto-synced from eautomate — do not fill manually. Data here is for reference only.],,,,,,,
-CRTOR500,10,25,35,5,15,20,15-Jan-2024 12:00
-MSGB589,50,120,180,30,80,120,15-Jan-2024 12:00
-MSAC503,5,10,18,2,5,8,15-Jan-2024 12:00
-VGNS101,20,45,70,10,30,55,15-Jan-2024 12:00
-HBMBX202,15,35,60,8,22,40,15-Jan-2024 12:00
+CRTOR500,10,25,35,5,15,20,2024-01-15 12:00:00+00
+MSGB589,50,120,180,30,80,120,2024-01-15 12:00:00+00
+MSAC503,5,10,18,2,5,8,2024-01-15 12:00:00+00
+VGNS101,20,45,70,10,30,55,2024-01-15 12:00:00+00
+HBMBX202,15,35,60,8,22,40,2024-01-15 12:00:00+00

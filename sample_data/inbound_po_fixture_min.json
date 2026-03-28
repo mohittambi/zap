@@ -1,0 +1,29 @@
+{
+  "total": 1,
+  "current_page": 1,
+  "per_page_count": 100,
+  "curr_page_count": 1,
+  "content": [
+    {
+      "po_id": 99900001,
+      "vendor_id": 12304,
+      "expected_date": "2026-03-31 00:00:00",
+      "created_by": "fixture",
+      "created_at": "2026-03-26T05:00:24.000000Z",
+      "updated_at": "2026-03-26T05:02:41.000000Z",
+      "date_published": "2026-03-26 10:32:41",
+      "status": "PENDING_PUBLISHED",
+      "po_remarks": null,
+      "vendor_name": "Batra Novelties",
+      "id": 12304,
+      "sku_count": 2,
+      "total_quantity": 10,
+      "number_of_grns": 0,
+      "total_invoice_quantity": 0,
+      "total_accepted_quantity": 0,
+      "total_rejected_quantity": 0,
+      "sku_fill_rate": 0,
+      "quantity_fill_rate": 0
+    }
+  ]
+}

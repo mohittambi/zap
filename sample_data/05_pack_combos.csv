@@ -1,5 +1,4 @@
 Bundle SKU (Parent),Component SKU,Component Quantity
-[SKU of the bundle/combo product e.g. GIFSET001],[SKU of the individual component included in this bundle],[Quantity of this component in one bundle]
 GIFSET001,CRTOR500,1
 GIFSET001,MSGB589,1
 GIFSET002,MSAC503,2

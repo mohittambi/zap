@@ -1,0 +1,25 @@
+{
+  "id": 12301,
+  "vendor_name": "Aabco",
+  "created_by": "akshit229",
+  "modified_by": "ops.vendor.partner",
+  "created_at": "-000001-11-30T00:00:00.000000Z",
+  "updated_at": "2025-02-15T11:21:11.000000Z",
+  "vendor_address_line": "Maharana Pratap Nagar Keshav Vidhyapeet Jamdoli",
+  "vendor_city": "Jaipur",
+  "vendor_state": "Rajasthan",
+  "vendor_postal_code": "302031",
+  "vendor_gstin": "08AMEPJ3259N1ZN",
+  "vendor_contact_number": "7568418888",
+  "specialties": [
+    {
+      "id": 9,
+      "vendor_id": 12301,
+      "vendor_speciality": "Resin",
+      "created_by": "akshit229",
+      "modified_by": "akshit229",
+      "created_at": "2024-02-07T13:55:02.000000Z",
+      "updated_at": "2024-02-07T13:55:02.000000Z"
+    }
+  ]
+}

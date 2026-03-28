@@ -1,0 +1,40 @@
+[
+  {
+    "id": 4012,
+    "sold_via": "Eunoia",
+    "company_id": 30046,
+    "po_number": "45HQL44V",
+    "delivery_city": "Blr8",
+    "delivery_address": "ETRADE MARKETING PRIVATE LIMITED Building 2 (Wh 2) Plot no. 12/P2 (IT Sector) Bengaluru 562149 India",
+    "billing_address": "ETRADE MARKETING PRIVATE LIMITED Building 2 (Wh 2) Plot no. 12/P2 (IT Sector) Bengaluru 562149 India",
+    "buyer_gstin": "29AADCV4254H1Z4",
+    "po_issue_date": "2026-03-19 00:00:00",
+    "expiry_date": "2026-04-13 00:00:00",
+    "po_type": "Regular/BAU",
+    "po_creation_status": "COMPLETED",
+    "po_acknowledgement_status": "ACKNOWLEDGEMENT-PENDING",
+    "po_fulfillment_status": "NOT-SET",
+    "created_by": "ops.bhavna.saini",
+    "created_at": "2026-03-21T06:11:40.000000Z",
+    "updated_at": "2026-03-21T06:22:30.000000Z",
+    "is_wip": "NO",
+    "remarks": "",
+    "company_name": "Amazon Etrade",
+    "analytics_object": {
+      "sku_count": 11,
+      "total_demand": 133,
+      "total_before_tax": 44013.3,
+      "total_tax": 5202.79,
+      "total_after_tax": 49216.09,
+      "total_pending": 133,
+      "total_dispatched": 0,
+      "boxes_dispatched": 0,
+      "total_packed": 0,
+      "boxes_packed": 0,
+      "total_consignments": 0,
+      "sku_fill_rate": 0,
+      "quantity_fill_rate": 0
+    },
+    "calculated_po_status": "ACKNOWLEDGEMENT PENDING"
+  }
+]

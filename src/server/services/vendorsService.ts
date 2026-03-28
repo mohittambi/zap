@@ -1,5 +1,12 @@
 // @ts-nocheck
 import { query } from '@/server/db';
+import { AppError } from '@/server/errors';
+
+function str(v, maxLen) {
+  if (v == null || v === '') return '';
+  const s = String(v).trim();
+  return maxLen ? s.slice(0, maxLen) : s;
+}
 
 function mapSpecialty(s) {
   return {
@@ -75,6 +82,59 @@ export async function getVendorById(id) {
   return mapVendorRow(r, specialties);
 }
 
+/**
+ * Create a vendor. If id is omitted, uses max(id)+1 (low-concurrency safe enough for internal use).
+ */
+export async function createVendor(input, actorEmail) {
+  const vendor_name = str(input.vendor_name, 200);
+  if (!vendor_name) {
+    throw new AppError('vendor_name is required', 400);
+  }
+
+  let id =
+    input.id != null && input.id !== ''
+      ? Number(input.id)
+      : null;
+  if (id != null && (Number.isNaN(id) || id < 1 || !Number.isInteger(id))) {
+    throw new AppError('Invalid vendor id', 400);
+  }
+
+  if (id == null) {
+    const maxRes = await query(
+      `SELECT COALESCE(MAX(id), 0)::bigint AS m FROM vendors`
+    );
+    id = Number(maxRes.rows[0].m) + 1;
+  } else {
+    const ex = await query(`SELECT 1 FROM vendors WHERE id = $1`, [id]);
+    if (ex.rows.length > 0) {
+      throw new AppError('Vendor id already exists', 409);
+    }
+  }
+
+  const by = str(actorEmail, 100) || null;
+
+  await query(
+    `INSERT INTO vendors (
+       id, vendor_name, created_by, modified_by, created_at, updated_at,
+       vendor_address_line, vendor_city, vendor_state, vendor_postal_code,
+       vendor_gstin, vendor_contact_number
+     ) VALUES ($1, $2, $3, $3, NOW(), NOW(), $4, $5, $6, $7, $8, $9)`,
+    [
+      id,
+      vendor_name,
+      by,
+      str(input.vendor_address_line),
+      str(input.vendor_city, 100),
+      str(input.vendor_state, 100),
+      str(input.vendor_postal_code, 20),
+      str(input.vendor_gstin, 50),
+      str(input.vendor_contact_number, 50),
+    ]
+  );
+
+  return getVendorById(id);
+}
+
 export async function getVendorsBySku(skuId) {
   const vsResult = await query(
     `SELECT vs.id, vs.vendor_id, vs.sku_id, vs.cost_price, vs.modified_by, vs.created_at, vs.updated_at,
@@ -128,7 +188,55 @@ export async function getVendorsBySku(skuId) {
   }));
 }
 
+/** Build Map sku_id -> display name from eautomate /listings/sku/names cache payload. */
+function buildSkuNameMapFromPayload(payload) {
+  const m = new Map();
+  if (payload == null) return m;
+  let arr = payload;
+  if (!Array.isArray(payload)) {
+    if (typeof payload === 'object') {
+      arr =
+        payload.data ??
+        payload.content ??
+        payload.names ??
+        payload.sku_names ??
+        [];
+    } else {
+      return m;
+    }
+  }
+  if (!Array.isArray(arr)) return m;
+  for (const row of arr) {
+    if (!row || typeof row !== 'object') continue;
+    const sku = String(row.sku_id ?? row.skuId ?? '').trim();
+    if (!sku) continue;
+    const name = String(
+      row.description ??
+        row.name ??
+        row.title ??
+        row.listing_title ??
+        row.product_name ??
+        ''
+    ).trim();
+    if (name) m.set(sku, name);
+  }
+  return m;
+}
+
+async function fetchEautomateSkuNameMap() {
+  try {
+    const r = await query(
+      `SELECT payload FROM eautomate_sku_names_cache WHERE id = 1 LIMIT 1`
+    );
+    if (r.rows.length === 0) return new Map();
+    return buildSkuNameMapFromPayload(r.rows[0].payload);
+  } catch {
+    return new Map();
+  }
+}
+
 export async function getVendorListings(vendorId) {
+  const nameMap = await fetchEautomateSkuNameMap();
   const vsResult = await query(
     `SELECT id, vendor_id, sku_id, cost_price, modified_by, created_at, updated_at
      FROM vendor_sku WHERE vendor_id = $1 ORDER BY id`,
@@ -172,6 +280,10 @@ export async function getVendorListings(vendorId) {
 
   return rows.map((r) => {
     const l = listingsBySku[r.sku_id];
+    const eaName = nameMap.get(r.sku_id) ?? null;
+    const descBase = l?.description ?? '';
+    const description =
+      eaName && String(eaName).trim() ? String(eaName).trim() : descBase;
     const listing = l
       ? {
           id: Number(l.id),
@@ -183,7 +295,8 @@ export async function getVendorListings(vendorId) {
           inventory_bypass_on: l.inventory_bypass_on,
           ops_tag: l.ops_tag,
           category: l.category,
-          description: l.description ?? '',
+          description,
+          eautomate_sku_name: eaName,
           meta_fields: l.meta_fields ?? '',
           img_hd: l.img_hd ?? '',
           img_white: l.img_white ?? '',

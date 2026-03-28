@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { NextResponse } from "next/server";
 import { query } from "@/server/db";
+import { loadUserWithRoles } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
 
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
@@ -58,9 +59,22 @@ export async function POST(request: Request) {
       { expiresIn: JWT_EXPIRY } as jwt.SignOptions
     );
 
+    const full = await loadUserWithRoles(user.id);
+    if (!full) {
+      return NextResponse.json(
+        { error: "User not found" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       token,
-      user: { id: user.id, email: user.email },
+      user: {
+        id: full.id,
+        email: full.email,
+        roles: full.roles,
+        permissions: full.permissions,
+      },
     });
   } catch (err) {
     return handleApiError(err);

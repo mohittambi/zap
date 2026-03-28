@@ -9,6 +9,7 @@ export async function GET(request: Request) {
       id: user.id,
       email: user.email,
       roles: user.roles,
+      permissions: user.permissions,
     });
   } catch (err) {
     return handleApiError(err);

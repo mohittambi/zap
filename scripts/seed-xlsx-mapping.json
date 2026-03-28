@@ -1,0 +1,359 @@
+{
+  "$comment": "Numbers export: row 0 = table title, row 1 = headers, row 2 = help text, row 3+ = data",
+  "headerRowIndex": 1,
+  "dataStartRow": 3,
+  "skipSheets": ["Export Summary"],
+  "insertOrder": [
+    "warehouses",
+    "listings",
+    "vendors",
+    "vendor_specialties",
+    "secondary_listings",
+    "listing_order_details",
+    "bins",
+    "sku_analytics",
+    "pack_combos",
+    "warehouse_inventory_dump",
+    "vendor_sku",
+    "inbound_summary",
+    "incoming_quantity",
+    "forms"
+  ],
+  "tables": {
+    "warehouses": {
+      "sheet": "Warehouse",
+      "sqlTable": "warehouses",
+      "requiredNonNull": ["id", "name"],
+      "columnMap": {
+        "Warehouse ID": "id",
+        "Warehouse Name": "name"
+      },
+      "defaults": {
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "conflict": "id",
+      "updateColumns": ["name", "updated_at"]
+    },
+    "listings": {
+      "sheet": "listing",
+      "sqlTable": "listings",
+      "requiredNonNull": ["sku_id"],
+      "columnMap": {
+        "SKU Code": "sku_id",
+        "Master SKU": "master_sku",
+        "Inventory SKU": "inventory_sku_id",
+        "Pack Combo SKU": "pack_combo_sku_id",
+        "SKU Type (SINGLE/COMBO)": "sku_type",
+        "Inventory Bypass (YES/NO)": "inventory_bypass_on",
+        "Ops Tag": "ops_tag",
+        "Category": "category",
+        "Product Title": "description",
+        "Meta Tags": "meta_fields",
+        "HD Image URL": "img_hd",
+        "White BG URL": "img_white",
+        "Dim Image URL": "img_wdim",
+        "Alt Image 1": "img_link1",
+        "Alt Image 2": "img_link2",
+        "No. of Constituents": "no_of_constituents",
+        "Weight (grams)": "actual_weight",
+        "Dimensions (L x W x H cm)": "dimension",
+        "Bulk Price (INR)": "bulk_price",
+        "Search Keywords": "keyword_pool",
+        "Material": "material_info"
+      },
+      "defaults": {
+        "available_quantity": 0,
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "sku_id",
+      "updateColumns": [
+        "master_sku",
+        "inventory_sku_id",
+        "pack_combo_sku_id",
+        "sku_type",
+        "inventory_bypass_on",
+        "ops_tag",
+        "category",
+        "description",
+        "meta_fields",
+        "img_hd",
+        "img_white",
+        "img_wdim",
+        "img_link1",
+        "img_link2",
+        "no_of_constituents",
+        "actual_weight",
+        "dimension",
+        "bulk_price",
+        "keyword_pool",
+        "material_info",
+        "updated_at"
+      ]
+    },
+    "vendors": {
+      "sheet": "vendors",
+      "sqlTable": "vendors",
+      "requiredNonNull": ["id", "vendor_name"],
+      "columnMap": {
+        "Vendor ID": "id",
+        "Vendor Name": "vendor_name",
+        "Address": "vendor_address_line",
+        "City": "vendor_city",
+        "State": "vendor_state",
+        "PIN Code": "vendor_postal_code",
+        "GSTIN": "vendor_gstin",
+        "Contact Number": "vendor_contact_number"
+      },
+      "defaults": {
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "conflict": "id",
+      "updateColumns": [
+        "vendor_name",
+        "vendor_address_line",
+        "vendor_city",
+        "vendor_state",
+        "vendor_postal_code",
+        "vendor_gstin",
+        "vendor_contact_number",
+        "updated_at"
+      ]
+    },
+    "vendor_specialties": {
+      "sheet": "vendor_specialities",
+      "sqlTable": "vendor_specialties",
+      "requiredNonNull": ["vendor_id", "vendor_speciality"],
+      "columnMap": {
+        "Vendor ID": "vendor_id",
+        "Specialty / Product Category": "vendor_speciality"
+      },
+      "defaults": {
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "id",
+      "updateColumns": ["vendor_speciality", "updated_at"]
+    },
+    "secondary_listings": {
+      "sheet": "secondary_listings",
+      "sqlTable": "secondary_listings",
+      "requiredNonNull": ["secondary_sku"],
+      "columnMap": {
+        "Channel SKU": "secondary_sku",
+        "Master SKU": "master_sku",
+        "Inventory SKU": "inventory_sku_id",
+        "Pack Combo SKU": "pack_combo_sku_id",
+        "SKU Type": "sku_type",
+        "Bypass Status": "inventory_bypass_status",
+        "Platform Stock": "ais_quantity",
+        "Warehouse Stock": "available_quantity"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "id",
+      "updateColumns": [
+        "master_sku",
+        "inventory_sku_id",
+        "pack_combo_sku_id",
+        "sku_type",
+        "inventory_bypass_status",
+        "ais_quantity",
+        "available_quantity"
+      ]
+    },
+    "listing_order_details": {
+      "sheet": "listing_order_details",
+      "sqlTable": "listing_order_details",
+      "requiredNonNull": ["po_secondary_sku"],
+      "columnMap": {
+        "PO Number": "po_number",
+        "SKU Code": "po_secondary_sku",
+        "Master SKU": "master_sku",
+        "SKU Type": "sku_type",
+        "Company Code": "company_code_primary",
+        "Ordered Quantity": "demand",
+        "HSN Code": "hsn_code",
+        "Product Name": "title"
+      },
+      "defaults": {
+        "dispatched_quantity": 0,
+        "packed_quantity": 0,
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "id",
+      "updateColumns": [
+        "po_number",
+        "master_sku",
+        "sku_type",
+        "company_code_primary",
+        "demand",
+        "hsn_code",
+        "title",
+        "updated_at"
+      ]
+    },
+    "bins": {
+      "sheet": "bin",
+      "sqlTable": "bins",
+      "requiredNonNull": ["warehouse_id", "sku_id", "bin_id"],
+      "columnMap": {
+        "Warehouse ID": "warehouse_id",
+        "SKU Code": "sku_id",
+        "Bin Location Code": "bin_id",
+        "Available Quantity": "available_quantity"
+      },
+      "defaults": {
+        "is_deleted": false,
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "warehouse_id,sku_id,bin_id",
+      "updateColumns": ["available_quantity", "is_deleted", "updated_at"]
+    },
+    "sku_analytics": {
+      "sheet": "sku_analytics",
+      "sqlTable": "sku_analytics",
+      "requiredNonNull": ["sku_id"],
+      "columnMap": {
+        "SKU Code": "sku_id",
+        "Inward Qty (30 days)": "inward_30d",
+        "Inward Qty (60 days)": "inward_60d",
+        "Inward Qty (90 days)": "inward_90d",
+        "Outward Qty (30 days)": "outward_30d",
+        "Outward Qty (60 days)": "outward_60d",
+        "Outward Qty (90 days)": "outward_90d"
+      },
+      "defaults": {
+        "fetched_at": "NOW()"
+      },
+      "conflict": null,
+      "deleteBeforeInsert": true
+    },
+    "pack_combos": {
+      "sheet": "pack_combos",
+      "sqlTable": "pack_combos",
+      "requiredNonNull": ["parent_sku_id", "component_sku_id"],
+      "columnMap": {
+        "Bundle SKU (Parent)": "parent_sku_id",
+        "Component SKU": "component_sku_id",
+        "Component Quantity": "quantity"
+      },
+      "defaults": {
+        "created_at": "NOW()"
+      },
+      "conflict": null,
+      "deleteBeforeInsert": true
+    },
+    "warehouse_inventory_dump": {
+      "sheet": "warehouse_inventory_dump",
+      "sqlTable": "warehouse_inventory_dump",
+      "requiredNonNull": ["warehouse_id", "sku_id", "inventory_operation_type", "quantity"],
+      "columnMap": {
+        "Warehouse ID": "warehouse_id",
+        "SKU Code": "sku_id",
+        "Operation (ADD/REMOVE)": "inventory_operation_type",
+        "Quantity": "quantity",
+        "Bin Location": "bin_id",
+        "Staff Username": "user_id",
+        "Date": "created_at"
+      },
+      "defaults": {
+        "updated_at": "NOW()"
+      },
+      "conflict": null,
+      "deleteBeforeInsert": true
+    },
+    "vendor_sku": {
+      "sheet": "vendor_sku",
+      "sqlTable": "vendor_sku",
+      "requiredNonNull": ["vendor_id", "sku_id"],
+      "columnMap": {
+        "Vendor ID": "vendor_id",
+        "SKU Code": "sku_id",
+        "Cost Price (INR)": "cost_price",
+        "Last Modified By": "modified_by"
+      },
+      "defaults": {
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "idColumn": "id",
+      "idStrategy": "row_sequence",
+      "conflict": "vendor_id,sku_id",
+      "updateColumns": ["cost_price", "modified_by", "updated_at"]
+    },
+    "inbound_summary": {
+      "sheet": "inbound_summary",
+      "sqlTable": "inbound_summary",
+      "requiredNonNull": ["sku_id"],
+      "columnMap": {
+        "SKU Code": "sku_id",
+        "Summary Date": "summary_date",
+        "Expected Quantity": "quantity",
+        "Source": "source",
+        "Last Synced On": "fetched_at"
+      },
+      "defaults": {
+        "raw_data": null
+      },
+      "conflict": null,
+      "deleteBeforeInsert": true
+    },
+    "incoming_quantity": {
+      "sheet": "inbound_quantity",
+      "sqlTable": "incoming_quantity",
+      "requiredNonNull": ["sku_id"],
+      "columnMap": {
+        "SKU Code": "sku_id",
+        "Expected Quantity": "quantity",
+        "Expected Delivery Date": "expected_date",
+        "Source": "source",
+        "Last Synced On": "fetched_at"
+      },
+      "defaults": {
+        "raw_data": null
+      },
+      "conflict": null,
+      "deleteBeforeInsert": true
+    },
+    "forms": {
+      "sheet": "forms",
+      "sqlTable": "forms",
+      "requiredNonNull": ["category", "sub_category", "form_name", "form_payload"],
+      "columnMap": {
+        "Category": "category",
+        "Sub Category": "sub_category",
+        "Form Name": "form_name",
+        "Form Fields (JSON)": "form_payload",
+        "Created By": "created_by",
+        "Is Active (YES/NO)": "is_active",
+        "Version": "version"
+      },
+      "defaults": {
+        "created_at": "NOW()",
+        "updated_at": "NOW()"
+      },
+      "conflict": "category,sub_category",
+      "updateColumns": [
+        "form_name",
+        "form_payload",
+        "created_by",
+        "is_active",
+        "version",
+        "updated_at"
+      ]
+    }
+  }
+}
