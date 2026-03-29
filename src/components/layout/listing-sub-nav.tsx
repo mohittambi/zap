@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { href: "/listings/warehouse", label: "Warehouse Listings" },
   { href: "/listings/secondary", label: "Secondary Listings" },
-  { href: "/listings/packs-combos", label: "Packs And Combos" },
+  { href: "/listings/packs-combos", label: "Packs & Combos" },
   { href: "/listings/bulk", label: "Bulk Operations" },
   { href: "/listings/company-sku", label: "Secondary Company SKU Relation" },
   { href: "/listings/labels-master", label: "Labels Master Data" },

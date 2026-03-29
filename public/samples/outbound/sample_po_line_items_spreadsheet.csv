@@ -1,0 +1,3 @@
+line_no,sku_id,product_description,qty_ordered,unit_mrp_inr,remarks
+1,EXAMPLE-SKU-001,Sample product line for PO spreadsheet attachment,10,499.00,Replace with real PO lines
+2,EXAMPLE-SKU-002,Second line item,5,899.00,

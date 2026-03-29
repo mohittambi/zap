@@ -3,6 +3,8 @@ import { query } from "@/server/db";
 
 function csvEscape(v) {
   if (v == null) return "";
+  if (v instanceof Date) return csvEscape(v.toISOString());
+  if (typeof v === "object") return csvEscape(JSON.stringify(v));
   const s = String(v);
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
@@ -18,11 +20,13 @@ function rowsToCsv(headers, rows) {
 
 export async function exportSecondaryListingsCsv() {
   const r = await query(
-    `SELECT secondary_sku, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
-            inventory_bypass_status, ais_quantity, available_quantity
+    `SELECT id, secondary_sku, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+            inventory_bypass_status, ais_quantity, available_quantity,
+            company_details, labels_data, sku_wise_details_raw, synced_at
      FROM secondary_listings ORDER BY id`
   );
   const headers = [
+    "id",
     "secondary_sku",
     "master_sku",
     "inventory_sku_id",
@@ -31,6 +35,10 @@ export async function exportSecondaryListingsCsv() {
     "inventory_bypass_status",
     "ais_quantity",
     "available_quantity",
+    "company_details",
+    "labels_data",
+    "sku_wise_details_raw",
+    "synced_at",
   ];
   return rowsToCsv(
     headers,
@@ -40,9 +48,9 @@ export async function exportSecondaryListingsCsv() {
 
 export async function exportPacksCombosCsv() {
   const r = await query(
-    `SELECT parent_sku_id, component_sku_id, quantity FROM pack_combos ORDER BY parent_sku_id, id`
+    `SELECT id, parent_sku_id, component_sku_id, quantity FROM pack_combos ORDER BY parent_sku_id, id`
   );
-  const headers = ["parent_sku_id", "component_sku_id", "quantity"];
+  const headers = ["id", "parent_sku_id", "component_sku_id", "quantity"];
   return rowsToCsv(
     headers,
     r.rows.map((x) => headers.map((h) => x[h]))
@@ -51,13 +59,15 @@ export async function exportPacksCombosCsv() {
 
 export async function exportAisListingsCsv() {
   const r = await query(
-    `SELECT secondary_sku, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
-            inventory_bypass_status, ais_quantity, available_quantity
+    `SELECT id, secondary_sku, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+            inventory_bypass_status, ais_quantity, available_quantity,
+            company_details, labels_data, synced_at
      FROM secondary_listings
      WHERE ais_quantity IS NOT NULL AND ais_quantity > 0
      ORDER BY id`
   );
   const headers = [
+    "id",
     "secondary_sku",
     "master_sku",
     "inventory_sku_id",
@@ -66,6 +76,9 @@ export async function exportAisListingsCsv() {
     "inventory_bypass_status",
     "ais_quantity",
     "available_quantity",
+    "company_details",
+    "labels_data",
+    "synced_at",
   ];
   return rowsToCsv(
     headers,
@@ -75,20 +88,40 @@ export async function exportAisListingsCsv() {
 
 export async function exportMasterSkuCsv() {
   const r = await query(
-    `SELECT sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type, category, description,
-            available_quantity, bulk_price
+    `SELECT id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+            inventory_bypass_on, ops_tag, category, description, meta_fields,
+            img_hd, img_white, img_wdim, img_link1, img_link2,
+            no_of_constituents, actual_weight, dimension, bulk_price, keyword_pool, material_info,
+            available_quantity, raw_created_at, raw_updated_at, eautomate_bins
      FROM listings ORDER BY sku_id`
   );
   const headers = [
+    "id",
     "sku_id",
     "master_sku",
     "inventory_sku_id",
     "pack_combo_sku_id",
     "sku_type",
+    "inventory_bypass_on",
+    "ops_tag",
     "category",
     "description",
-    "available_quantity",
+    "meta_fields",
+    "img_hd",
+    "img_white",
+    "img_wdim",
+    "img_link1",
+    "img_link2",
+    "no_of_constituents",
+    "actual_weight",
+    "dimension",
     "bulk_price",
+    "keyword_pool",
+    "material_info",
+    "available_quantity",
+    "raw_created_at",
+    "raw_updated_at",
+    "eautomate_bins",
   ];
   return rowsToCsv(
     headers,

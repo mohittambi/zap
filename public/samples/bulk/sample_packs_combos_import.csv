@@ -1,0 +1,4 @@
+parent_sku_id,component_sku_id,quantity
+PACK-COMBO-001,COMPONENT-A,1
+PACK-COMBO-001,COMPONENT-B,1
+PACK-COMBO-002,PART-X,2

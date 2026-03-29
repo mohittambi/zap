@@ -23,6 +23,7 @@ export type OutboundPoRow = {
   company_name: string | null;
   analytics_object: Record<string, unknown>;
   calculated_po_status: string | null;
+  eautomate_synced_at: string | null;
 };
 
 function rowToApi(r: Record<string, unknown>): OutboundPoRow {
@@ -53,6 +54,9 @@ function rowToApi(r: Record<string, unknown>): OutboundPoRow {
         ? (ao as Record<string, unknown>)
         : {},
     calculated_po_status: r.calculated_po_status as string | null,
+    eautomate_synced_at: r.eautomate_synced_at
+      ? new Date(r.eautomate_synced_at as string).toISOString()
+      : null,
   };
 }
 
@@ -61,8 +65,9 @@ export async function listOutboundPurchaseOrders(opts: {
   limit: number;
   search?: string;
   wipOnly?: boolean;
+  partialOnly?: boolean;
 }) {
-  const { page, limit, search, wipOnly } = opts;
+  const { page, limit, search, wipOnly, partialOnly } = opts;
   const offset = (page - 1) * limit;
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -74,11 +79,19 @@ export async function listOutboundPurchaseOrders(opts: {
     p += 1;
   }
 
+  if (partialOnly) {
+    conditions.push(`UPPER(TRIM(COALESCE(po_creation_status, ''))) = 'PARTIAL'`);
+  }
+
   if (search && search.trim()) {
     const q = `%${search.trim().toLowerCase()}%`;
-    conditions.push(
-      `(LOWER(po_number) LIKE $${p} OR LOWER(COALESCE(company_name,'')) LIKE $${p} OR LOWER(COALESCE(delivery_city,'')) LIKE $${p})`
-    );
+    if (partialOnly) {
+      conditions.push(`LOWER(po_number) LIKE $${p}`);
+    } else {
+      conditions.push(
+        `(LOWER(po_number) LIKE $${p} OR LOWER(COALESCE(company_name,'')) LIKE $${p} OR LOWER(COALESCE(delivery_city,'')) LIKE $${p})`
+      );
+    }
     params.push(q);
     p += 1;
   }
@@ -95,7 +108,7 @@ export async function listOutboundPurchaseOrders(opts: {
     `SELECT id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
             buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
             po_acknowledgement_status, po_fulfillment_status, created_by, created_at, updated_at,
-            is_wip, remarks, company_name, analytics_object, calculated_po_status
+            is_wip, remarks, company_name, analytics_object, calculated_po_status, eautomate_synced_at
      FROM outbound_purchase_orders
      ${where}
      ORDER BY created_at DESC NULLS LAST, id DESC
@@ -112,4 +125,685 @@ export async function listOutboundPurchaseOrders(opts: {
     curr_page_count: content.length,
     content,
   };
+}
+
+export type OutboundSoldViaOption = { code: string; label: string };
+
+export type OutboundCompanyOption = {
+  id: number;
+  name: string | null;
+  description: string | null;
+};
+
+export async function listOutboundSoldViaOptions(): Promise<OutboundSoldViaOption[]> {
+  const r = await query(
+    `SELECT code, label FROM outbound_sold_via ORDER BY id ASC`
+  );
+  return r.rows.map((row) => ({
+    code: String(row.code),
+    label: String(row.label),
+  }));
+}
+
+function companyDescriptionFromAttributes(
+  attributes: unknown
+): string | null {
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
+    return null;
+  }
+  const d = (attributes as Record<string, unknown>).description;
+  if (d == null || d === "") return null;
+  return String(d);
+}
+
+export async function listOutboundCompaniesForForm(): Promise<OutboundCompanyOption[]> {
+  const r = await query(
+    `SELECT id, name, attributes
+     FROM companies
+     WHERE COALESCE(is_active, 1) = 1
+     ORDER BY name NULLS LAST, id`
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name != null ? String(row.name) : null,
+    description: companyDescriptionFromAttributes(row.attributes),
+  }));
+}
+
+export async function createOutboundPurchaseOrderRow(input: {
+  sold_via: string;
+  company_id: number;
+  delivery_city: string;
+  delivery_address: string;
+  billing_address: string;
+  buyer_gstin: string | null;
+  po_issue_date: Date;
+  expiry_date: Date;
+  po_type: string;
+  company_name: string | null;
+  created_by: string | null;
+}): Promise<{ id: number; po_number: string }> {
+  const idR = await query(
+    `SELECT COALESCE(MAX(id), 0)::bigint AS m FROM outbound_purchase_orders`
+  );
+  const nextId = BigInt(String(idR.rows[0].m)) + BigInt(1);
+  const po_number = `ZAP-PO-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+
+  await query(
+    `INSERT INTO outbound_purchase_orders (
+       id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+       buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
+       created_by, created_at, updated_at, is_wip, company_name, analytics_object
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), $14, $15, '{}'::jsonb
+     )`,
+    [
+      nextId.toString(),
+      input.sold_via,
+      input.company_id,
+      po_number,
+      input.delivery_city,
+      input.delivery_address,
+      input.billing_address,
+      input.buyer_gstin,
+      input.po_issue_date,
+      input.expiry_date,
+      input.po_type,
+      "SUBMITTED",
+      input.created_by,
+      "YES",
+      input.company_name,
+    ]
+  );
+
+  return { id: Number(nextId), po_number };
+}
+
+export async function insertOutboundPoAttachment(input: {
+  outbound_po_id: number;
+  original_filename: string;
+  content_type: string | null;
+  size_bytes: number;
+  stored_path: string;
+  kind: string;
+}): Promise<void> {
+  await query(
+    `INSERT INTO outbound_po_attachments (
+       outbound_po_id, original_filename, content_type, size_bytes, stored_path, kind
+     ) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      input.outbound_po_id,
+      input.original_filename.slice(0, 500),
+      input.content_type,
+      input.size_bytes,
+      input.stored_path,
+      input.kind,
+    ]
+  );
+}
+
+export async function deleteOutboundPurchaseOrderById(id: number): Promise<void> {
+  await query(`DELETE FROM outbound_purchase_orders WHERE id = $1`, [id]);
+}
+
+export async function getOutboundPurchaseOrderById(
+  id: number
+): Promise<OutboundPoRow | null> {
+  if (!Number.isFinite(id) || id < 1) return null;
+  const r = await query(
+    `SELECT id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+            buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
+            po_acknowledgement_status, po_fulfillment_status, created_by, created_at, updated_at,
+            is_wip, remarks, company_name, analytics_object, calculated_po_status, eautomate_synced_at
+     FROM outbound_purchase_orders WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  if (r.rows.length === 0) return null;
+  return rowToApi(r.rows[0] as Record<string, unknown>);
+}
+
+export type OutboundPoEautomateFileRow = {
+  eautomate_file_id: number;
+  file_name: string;
+  file_uploaded_by: string | null;
+  created_at: string | null;
+  file_type: string | null;
+};
+
+export async function listOutboundPoEautomateFiles(
+  outboundPoId: number
+): Promise<OutboundPoEautomateFileRow[]> {
+  const r = await query(
+    `SELECT eautomate_file_id, file_name, file_uploaded_by, created_at, file_type
+     FROM outbound_po_eautomate_files
+     WHERE outbound_po_id = $1
+     ORDER BY eautomate_file_id ASC`,
+    [outboundPoId]
+  );
+  return r.rows.map((row) => ({
+    eautomate_file_id: Number(row.eautomate_file_id),
+    file_name: String(row.file_name),
+    file_uploaded_by:
+      row.file_uploaded_by != null ? String(row.file_uploaded_by) : null,
+    created_at: row.created_at
+      ? new Date(row.created_at as string).toISOString()
+      : null,
+    file_type: row.file_type != null ? String(row.file_type) : null,
+  }));
+}
+
+export type OutboundPoZapAttachmentRow = {
+  id: number;
+  original_filename: string;
+  content_type: string | null;
+  size_bytes: number;
+  kind: string;
+  created_at: string | null;
+};
+
+export async function listOutboundPoZapAttachments(
+  outboundPoId: number
+): Promise<OutboundPoZapAttachmentRow[]> {
+  const r = await query(
+    `SELECT id, original_filename, content_type, size_bytes, kind, created_at
+     FROM outbound_po_attachments
+     WHERE outbound_po_id = $1
+     ORDER BY id ASC`,
+    [outboundPoId]
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    original_filename: String(row.original_filename),
+    content_type: row.content_type != null ? String(row.content_type) : null,
+    size_bytes: Number(row.size_bytes),
+    kind: String(row.kind ?? "other"),
+    created_at: row.created_at
+      ? new Date(row.created_at as string).toISOString()
+      : null,
+  }));
+}
+
+/** Delete only when po_creation_status is PARTIAL (eCraft partial PO). */
+export async function deleteOutboundPartialPurchaseOrderById(
+  id: number
+): Promise<{ deleted: boolean }> {
+  const r = await query(
+    `DELETE FROM outbound_purchase_orders
+     WHERE id = $1 AND UPPER(TRIM(COALESCE(po_creation_status, ''))) = 'PARTIAL'
+     RETURNING id`,
+    [id]
+  );
+  return { deleted: (r.rowCount ?? 0) > 0 };
+}
+
+export async function replaceOutboundPoEautomateFiles(
+  outboundPoId: number,
+  poNumber: string,
+  rows: unknown[]
+): Promise<void> {
+  await query(`DELETE FROM outbound_po_eautomate_files WHERE outbound_po_id = $1`, [
+    outboundPoId,
+  ]);
+  const pn = poNumber.slice(0, 80);
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const fid = Number(r.id);
+    if (!Number.isFinite(fid) || fid < 1) continue;
+    const consignment_id =
+      r.consignment_id != null && r.consignment_id !== ""
+        ? Math.trunc(Number(r.consignment_id))
+        : null;
+    const invoice_id =
+      r.invoice_id != null && r.invoice_id !== ""
+        ? Math.trunc(Number(r.invoice_id))
+        : null;
+    const appointment_id =
+      r.appointment_id != null && r.appointment_id !== ""
+        ? Math.trunc(Number(r.appointment_id))
+        : null;
+    const file_type =
+      r.file_type != null ? String(r.file_type).slice(0, 80) : null;
+    const file_name =
+      r.file_name != null ? String(r.file_name).slice(0, 500) : `file-${fid}`;
+    const saved_file_name =
+      r.saved_file_name != null ? String(r.saved_file_name).slice(0, 500) : null;
+    const file_path = r.file_path != null ? String(r.file_path) : null;
+    const file_uploaded_by =
+      r.file_uploaded_by != null ? String(r.file_uploaded_by).slice(0, 120) : null;
+    const created_at = parseEautomateTimestamp(r.created_at);
+    const updated_at = parseEautomateTimestamp(r.updated_at);
+    await query(
+      `INSERT INTO outbound_po_eautomate_files (
+        eautomate_file_id, outbound_po_id, po_number, consignment_id, invoice_id, appointment_id,
+        file_type, file_name, saved_file_name, file_path, file_uploaded_by, created_at, updated_at, raw
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb)`,
+      [
+        fid,
+        outboundPoId,
+        pn,
+        consignment_id,
+        invoice_id,
+        appointment_id,
+        file_type,
+        file_name,
+        saved_file_name,
+        file_path,
+        file_uploaded_by,
+        created_at,
+        updated_at,
+        JSON.stringify(row),
+      ]
+    );
+  }
+}
+
+/** Parse eAutomate "YYYY-MM-DD HH:mm:ss" or ISO timestamps into a Date for TIMESTAMPTZ. */
+function parseEautomateTimestamp(v: unknown): Date | null {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  const m = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}):(\d{2}))?/
+  );
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const hh = m[4] != null ? Number(m[4]) : 0;
+    const mi = m[5] != null ? Number(m[5]) : 0;
+    const ss = m[6] != null ? Number(m[6]) : 0;
+    return new Date(Date.UTC(y, mo - 1, d, hh, mi, ss));
+  }
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+/**
+ * Upsert one row from GET /public/api/incoming_purchase_orders/partial.
+ * Uses eAutomate `id` as primary key. Preserves analytics_object and calculated_po_status on update.
+ * On unique po_number conflict (different existing id), updates by po_number and keeps DB id.
+ */
+export async function upsertOutboundPoFromEautomatePartial(
+  raw: Record<string, unknown>
+): Promise<void> {
+  const id = Number(raw.id);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new Error("eAutomate partial PO row missing positive numeric id");
+  }
+  const po_number = String(raw.po_number ?? "")
+    .trim()
+    .slice(0, 80);
+  if (!po_number) throw new Error("eAutomate partial PO row missing po_number");
+
+  const sold_via =
+    raw.sold_via != null && String(raw.sold_via).trim() !== ""
+      ? String(raw.sold_via).slice(0, 80)
+      : null;
+  let company_id =
+    raw.company_id != null &&
+    raw.company_id !== "" &&
+    Number.isFinite(Number(raw.company_id))
+      ? Math.trunc(Number(raw.company_id))
+      : null;
+  if (company_id != null) {
+    const chk = await query(`SELECT 1 AS ok FROM companies WHERE id = $1 LIMIT 1`, [
+      company_id,
+    ]);
+    if (chk.rows.length === 0) company_id = null;
+  }
+  const delivery_city =
+    raw.delivery_city != null ? String(raw.delivery_city).slice(0, 120) : null;
+  const delivery_address =
+    raw.delivery_address != null ? String(raw.delivery_address) : null;
+  const billing_address =
+    raw.billing_address != null ? String(raw.billing_address) : null;
+  const buyer_gstin =
+    raw.buyer_gstin != null ? String(raw.buyer_gstin).slice(0, 32) : null;
+  const po_issue_date = parseEautomateTimestamp(raw.po_issue_date);
+  const expiry_date = parseEautomateTimestamp(raw.expiry_date);
+  let po_type =
+    raw.po_type != null && String(raw.po_type).trim() !== ""
+      ? String(raw.po_type).slice(0, 80)
+      : null;
+  if (po_type) po_type = po_type.replace(/\\\//g, "/");
+  const po_creation_status =
+    raw.po_creation_status != null
+      ? String(raw.po_creation_status).slice(0, 80)
+      : null;
+  const po_acknowledgement_status =
+    raw.po_acknowledgement_status != null
+      ? String(raw.po_acknowledgement_status).slice(0, 80)
+      : null;
+  const po_fulfillment_status =
+    raw.po_fulfillment_status != null
+      ? String(raw.po_fulfillment_status).slice(0, 80)
+      : null;
+  const created_by =
+    raw.created_by != null ? String(raw.created_by).slice(0, 120) : null;
+  const created_at = parseEautomateTimestamp(raw.created_at);
+  const updated_at = parseEautomateTimestamp(raw.updated_at);
+  const is_wip =
+    raw.is_wip != null ? String(raw.is_wip).slice(0, 10) : null;
+  const remarks = raw.remarks != null ? String(raw.remarks) : null;
+  const company_name =
+    raw.company_name != null ? String(raw.company_name).slice(0, 220) : null;
+
+  const eautomate_raw = JSON.stringify(raw ?? {});
+
+  const paramsInsert: unknown[] = [
+    id,
+    sold_via,
+    company_id,
+    po_number,
+    delivery_city,
+    delivery_address,
+    billing_address,
+    buyer_gstin,
+    po_issue_date,
+    expiry_date,
+    po_type,
+    po_creation_status,
+    po_acknowledgement_status,
+    po_fulfillment_status,
+    created_by,
+    created_at,
+    updated_at,
+    is_wip,
+    remarks,
+    company_name,
+    eautomate_raw,
+  ];
+
+  const insertSql = `
+INSERT INTO outbound_purchase_orders (
+  id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+  buyer_gstin, po_issue_date, expiry_date, po_type,
+  po_creation_status, po_acknowledgement_status, po_fulfillment_status,
+  created_by, created_at, updated_at, is_wip, remarks, company_name,
+  analytics_object, calculated_po_status, eautomate_raw, eautomate_synced_at
+) VALUES (
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20, '{}'::jsonb, NULL, $21::jsonb, NOW()
+)
+ON CONFLICT (id) DO UPDATE SET
+  sold_via = EXCLUDED.sold_via,
+  company_id = EXCLUDED.company_id,
+  po_number = EXCLUDED.po_number,
+  delivery_city = EXCLUDED.delivery_city,
+  delivery_address = EXCLUDED.delivery_address,
+  billing_address = EXCLUDED.billing_address,
+  buyer_gstin = EXCLUDED.buyer_gstin,
+  po_issue_date = EXCLUDED.po_issue_date,
+  expiry_date = EXCLUDED.expiry_date,
+  po_type = EXCLUDED.po_type,
+  po_creation_status = EXCLUDED.po_creation_status,
+  po_acknowledgement_status = EXCLUDED.po_acknowledgement_status,
+  po_fulfillment_status = EXCLUDED.po_fulfillment_status,
+  created_by = EXCLUDED.created_by,
+  created_at = EXCLUDED.created_at,
+  updated_at = EXCLUDED.updated_at,
+  is_wip = EXCLUDED.is_wip,
+  remarks = EXCLUDED.remarks,
+  company_name = EXCLUDED.company_name,
+  analytics_object = outbound_purchase_orders.analytics_object,
+  calculated_po_status = outbound_purchase_orders.calculated_po_status,
+  eautomate_raw = EXCLUDED.eautomate_raw,
+  eautomate_synced_at = EXCLUDED.eautomate_synced_at`;
+
+  try {
+    await query(insertSql, paramsInsert);
+  } catch (e: unknown) {
+    const err = e as { code?: string; constraint?: string };
+    if (err.code === "23505" && String(err.constraint || "").includes("po_number")) {
+      const updateSql = `
+UPDATE outbound_purchase_orders SET
+  sold_via = $2,
+  company_id = $3,
+  delivery_city = $4,
+  delivery_address = $5,
+  billing_address = $6,
+  buyer_gstin = $7,
+  po_issue_date = $8,
+  expiry_date = $9,
+  po_type = $10,
+  po_creation_status = $11,
+  po_acknowledgement_status = $12,
+  po_fulfillment_status = $13,
+  created_by = $14,
+  created_at = $15,
+  updated_at = $16,
+  is_wip = $17,
+  remarks = $18,
+  company_name = $19,
+  eautomate_raw = $20::jsonb,
+  eautomate_synced_at = NOW()
+WHERE po_number = $1`;
+      await query(updateSql, [
+        po_number,
+        sold_via,
+        company_id,
+        delivery_city,
+        delivery_address,
+        billing_address,
+        buyer_gstin,
+        po_issue_date,
+        expiry_date,
+        po_type,
+        po_creation_status,
+        po_acknowledgement_status,
+        po_fulfillment_status,
+        created_by,
+        created_at,
+        updated_at,
+        is_wip,
+        remarks,
+        company_name,
+        eautomate_raw,
+      ]);
+      return;
+    }
+    throw e;
+  }
+}
+
+/**
+ * Upsert from GET /public/api/incoming_purchase_orders/{po_number} (full detail).
+ * Overwrites analytics_object and calculated_po_status from eAutomate.
+ */
+export async function upsertOutboundPoFromEautomateDetail(
+  raw: Record<string, unknown>
+): Promise<void> {
+  const id = Number(raw.id);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new Error("eAutomate PO detail missing positive numeric id");
+  }
+  const po_number = String(raw.po_number ?? "")
+    .trim()
+    .slice(0, 80);
+  if (!po_number) throw new Error("eAutomate PO detail missing po_number");
+
+  const sold_via =
+    raw.sold_via != null && String(raw.sold_via).trim() !== ""
+      ? String(raw.sold_via).slice(0, 80)
+      : null;
+  let company_id =
+    raw.company_id != null &&
+    raw.company_id !== "" &&
+    Number.isFinite(Number(raw.company_id))
+      ? Math.trunc(Number(raw.company_id))
+      : null;
+  if (company_id != null) {
+    const chk = await query(`SELECT 1 AS ok FROM companies WHERE id = $1 LIMIT 1`, [
+      company_id,
+    ]);
+    if (chk.rows.length === 0) company_id = null;
+  }
+  const delivery_city =
+    raw.delivery_city != null ? String(raw.delivery_city).slice(0, 120) : null;
+  const delivery_address =
+    raw.delivery_address != null ? String(raw.delivery_address) : null;
+  const billing_address =
+    raw.billing_address != null ? String(raw.billing_address) : null;
+  const buyer_gstin =
+    raw.buyer_gstin != null ? String(raw.buyer_gstin).slice(0, 32) : null;
+  const po_issue_date = parseEautomateTimestamp(raw.po_issue_date);
+  const expiry_date = parseEautomateTimestamp(raw.expiry_date);
+  let po_type =
+    raw.po_type != null && String(raw.po_type).trim() !== ""
+      ? String(raw.po_type).slice(0, 80)
+      : null;
+  if (po_type) po_type = po_type.replace(/\\\//g, "/");
+  const po_creation_status =
+    raw.po_creation_status != null
+      ? String(raw.po_creation_status).slice(0, 80)
+      : null;
+  const po_acknowledgement_status =
+    raw.po_acknowledgement_status != null
+      ? String(raw.po_acknowledgement_status).slice(0, 80)
+      : null;
+  const po_fulfillment_status =
+    raw.po_fulfillment_status != null
+      ? String(raw.po_fulfillment_status).slice(0, 80)
+      : null;
+  const created_by =
+    raw.created_by != null ? String(raw.created_by).slice(0, 120) : null;
+  const created_at = parseEautomateTimestamp(raw.created_at);
+  const updated_at = parseEautomateTimestamp(raw.updated_at);
+  const is_wip =
+    raw.is_wip != null ? String(raw.is_wip).slice(0, 10) : null;
+  const remarks = raw.remarks != null ? String(raw.remarks) : null;
+  const company_name =
+    raw.company_name != null ? String(raw.company_name).slice(0, 220) : null;
+
+  const ao = raw.analytics_object;
+  const analyticsJson =
+    ao && typeof ao === "object" && !Array.isArray(ao)
+      ? JSON.stringify(ao)
+      : "{}";
+  const calculated_po_status =
+    raw.calculated_po_status != null
+      ? String(raw.calculated_po_status).slice(0, 120)
+      : null;
+
+  const eautomate_raw = JSON.stringify(raw ?? {});
+
+  const paramsInsert: unknown[] = [
+    id,
+    sold_via,
+    company_id,
+    po_number,
+    delivery_city,
+    delivery_address,
+    billing_address,
+    buyer_gstin,
+    po_issue_date,
+    expiry_date,
+    po_type,
+    po_creation_status,
+    po_acknowledgement_status,
+    po_fulfillment_status,
+    created_by,
+    created_at,
+    updated_at,
+    is_wip,
+    remarks,
+    company_name,
+    analyticsJson,
+    calculated_po_status,
+    eautomate_raw,
+  ];
+
+  const insertSql = `
+INSERT INTO outbound_purchase_orders (
+  id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+  buyer_gstin, po_issue_date, expiry_date, po_type,
+  po_creation_status, po_acknowledgement_status, po_fulfillment_status,
+  created_by, created_at, updated_at, is_wip, remarks, company_name,
+  analytics_object, calculated_po_status, eautomate_raw, eautomate_synced_at
+) VALUES (
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+  $21::jsonb, $22, $23::jsonb, NOW()
+)
+ON CONFLICT (id) DO UPDATE SET
+  sold_via = EXCLUDED.sold_via,
+  company_id = EXCLUDED.company_id,
+  po_number = EXCLUDED.po_number,
+  delivery_city = EXCLUDED.delivery_city,
+  delivery_address = EXCLUDED.delivery_address,
+  billing_address = EXCLUDED.billing_address,
+  buyer_gstin = EXCLUDED.buyer_gstin,
+  po_issue_date = EXCLUDED.po_issue_date,
+  expiry_date = EXCLUDED.expiry_date,
+  po_type = EXCLUDED.po_type,
+  po_creation_status = EXCLUDED.po_creation_status,
+  po_acknowledgement_status = EXCLUDED.po_acknowledgement_status,
+  po_fulfillment_status = EXCLUDED.po_fulfillment_status,
+  created_by = EXCLUDED.created_by,
+  created_at = EXCLUDED.created_at,
+  updated_at = EXCLUDED.updated_at,
+  is_wip = EXCLUDED.is_wip,
+  remarks = EXCLUDED.remarks,
+  company_name = EXCLUDED.company_name,
+  analytics_object = EXCLUDED.analytics_object,
+  calculated_po_status = EXCLUDED.calculated_po_status,
+  eautomate_raw = EXCLUDED.eautomate_raw,
+  eautomate_synced_at = EXCLUDED.eautomate_synced_at`;
+
+  try {
+    await query(insertSql, paramsInsert);
+  } catch (e: unknown) {
+    const err = e as { code?: string; constraint?: string };
+    if (err.code === "23505" && String(err.constraint || "").includes("po_number")) {
+      const updateSql = `
+UPDATE outbound_purchase_orders SET
+  sold_via = $2,
+  company_id = $3,
+  delivery_city = $4,
+  delivery_address = $5,
+  billing_address = $6,
+  buyer_gstin = $7,
+  po_issue_date = $8,
+  expiry_date = $9,
+  po_type = $10,
+  po_creation_status = $11,
+  po_acknowledgement_status = $12,
+  po_fulfillment_status = $13,
+  created_by = $14,
+  created_at = $15,
+  updated_at = $16,
+  is_wip = $17,
+  remarks = $18,
+  company_name = $19,
+  analytics_object = $20::jsonb,
+  calculated_po_status = $21,
+  eautomate_raw = $22::jsonb,
+  eautomate_synced_at = NOW()
+WHERE po_number = $1`;
+      await query(updateSql, [
+        po_number,
+        sold_via,
+        company_id,
+        delivery_city,
+        delivery_address,
+        billing_address,
+        buyer_gstin,
+        po_issue_date,
+        expiry_date,
+        po_type,
+        po_creation_status,
+        po_acknowledgement_status,
+        po_fulfillment_status,
+        created_by,
+        created_at,
+        updated_at,
+        is_wip,
+        remarks,
+        company_name,
+        analyticsJson,
+        calculated_po_status,
+        eautomate_raw,
+      ]);
+      return;
+    }
+    throw e;
+  }
 }

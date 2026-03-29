@@ -1,0 +1,3 @@
+secondary_sku,master_sku,inventory_sku_id,pack_combo_sku_id,sku_type,inventory_bypass_status,ais_quantity,available_quantity
+AIS-DEMO-SKU-001,MASTER-AIS-001,NA,NA,SINGLE,OFF,500,200
+AIS-DEMO-SKU-002,MASTER-AIS-002,NA,PACK-AIS-001,MULTI,OFF,120,80

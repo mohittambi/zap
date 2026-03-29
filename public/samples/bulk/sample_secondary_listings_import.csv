@@ -1,0 +1,3 @@
+secondary_sku,master_sku,inventory_sku_id,pack_combo_sku_id,sku_type,inventory_bypass_status,ais_quantity,available_quantity
+SAMPLE-CHANNEL-SKU-001,MASTER-SKU-001,NA,PACK-COMBO-001,MULTI,OFF,24,150
+SAMPLE-CHANNEL-SKU-002,MASTER-SKU-002,NA,NA,SINGLE,OFF,0,48

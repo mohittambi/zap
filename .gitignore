@@ -20,6 +20,9 @@
 # production
 /build
 
+# outbound PO uploads (created at runtime)
+/uploads
+
 # misc
 .DS_Store
 *.pem

@@ -1,11 +1,15 @@
 "use client";
 
+import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { apiUrl, getStoredToken } from "@/lib/api-browser";
-import { Button } from "@/components/ui/button";
+import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+
+const bulkBtn =
+  "flex min-h-[52px] w-full items-center justify-center rounded-none border-2 border-foreground bg-background px-4 text-center text-sm font-medium text-foreground shadow-none transition-colors hover:bg-muted/70 active:bg-muted";
 
 async function download(path: string, filename: string) {
   try {
@@ -13,16 +17,26 @@ async function download(path: string, filename: string) {
     const token = getStoredToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
     const res = await fetch(apiUrl(path), { headers });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      const t = await res.text();
+      let msg = t || res.statusText;
+      try {
+        const j = JSON.parse(t) as { error?: string };
+        if (j.error) msg = j.error;
+      } catch {
+        /* plain text */
+      }
+      throw new Error(msg);
+    }
     const blob = await res.blob();
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
-    toast.success("Download started");
+    toast.success(`Downloaded ${filename}`);
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : "Failed");
+    toast.error(e instanceof Error ? e.message : "Download failed");
   }
 }
 
@@ -37,129 +51,190 @@ async function upload(path: string, file: File) {
     headers,
     body: fd,
   });
-  const json = await res.json().catch(() => ({}));
+  const json = (await res.json().catch(() => ({}))) as {
+    imported?: number;
+    errors?: { row: number; message: string }[];
+    error?: string;
+  };
   if (!res.ok) throw new Error(json.error || res.statusText);
   return json;
+}
+
+function ImportBlock({
+  title,
+  inputId,
+  uploadPath,
+  sampleHref,
+  sampleFilename,
+}: {
+  title: string;
+  inputId: string;
+  uploadPath: string;
+  sampleHref: string;
+  sampleFilename: string;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={inputRef}
+        id={inputId}
+        type="file"
+        accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="sr-only"
+        disabled={busy}
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (!f) return;
+          setBusy(true);
+          try {
+            const r = await upload(uploadPath, f);
+            const n = r.imported ?? 0;
+            const errs = r.errors ?? [];
+            if (errs.length > 0) {
+              const preview = errs
+                .slice(0, 4)
+                .map((x) => `Row ${x.row}: ${x.message}`)
+                .join("\n");
+              toast.warning(`Imported ${n} rows; ${errs.length} row error(s)`, {
+                description: preview + (errs.length > 4 ? "\n…" : ""),
+              });
+            } else {
+              toast.success(`Imported ${n} rows`);
+            }
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Import failed");
+          } finally {
+            setBusy(false);
+            e.target.value = "";
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        className={cn(bulkBtn, busy && "pointer-events-none opacity-60")}
+        onClick={() => inputRef.current?.click()}
+      >
+        {busy ? "Working…" : title}
+      </button>
+      <p className="text-muted-foreground text-xs leading-relaxed">
+        CSV or Excel (first sheet).{" "}
+        <Link
+          href={sampleHref}
+          download={sampleFilename}
+          className="text-primary font-medium underline-offset-2 hover:underline"
+        >
+          Download sample CSV ({sampleFilename})
+        </Link>
+      </p>
+    </div>
+  );
 }
 
 export default function BulkOperationsPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-primary text-2xl font-semibold">Bulk Operations</h1>
-        <p className="text-sm text-muted-foreground">
-          Export CSV snapshots or import spreadsheets (admin / warehouse manager).
-        </p>
-      </div>
+      <AppPageTitle
+        title="Bulk Operations"
+        description="Export full CSV snapshots from the database, or import spreadsheets to add or update secondary listings, pack/combo BOM rows, and AIS (platform) quantities. Requires bulk read / import permissions."
+      />
+
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-primary/10 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Export Operations</CardTitle>
+        <Card className="border-border rounded-lg border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">Export Operations</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Button
-              variant="outline"
-              className="min-h-11 justify-start"
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-muted-foreground mb-1 text-xs">
+              Files include current DB columns. Secondary and AIS exports include JSON columns (
+              <span className="font-mono">company_details</span>,{" "}
+              <span className="font-mono">labels_data</span>
+              ); secondary also includes <span className="font-mono">sku_wise_details_raw</span>.
+              Master SKU export includes images, dimensions, and{" "}
+              <span className="font-mono">eautomate_bins</span> (after migration 035).
+            </p>
+            <button
+              type="button"
+              className={bulkBtn}
               onClick={() =>
                 void download("/api/bulk/export/secondary-listings", "secondary_listings.csv")
               }
             >
               Download Secondary Listings File
-            </Button>
-            <Button
-              variant="outline"
-              className="min-h-11 justify-start"
+            </button>
+            <button
+              type="button"
+              className={bulkBtn}
               onClick={() =>
                 void download("/api/bulk/export/packs-combos", "packs_combos.csv")
               }
             >
               Download Packs &amp; Combos File
-            </Button>
-            <Button
-              variant="outline"
-              className="min-h-11 justify-start"
+            </button>
+            <button
+              type="button"
+              className={bulkBtn}
               onClick={() =>
                 void download("/api/bulk/export/ais-listings", "ais_listings.csv")
               }
             >
               Download AIS Listings File
-            </Button>
-            <Button
-              variant="outline"
-              className="min-h-11 justify-start"
+            </button>
+            <button
+              type="button"
+              className={bulkBtn}
               onClick={() =>
                 void download("/api/bulk/export/master-sku-details", "master_sku_details.csv")
               }
             >
               Download Master SKU Details File
-            </Button>
+            </button>
           </CardContent>
         </Card>
-        <Card className="border-primary/10 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Import Operations</CardTitle>
+
+        <Card className="border-border rounded-lg border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold">Import Operations</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
-            <div className="space-y-2">
-              <Label htmlFor="imp-sec">Add/Update Secondary Listings</Label>
-              <Input
-                id="imp-sec"
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="min-h-11"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  try {
-                    const r = await upload("/api/bulk/import/secondary-listings", f);
-                    toast.success(`Imported ${r.imported} rows`);
-                  } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Failed");
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="imp-pc">Add/Update Packs &amp; Combos</Label>
-              <Input
-                id="imp-pc"
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="min-h-11"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  try {
-                    const r = await upload("/api/bulk/import/packs-combos", f);
-                    toast.success(`Imported ${r.imported} rows`);
-                  } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Failed");
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="imp-ais">Add/Update AIS Listings</Label>
-              <Input
-                id="imp-ais"
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                className="min-h-11"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
-                  try {
-                    const r = await upload("/api/bulk/import/ais-listings", f);
-                    toast.success(`Imported ${r.imported} rows`);
-                  } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "Failed");
-                  }
-                  e.target.value = "";
-                }}
-              />
-            </div>
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              Imports use the <span className="font-mono">xlsx</span> parser (CSV and Excel).{" "}
+              Secondary / AIS: snake_case headers (
+              <span className="font-mono">secondary_sku</span>,{" "}
+              <span className="font-mono">master_sku</span>, …) or legacy headers from sample
+              data (Channel SKU, Master SKU, Inventory SKU, Pack Combo SKU, SKU Type, Bypass
+              Status, Platform Stock, Warehouse Stock). Pack/combo:{" "}
+              <span className="font-mono">parent_sku_id</span>,{" "}
+              <span className="font-mono">component_sku_id</span>,{" "}
+              <span className="font-mono">quantity</span> — or &quot;Bundle SKU (Parent)&quot;,
+              &quot;Component SKU&quot;, &quot;Component Quantity&quot;. Parent and component SKUs
+              must already exist in <span className="font-mono">listings</span> (FK).
+            </p>
+
+            <ImportBlock
+              title="Add/Update Secondary Listings"
+              inputId="bulk-import-secondary"
+              uploadPath="/api/bulk/import/secondary-listings"
+              sampleHref="/samples/bulk/sample_secondary_listings_import.csv"
+              sampleFilename="sample_secondary_listings_import.csv"
+            />
+            <ImportBlock
+              title="Add/Update Packs & Combos"
+              inputId="bulk-import-packs"
+              uploadPath="/api/bulk/import/packs-combos"
+              sampleHref="/samples/bulk/sample_packs_combos_import.csv"
+              sampleFilename="sample_packs_combos_import.csv"
+            />
+            <ImportBlock
+              title="Add/Update AIS Listings"
+              inputId="bulk-import-ais"
+              uploadPath="/api/bulk/import/ais-listings"
+              sampleHref="/samples/bulk/sample_ais_listings_import.csv"
+              sampleFilename="sample_ais_listings_import.csv"
+            />
           </CardContent>
         </Card>
       </div>
