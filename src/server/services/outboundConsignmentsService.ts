@@ -1,0 +1,652 @@
+import { query } from "@/server/db";
+
+export type OutboundConsignmentRow = {
+  id: number;
+  company_id: number | null;
+  company_name: string | null;
+  location: string | null;
+  sold_via: string | null;
+  po_number: string | null;
+  po_type: string | null;
+  consignment_status: string | null;
+  invoice_number_status: string | null;
+  invoice_number: string | null;
+  invoice_upload_status: string | null;
+  boxes_count: number | null;
+  sku_count: number | null;
+  total_quantity: number | null;
+  transporter_name: string | null;
+  vehicle_number: string | null;
+  docket_number: string | null;
+  created_at: string | null;
+  marked_rtd_at: string | null;
+  marked_rtd_by: string | null;
+  raw: Record<string, unknown>;
+  synced_at: string | null;
+};
+
+const SORT_COLUMNS = new Set([
+  "id",
+  "company_name",
+  "location",
+  "po_number",
+  "invoice_number",
+  "consignment_status",
+  "invoice_number_status",
+  "invoice_upload_status",
+  "boxes_count",
+  "sku_count",
+  "total_quantity",
+  "transporter_name",
+  "vehicle_number",
+  "docket_number",
+  "created_at",
+  "marked_rtd_at",
+  "marked_rtd_by",
+  "sold_via",
+  "po_type",
+]);
+
+function pickFirst(
+  obj: Record<string, unknown>,
+  keys: string[]
+): unknown {
+  for (const k of keys) {
+    if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
+  }
+  return undefined;
+}
+
+function pickStr(obj: Record<string, unknown>, keys: string[], maxLen?: number): string | null {
+  const v = pickFirst(obj, keys);
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  return maxLen != null ? s.slice(0, maxLen) : s;
+}
+
+function pickInt(obj: Record<string, unknown>, keys: string[]): number | null {
+  const v = pickFirst(obj, keys);
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+function parseTs(v: unknown): Date | null {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}):(\d{2}))?/);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const hh = m[4] != null ? Number(m[4]) : 0;
+    const mi = m[5] != null ? Number(m[5]) : 0;
+    const ss = m[6] != null ? Number(m[6]) : 0;
+    return new Date(Date.UTC(y, mo - 1, d, hh, mi, ss));
+  }
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+function pickDate(obj: Record<string, unknown>, keys: string[]): Date | null {
+  const v = pickFirst(obj, keys);
+  return parseTs(v);
+}
+
+/** If API wraps the row (e.g. `{ consignment: { ... } }`), merge inner object so flat picks work. */
+function unwrapConsignmentPayload(raw: Record<string, unknown>): Record<string, unknown> {
+  const wrapperKeys = [
+    "consignment",
+    "consignmentDto",
+    "consignment_dto",
+    "dto",
+    "payload",
+    "details",
+  ];
+  for (const k of wrapperKeys) {
+    const v = raw[k];
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      const inner = v as Record<string, unknown>;
+      return { ...raw, ...inner };
+    }
+  }
+  const idTop = pickInt(raw, ["id", "consignment_id", "consignmentId", "consignmentID"]);
+  const dataVal = raw.data;
+  if (
+    idTop == null &&
+    dataVal &&
+    typeof dataVal === "object" &&
+    !Array.isArray(dataVal)
+  ) {
+    return { ...raw, ...(dataVal as Record<string, unknown>) };
+  }
+  return raw;
+}
+
+/** Read string from nested objects (e.g. `company.name`). */
+function pickStrNested(
+  obj: Record<string, unknown>,
+  paths: string[][],
+  maxLen?: number
+): string | null {
+  for (const path of paths) {
+    let cur: unknown = obj;
+    for (const seg of path) {
+      if (cur == null || typeof cur !== "object" || Array.isArray(cur)) {
+        cur = undefined;
+        break;
+      }
+      cur = (cur as Record<string, unknown>)[seg];
+    }
+    if (cur == null || cur === "") continue;
+    const s = String(cur).trim();
+    if (!s) continue;
+    return maxLen != null ? s.slice(0, maxLen) : s;
+  }
+  return null;
+}
+
+/** Map one eAutomate consignment row → DB columns + full raw (all keys preserved in raw). */
+export function normalizeConsignmentPayload(raw: Record<string, unknown>): {
+  id: number;
+  company_id: number | null;
+  company_name: string | null;
+  location: string | null;
+  sold_via: string | null;
+  po_number: string | null;
+  po_type: string | null;
+  consignment_status: string | null;
+  invoice_number_status: string | null;
+  invoice_number: string | null;
+  invoice_upload_status: string | null;
+  boxes_count: number | null;
+  sku_count: number | null;
+  total_quantity: number | null;
+  transporter_name: string | null;
+  vehicle_number: string | null;
+  docket_number: string | null;
+  created_at: Date | null;
+  marked_rtd_at: Date | null;
+  marked_rtd_by: string | null;
+  rawJson: string;
+} | null {
+  const r = unwrapConsignmentPayload(raw);
+
+  const id = pickInt(r, [
+    "id",
+    "consignment_id",
+    "consignmentId",
+    "consignmentID",
+  ]);
+  if (id == null || id < 1) return null;
+
+  let company_id = pickInt(r, [
+    "company_id",
+    "companyId",
+    "buyer_company_id",
+    "buyerCompanyId",
+    "buyerCompanyID",
+  ]);
+  if (company_id != null && company_id < 1) company_id = null;
+
+  const vehicle_number = pickStr(r, [
+    "vehicle_number",
+    "vehicleNumber",
+    "vehicle_no",
+    "vehicleNo",
+  ], 160);
+  const docket_number = pickStr(r, [
+    "docket_number",
+    "docketNumber",
+    "docket_no",
+    "docketNo",
+  ], 160);
+
+  const combinedVd = pickStr(
+    r,
+    [
+      "vehicle_docket_number",
+      "vehicleDocketNumber",
+      "vehicle_number_docket_number",
+      "vehicle_or_docket",
+    ],
+    200
+  );
+
+  let vn = vehicle_number;
+  let dn = docket_number;
+  if (!vn && !dn && combinedVd) {
+    vn = combinedVd.slice(0, 160);
+  }
+
+  const company_name =
+    pickStr(
+      r,
+      [
+        "company_name",
+        "companyName",
+        "buyer_company_name",
+        "buyerCompanyName",
+        "buyer_name",
+        "buyerName",
+        "customer_name",
+        "customerName",
+      ],
+      220
+    ) ??
+    pickStrNested(
+      r,
+      [
+        ["company", "name"],
+        ["company", "companyName"],
+        ["buyerCompany", "name"],
+        ["buyer_company", "name"],
+        ["buyer", "name"],
+        ["customer", "name"],
+      ],
+      220
+    );
+
+  const location =
+    pickStr(
+      r,
+      [
+        "location",
+        "delivery_location",
+        "deliveryLocation",
+        "delivery_city",
+        "deliveryCity",
+        "location_name",
+        "locationName",
+        "warehouse_location",
+        "warehouseLocation",
+        "delivery_address",
+        "deliveryAddress",
+      ],
+      200
+    ) ??
+    pickStrNested(
+      r,
+      [
+        ["deliveryLocation", "name"],
+        ["delivery_location", "name"],
+        ["warehouse", "name"],
+        ["location", "name"],
+      ],
+      200
+    );
+
+  return {
+    id,
+    company_id,
+    company_name,
+    location,
+    sold_via: pickStr(r, ["sold_via", "soldVia", "channel", "soldThrough"], 80),
+    po_number: pickStr(r, [
+      "po_number",
+      "poNumber",
+      "purchase_order_number",
+      "purchaseOrderNumber",
+      "po_no",
+      "poNo",
+    ], 80),
+    po_type: pickStr(r, ["po_type", "poType", "purchase_order_type", "purchaseOrderType"], 80),
+    consignment_status: pickStr(
+      r,
+      [
+        "consignment_status",
+        "consignmentStatus",
+        "status",
+        "consignment_state",
+        "consignmentState",
+      ],
+      80
+    ),
+    invoice_number_status: pickStr(
+      r,
+      [
+        "invoice_number_status",
+        "invoiceNumberStatus",
+        "invoice_status",
+        "invoiceStatus",
+      ],
+      80
+    ),
+    invoice_number: pickStr(
+      r,
+      ["invoice_number", "invoiceNumber", "invoice_no", "invoiceNo"],
+      120
+    ),
+    invoice_upload_status: pickStr(
+      r,
+      [
+        "invoice_upload_status",
+        "invoiceUploadStatus",
+        "invoice_file_status",
+        "invoiceFileStatus",
+      ],
+      80
+    ),
+    boxes_count: pickInt(r, [
+      "boxes_count",
+      "boxesCount",
+      "box_count",
+      "boxCount",
+      "total_boxes",
+      "totalBoxes",
+    ]),
+    sku_count: pickInt(r, [
+      "sku_count",
+      "skuCount",
+      "skus_count",
+      "total_sku",
+      "totalSku",
+      "skuCountTotal",
+    ]),
+    total_quantity: pickInt(r, [
+      "total_quantity",
+      "totalQuantity",
+      "quantity",
+      "total_qty",
+      "totalQty",
+      "item_count",
+      "itemCount",
+    ]),
+    transporter_name: pickStr(
+      r,
+      [
+        "transporter_name",
+        "transporterName",
+        "transporter",
+        "carrier_name",
+        "carrierName",
+        "logistics_partner",
+        "logisticsPartner",
+      ],
+      220
+    ),
+    vehicle_number: vn,
+    docket_number: dn,
+    created_at: pickDate(r, [
+      "consignment_created_at",
+      "consignmentCreatedAt",
+      "created_at",
+      "createdAt",
+      "consignmentCreatedDate",
+    ]),
+    marked_rtd_at: pickDate(r, [
+      "consignment_marked_rtd_at",
+      "consignmentMarkedRtdAt",
+      "marked_rtd_at",
+      "markedRtdAt",
+      "rtd_at",
+      "rtdAt",
+    ]),
+    marked_rtd_by: pickStr(
+      r,
+      [
+        "marked_rtd_by",
+        "markedRtdBy",
+        "consignment_marked_rtd_by",
+        "rtd_marked_by",
+        "rtdMarkedBy",
+      ],
+      120
+    ),
+    rawJson: JSON.stringify(raw),
+  };
+}
+
+export async function upsertOutboundConsignmentFromEautomate(
+  raw: Record<string, unknown>
+): Promise<{ ok: boolean; reason?: string }> {
+  const n = normalizeConsignmentPayload(raw);
+  if (!n) return { ok: false, reason: "missing consignment id" };
+
+  let company_id = n.company_id;
+  if (company_id != null) {
+    const chk = await query(`SELECT 1 FROM companies WHERE id = $1 LIMIT 1`, [company_id]);
+    if (chk.rows.length === 0) company_id = null;
+  }
+
+  let company_name = n.company_name;
+  if (company_id != null && (company_name == null || company_name === "")) {
+    const nameR = await query(`SELECT name FROM companies WHERE id = $1 LIMIT 1`, [
+      company_id,
+    ]);
+    const nm = nameR.rows[0]?.name;
+    if (nm != null && String(nm).trim()) company_name = String(nm).trim().slice(0, 220);
+  }
+
+  await query(
+    `INSERT INTO outbound_consignments (
+      id, company_id, company_name, location, sold_via, po_number, po_type,
+      consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+      boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
+      created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,NOW()
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      company_id = EXCLUDED.company_id,
+      company_name = EXCLUDED.company_name,
+      location = EXCLUDED.location,
+      sold_via = EXCLUDED.sold_via,
+      po_number = EXCLUDED.po_number,
+      po_type = EXCLUDED.po_type,
+      consignment_status = EXCLUDED.consignment_status,
+      invoice_number_status = EXCLUDED.invoice_number_status,
+      invoice_number = EXCLUDED.invoice_number,
+      invoice_upload_status = EXCLUDED.invoice_upload_status,
+      boxes_count = EXCLUDED.boxes_count,
+      sku_count = EXCLUDED.sku_count,
+      total_quantity = EXCLUDED.total_quantity,
+      transporter_name = EXCLUDED.transporter_name,
+      vehicle_number = EXCLUDED.vehicle_number,
+      docket_number = EXCLUDED.docket_number,
+      created_at = EXCLUDED.created_at,
+      marked_rtd_at = EXCLUDED.marked_rtd_at,
+      marked_rtd_by = EXCLUDED.marked_rtd_by,
+      raw = EXCLUDED.raw,
+      synced_at = NOW()`,
+    [
+      n.id,
+      company_id,
+      company_name,
+      n.location,
+      n.sold_via,
+      n.po_number,
+      n.po_type,
+      n.consignment_status,
+      n.invoice_number_status,
+      n.invoice_number,
+      n.invoice_upload_status,
+      n.boxes_count,
+      n.sku_count,
+      n.total_quantity,
+      n.transporter_name,
+      n.vehicle_number,
+      n.docket_number,
+      n.created_at,
+      n.marked_rtd_at,
+      n.marked_rtd_by,
+      n.rawJson,
+    ]
+  );
+  return { ok: true };
+}
+
+function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
+  const raw = r.raw;
+  return {
+    id: Number(r.id),
+    company_id: r.company_id != null ? Number(r.company_id) : null,
+    company_name: r.company_name as string | null,
+    location: r.location as string | null,
+    sold_via: r.sold_via as string | null,
+    po_number: r.po_number as string | null,
+    po_type: r.po_type as string | null,
+    consignment_status: r.consignment_status as string | null,
+    invoice_number_status: r.invoice_number_status as string | null,
+    invoice_number: r.invoice_number as string | null,
+    invoice_upload_status: r.invoice_upload_status as string | null,
+    boxes_count: r.boxes_count != null ? Number(r.boxes_count) : null,
+    sku_count: r.sku_count != null ? Number(r.sku_count) : null,
+    total_quantity: r.total_quantity != null ? Number(r.total_quantity) : null,
+    transporter_name: r.transporter_name as string | null,
+    vehicle_number: r.vehicle_number as string | null,
+    docket_number: r.docket_number as string | null,
+    created_at: r.created_at ? new Date(r.created_at as string).toISOString() : null,
+    marked_rtd_at: r.marked_rtd_at
+      ? new Date(r.marked_rtd_at as string).toISOString()
+      : null,
+    marked_rtd_by: r.marked_rtd_by as string | null,
+    raw:
+      typeof raw === "object" && raw !== null && !Array.isArray(raw)
+        ? (raw as Record<string, unknown>)
+        : {},
+    synced_at: r.synced_at ? new Date(r.synced_at as string).toISOString() : null,
+  };
+}
+
+export async function getOutboundConsignmentById(
+  id: number
+): Promise<OutboundConsignmentRow | null> {
+  if (!Number.isFinite(id) || id < 1) return null;
+  const r = await query(
+    `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
+            consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
+            created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
+     FROM outbound_consignments WHERE id = $1`,
+    [id]
+  );
+  if (r.rows.length === 0) return null;
+  return rowToApi(r.rows[0] as Record<string, unknown>);
+}
+
+export async function listOutboundConsignments(opts: {
+  page: number;
+  limit: number;
+  search?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+}) {
+  const { page, limit, search } = opts;
+  const sortBy = SORT_COLUMNS.has(opts.sortBy ?? "") ? opts.sortBy! : "created_at";
+  const sortDir = opts.sortDir === "asc" ? "ASC" : "DESC";
+  const offset = (page - 1) * limit;
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  let p = 1;
+
+  if (search && search.trim()) {
+    const q = `%${search.trim().toLowerCase()}%`;
+    conditions.push(
+      `(LOWER(COALESCE(po_number,'')) LIKE $${p}
+        OR LOWER(COALESCE(company_name,'')) LIKE $${p}
+        OR LOWER(COALESCE(location,'')) LIKE $${p}
+        OR LOWER(COALESCE(invoice_number,'')) LIKE $${p}
+        OR LOWER(COALESCE(transporter_name,'')) LIKE $${p}
+        OR LOWER(COALESCE(consignment_status,'')) LIKE $${p})`
+    );
+    params.push(q);
+    p += 1;
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const countR = await query(
+    `SELECT COUNT(*)::int AS total FROM outbound_consignments ${where}`,
+    params
+  );
+  const total = countR.rows[0].total as number;
+
+  const listR = await query(
+    `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
+            consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
+            created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
+     FROM outbound_consignments
+     ${where}
+     ORDER BY ${sortBy} ${sortDir} NULLS LAST, id DESC
+     LIMIT $${p} OFFSET $${p + 1}`,
+    [...params, limit, offset]
+  );
+
+  return {
+    total,
+    current_page: page,
+    per_page_count: limit,
+    curr_page_count: listR.rows.length,
+    content: listR.rows.map((row) => rowToApi(row as Record<string, unknown>)),
+  };
+}
+
+export type DeliveryLocationOption = { id: number; name: string };
+
+export async function listOutboundConsignmentDeliveryLocations(): Promise<
+  DeliveryLocationOption[]
+> {
+  const r = await query(
+    `SELECT id, name FROM outbound_consignment_delivery_locations ORDER BY sort_order ASC, name ASC`
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.name),
+  }));
+}
+
+function locationRowToNameAndRaw(row: unknown): { name: string; raw: string } | null {
+  if (row == null) return null;
+  if (typeof row === "string") {
+    const name = row.trim();
+    if (!name) return null;
+    return { name: name.slice(0, 300), raw: JSON.stringify({ value: row }) };
+  }
+  if (typeof row === "object" && !Array.isArray(row)) {
+    const o = row as Record<string, unknown>;
+    const name = pickStr(
+      o,
+      [
+        "name",
+        "location",
+        "delivery_location",
+        "deliveryLocation",
+        "label",
+        "title",
+        "value",
+      ],
+      300
+    );
+    if (!name) return null;
+    return { name, raw: JSON.stringify(o) };
+  }
+  return null;
+}
+
+export async function upsertOutboundConsignmentDeliveryLocationsFromApi(
+  rows: unknown[]
+): Promise<number> {
+  let n = 0;
+  let order = 0;
+  for (const row of rows) {
+    const parsed = locationRowToNameAndRaw(row);
+    if (!parsed) continue;
+    order += 1;
+    await query(
+      `INSERT INTO outbound_consignment_delivery_locations (name, sort_order, raw, synced_at)
+       VALUES ($1, $2, $3::jsonb, NOW())
+       ON CONFLICT (name) DO UPDATE SET
+         raw = EXCLUDED.raw,
+         sort_order = EXCLUDED.sort_order,
+         synced_at = NOW()`,
+      [parsed.name, order, parsed.raw]
+    );
+    n += 1;
+  }
+  return n;
+}

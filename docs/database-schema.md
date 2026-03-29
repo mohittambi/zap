@@ -27,6 +27,7 @@ If you see only code, use the **ASCII overview** in the next section; it carries
 | `036` | `outbound_sold_via`, `outbound_po_attachments` |
 | `037` | `outbound_purchase_orders.eautomate_raw`, `eautomate_synced_at`, indexes |
 | `038` | `outbound_po_eautomate_files` (PO file metadata from eAutomate) |
+| `039` | `outbound_consignments`, `outbound_consignment_delivery_locations` |
 
 ### Table catalogue
 
@@ -678,6 +679,14 @@ See also `outbound_sold_via`, `outbound_po_attachments` (`036`).
 ### `outbound_po_eautomate_files` (`038`)
 
 Rows from `GET .../incoming_purchase_orders/fetch_po_detail_files/{po_number}`. PK `eautomate_file_id`; FK `outbound_po_id` → `outbound_purchase_orders` CASCADE. Columns mirror API: `po_number`, optional `consignment_id` / `invoice_id` / `appointment_id`, `file_type`, `file_name`, `saved_file_name`, `file_path`, `file_uploaded_by`, timestamps, `raw` JSONB.
+
+### `outbound_consignments` (`039`)
+
+Ingested from `POST .../incoming_purchase_orders/consignments/all/paginated`. PK `id` (eAutomate consignment id). Denormalized columns for list/sort (company, location, PO, invoice fields, counts, transporter, vehicle/docket, RTD timestamps, etc.) plus **`raw` JSONB** with the full upstream object (all keys preserved). FK `company_id` → `companies` (nullable if unknown).
+
+### `outbound_consignment_delivery_locations` (`039`)
+
+From `GET .../incoming_purchase_orders/delivery_locations`. `name` UNIQUE, `sort_order`, `raw` JSONB, `synced_at`.
 
 ---
 

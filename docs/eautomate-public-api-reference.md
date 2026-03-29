@@ -86,6 +86,8 @@ Every file under `scripts/` was checked for outbound eAutomate HTTP calls.
 |--------|--------|---------|
 | `sync-eautomate-outbound-partial-pos.ts` | GET | `/incoming_purchase_orders/partial` |
 | `sync-eautomate-outbound-po-detail.ts` | GET | `/incoming_purchase_orders/{po_number}`, `.../fetch_po_detail_files/{po_number}` |
+| `sync-eautomate-outbound-consignments.ts` | POST | `/incoming_purchase_orders/consignments/all/paginated` |
+| `sync-eautomate-outbound-consignments.ts` | GET | `/incoming_purchase_orders/delivery_locations` |
 
 Query: `search_keyword`, `page`, `count`. Rows upsert into Zap `outbound_purchase_orders` (`id` = eAutomate id, `eautomate_raw` = full JSON). **npm:** `npm run sync:outbound-partial-pos`.
 
