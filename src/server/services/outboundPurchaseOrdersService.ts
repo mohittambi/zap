@@ -22,12 +22,14 @@ export type OutboundPoRow = {
   remarks: string | null;
   company_name: string | null;
   analytics_object: Record<string, unknown>;
+  listings_snapshot: Record<string, unknown>;
   calculated_po_status: string | null;
   eautomate_synced_at: string | null;
 };
 
 function rowToApi(r: Record<string, unknown>): OutboundPoRow {
   const ao = r.analytics_object;
+  const ls = r.listings_snapshot;
   return {
     id: Number(r.id),
     sold_via: r.sold_via as string | null,
@@ -52,6 +54,10 @@ function rowToApi(r: Record<string, unknown>): OutboundPoRow {
     analytics_object:
       typeof ao === "object" && ao !== null && !Array.isArray(ao)
         ? (ao as Record<string, unknown>)
+        : {},
+    listings_snapshot:
+      typeof ls === "object" && ls !== null && !Array.isArray(ls)
+        ? (ls as Record<string, unknown>)
         : {},
     calculated_po_status: r.calculated_po_status as string | null,
     eautomate_synced_at: r.eautomate_synced_at
@@ -254,12 +260,27 @@ export async function getOutboundPurchaseOrderById(
     `SELECT id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
             buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
             po_acknowledgement_status, po_fulfillment_status, created_by, created_at, updated_at,
-            is_wip, remarks, company_name, analytics_object, calculated_po_status, eautomate_synced_at
+            is_wip, remarks, company_name, analytics_object, listings_snapshot, calculated_po_status, eautomate_synced_at
      FROM outbound_purchase_orders WHERE id = $1 LIMIT 1`,
     [id]
   );
   if (r.rows.length === 0) return null;
   return rowToApi(r.rows[0] as Record<string, unknown>);
+}
+
+export async function updateOutboundPoListingsSnapshot(
+  outboundPoId: number,
+  snapshot: unknown
+): Promise<void> {
+  if (!Number.isFinite(outboundPoId) || outboundPoId < 1) return;
+  const json =
+    snapshot && typeof snapshot === "object"
+      ? JSON.stringify(snapshot)
+      : "{}";
+  await query(
+    `UPDATE outbound_purchase_orders SET listings_snapshot = $2::jsonb WHERE id = $1`,
+    [outboundPoId, json]
+  );
 }
 
 export type OutboundPoEautomateFileRow = {

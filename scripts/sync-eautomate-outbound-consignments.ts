@@ -11,6 +11,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { fetchEautomate } from "../src/server/eautomate-proxy";
 import {
   upsertOutboundConsignmentFromEautomate,
   upsertOutboundConsignmentDeliveryLocationsFromApi,
@@ -57,19 +58,6 @@ function extractLocationRows(data: unknown): unknown[] {
   return [];
 }
 
-function headersAuth(): Record<string, string> {
-  const h: Record<string, string> = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) h.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) h.Cookie = cookie;
-  return h;
-}
-
-function headersPostJson(): Record<string, string> {
-  return { ...headersAuth(), "Content-Type": "application/json" };
-}
-
 function fetchTimeoutMs(): number {
   const n = Number(process.env.EAUTOMATE_FETCH_TIMEOUT_MS);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -80,11 +68,11 @@ async function fetchWithOptionalTimeout(
   init: RequestInit
 ): Promise<Response> {
   const ms = fetchTimeoutMs();
-  if (!ms) return fetch(url, init);
+  if (!ms) return fetchEautomate(url, init);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetchEautomate(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(t);
   }
@@ -131,7 +119,6 @@ async function main() {
     const locUrl = `${base}/public/api/incoming_purchase_orders/delivery_locations`;
     console.log("[outbound-consignments] GET delivery_locations…");
     const locRes = await fetchWithOptionalTimeout(locUrl, {
-      headers: headersAuth(),
       cache: "no-store",
     });
     if (!locRes.ok) {
@@ -161,7 +148,7 @@ async function main() {
     const t0 = Date.now();
     const res = await fetchWithOptionalTimeout(u.toString(), {
       method: "POST",
-      headers: headersPostJson(),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(DEFAULT_BODY),
       cache: "no-store",
     });

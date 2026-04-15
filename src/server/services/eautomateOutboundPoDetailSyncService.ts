@@ -1,10 +1,11 @@
 import {
   eautomateConfigured,
-  eautomateProxyHeaders,
+  fetchEautomate,
   getEautomateBaseUrl,
 } from "@/server/eautomate-proxy";
 import {
   replaceOutboundPoEautomateFiles,
+  updateOutboundPoListingsSnapshot,
   upsertOutboundPoFromEautomateDetail,
 } from "@/server/services/outboundPurchaseOrdersService";
 
@@ -27,6 +28,11 @@ function extractFileRows(data: unknown): unknown[] {
   return [];
 }
 
+function analyticsObjectEmpty(ao: unknown): boolean {
+  if (!ao || typeof ao !== "object" || Array.isArray(ao)) return true;
+  return Object.keys(ao as Record<string, unknown>).length === 0;
+}
+
 /**
  * Live pull from eAutomate: PO header + analytics + file list, persisted to Zap DB.
  */
@@ -40,11 +46,11 @@ export async function syncOutboundPurchaseOrderDetailFromEautomate(
   }
 
   const base = getEautomateBaseUrl();
-  const headers = eautomateProxyHeaders();
   const opt = { cache: "no-store" as const, signal: AbortSignal.timeout(120_000) };
+  const warnings: string[] = [];
 
   const detailUrl = `${base}/public/api/incoming_purchase_orders/${encodeURIComponent(pn)}`;
-  const dRes = await fetch(detailUrl, { headers, ...opt });
+  const dRes = await fetchEautomate(detailUrl, opt);
   if (!dRes.ok) {
     const t = await dRes.text().catch(() => "");
     return {
@@ -62,8 +68,26 @@ export async function syncOutboundPurchaseOrderDetailFromEautomate(
     return { ok: false, message: "Invalid PO detail JSON" };
   }
 
+  if (analyticsObjectEmpty(detail.analytics_object)) {
+    const aoUrl = `${base}/public/api/incoming_purchase_orders/analytics_object/${encodeURIComponent(pn)}`;
+    const aoRes = await fetchEautomate(aoUrl, opt);
+    if (aoRes.ok) {
+      try {
+        const aoJson: unknown = await aoRes.json();
+        if (aoJson && typeof aoJson === "object" && !Array.isArray(aoJson)) {
+          detail.analytics_object = aoJson as Record<string, unknown>;
+        }
+      } catch {
+        warnings.push("analytics_object response was not valid JSON");
+      }
+    } else {
+      const t = await aoRes.text().catch(() => "");
+      warnings.push(`analytics_object HTTP ${aoRes.status} ${t.slice(0, 120)}`);
+    }
+  }
+
   const filesUrl = `${base}/public/api/incoming_purchase_orders/fetch_po_detail_files/${encodeURIComponent(pn)}`;
-  const fRes = await fetch(filesUrl, { headers, ...opt });
+  const fRes = await fetchEautomate(filesUrl, opt);
   if (!fRes.ok) {
     const t = await fRes.text().catch(() => "");
     return {
@@ -81,5 +105,22 @@ export async function syncOutboundPurchaseOrderDetailFromEautomate(
   }
   await replaceOutboundPoEautomateFiles(id, String(detail.po_number ?? pn).slice(0, 80), fileRows);
 
-  return { ok: true };
+  const listingsUrl = `${base}/public/api/incoming_purchase_orders/listings/paginated/${encodeURIComponent(pn)}?search_keyword=&page=1&count=1000`;
+  const lRes = await fetchEautomate(listingsUrl, opt);
+  if (!lRes.ok) {
+    const t = await lRes.text().catch(() => "");
+    warnings.push(`Listings HTTP ${lRes.status} ${t.slice(0, 120)}`);
+  } else {
+    try {
+      const listingsJson: unknown = await lRes.json();
+      await updateOutboundPoListingsSnapshot(id, listingsJson);
+    } catch {
+      warnings.push("Listings response was not valid JSON");
+    }
+  }
+
+  return {
+    ok: true,
+    message: warnings.length > 0 ? warnings.join("; ") : undefined,
+  };
 }

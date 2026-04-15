@@ -4,7 +4,7 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import {
   eautomateConfigured,
-  eautomateProxyHeaders,
+  fetchEautomate,
   getEautomateBaseUrl,
 } from "@/server/eautomate-proxy";
 
@@ -37,8 +37,7 @@ export async function GET(request: Request) {
     u.searchParams.set("page", page);
     u.searchParams.set("count", count);
 
-    const res = await fetch(u.toString(), {
-      headers: eautomateProxyHeaders(),
+    const res = await fetchEautomate(u.toString(), {
       cache: "no-store",
     });
 

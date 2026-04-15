@@ -124,14 +124,11 @@ export async function POST(request: Request) {
       throw new AppError("Select a valid PO type", 400);
     }
 
-    if (files.length === 0) {
+    if (files.length !== MAX_PO_FILES) {
       throw new AppError(
-        "Upload at least one original PO file (PDF and/or spreadsheet). Maximum 2 files, 2MB each.",
+        "Upload exactly two files: one PDF and one spreadsheet (CSV or Excel). Maximum 2 files, 2MB each.",
         400
       );
-    }
-    if (files.length > MAX_PO_FILES) {
-      throw new AppError("Maximum 2 files are allowed", 400);
     }
     for (const f of files) {
       if (f.size > MAX_PO_FILE_BYTES) {
@@ -146,8 +143,11 @@ export async function POST(request: Request) {
     }
     const pdfCount = files.filter((f) => classifyPoUpload(f) === "pdf").length;
     const ssCount = files.filter((f) => classifyPoUpload(f) === "spreadsheet").length;
-    if (pdfCount > 1 || ssCount > 1) {
-      throw new AppError("At most one PDF and one spreadsheet/CSV file", 400);
+    if (pdfCount !== 1 || ssCount !== 1) {
+      throw new AppError(
+        "Provide exactly one PDF and one spreadsheet or CSV (one of each).",
+        400
+      );
     }
 
     const soldViaOptions = await outboundPoService.listOutboundSoldViaOptions();

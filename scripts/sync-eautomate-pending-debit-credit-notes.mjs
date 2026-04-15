@@ -16,6 +16,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,18 +52,9 @@ function parseTimestamptz(value) {
   return d.toISOString();
 }
 
-function eautomateFetchInit() {
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-  return { headers };
-}
-
 async function fetchVendorsAllIds(base) {
   const url = `${base.replace(/\/$/, "")}/public/api/vendors/all`;
-  const res = await fetch(url, eautomateFetchInit());
+  const res = await fetchEautomate(url, { cache: "no-store" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status} ${url}${text ? ` — ${text.slice(0, 200)}` : ""}`);
@@ -92,15 +84,12 @@ async function fetchDebitCreditNotesPaginated(base, page, perPage) {
   u.searchParams.set("search_keyword", "");
   u.searchParams.set("page", String(page));
   u.searchParams.set("count", String(perPage));
-  const init = {
+  const res = await fetchEautomate(u.toString(), {
     method: "POST",
-    headers: {
-      ...eautomateFetchInit().headers,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: FILTER_BODY,
-  };
-  const res = await fetch(u.toString(), init);
+    cache: "no-store",
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let hint = "";

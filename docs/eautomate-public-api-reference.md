@@ -15,7 +15,17 @@ Zap uses the same pattern in Node sync scripts and in server code (`eautomate-pr
 | Mechanism | Environment variable | Header |
 |-----------|---------------------|--------|
 | Bearer token | `EAUTOMATE_BEARER_TOKEN` | `Authorization: Bearer <token>` |
-| Session cookie | `EAUTOMATE_COOKIE` | `Cookie: <full Cookie header from browser>` |
+| Session cookie | `EAUTOMATE_COOKIE` | `Cookie: access_token=…; id_token=…` (same as browser) |
+| **Login (refresh)** | `EAUTOMATE_LOGIN_USER_ID` + `EAUTOMATE_LOGIN_PASSWORD` | Zap POSTs `{ userId, password }` to **`/public/api/login`**, builds `EAUTOMATE_COOKIE` from `token` + `id_token` in the JSON body |
+
+Optional overrides for login:
+
+- `EAUTOMATE_LOGIN_URL` — full URL to the login endpoint (if not using default `{EAUTOMATE_BASE_URL}/public/api/login`).
+- `EAUTOMATE_LOGIN_PATH` — path only (default `/public/api/login`).
+
+**Automatic refresh:** when login env vars are set, Zap calls login once if there is no cookie yet, and **again after any HTTP 401** from eAutomate (then retries the request once). This covers expired `access_token` (`"Token has expired"`). Sync scripts use `scripts/lib/eautomateAuthFetch.mjs`; the Next server uses `fetchEautomate()` in `eautomate-proxy.ts`.
+
+**Persist back to disk (optional):** set `EAUTOMATE_WRITE_AUTH_TO_ENV_LOCAL=1` to upsert **`EAUTOMATE_COOKIE`**, **`EAUTOMATE_LOGIN_USER_ID`**, and **`EAUTOMATE_LOGIN_PASSWORD`** into `.env.local` (or `EAUTOMATE_ENV_FILE`) **after each successful login**, so the next process sees fresh tokens without copying from the browser. Values are written **double-quoted** for dotenv safety. Intended for **local dev** only (avoid on shared servers).
 
 Typical JSON requests also send:
 
@@ -24,7 +34,7 @@ Typical JSON requests also send:
 
 Binary file fetches use `Accept: */*` (see `eautomate-grn-files.ts`).
 
-If neither cookie nor bearer is set, APIs that require auth may return `401`.
+If neither cookie, bearer, nor login credentials are set, APIs that require auth may return `401`.
 
 ---
 
@@ -97,8 +107,10 @@ Query: `search_keyword`, `page`, `count`. Rows upsert into Zap `outbound_purchas
 |--------|------|
 | GET | `/incoming_purchase_orders/{po_number}` |
 | GET | `/incoming_purchase_orders/fetch_po_detail_files/{po_number}` |
+| GET | `/incoming_purchase_orders/listings/paginated/{po_number}?search_keyword=&page=1&count=1000` |
+| GET | `/incoming_purchase_orders/analytics_object/{po_number}` |
 
-Detail JSON updates `outbound_purchase_orders` including `analytics_object`, `calculated_po_status`, and `eautomate_raw`. File list is stored in `outbound_po_eautomate_files` (`038`).
+Detail JSON updates `outbound_purchase_orders` including `analytics_object`, `calculated_po_status`, and `eautomate_raw`. File list is stored in `outbound_po_eautomate_files` (`038`). Listings paginated response is stored in `outbound_purchase_orders.listings_snapshot` (`040`). If the detail payload has an empty `analytics_object`, Zap calls `analytics_object/{po_number}` and merges the result before upserting the header row.
 
 **File download proxy:** set server env **`EAUTOMATE_OUTBOUND_PO_FILE_URL_PATH`** (path or full URL) with placeholders `{fileId}` and `{poNumber}` so Zap can stream the binary from eAutomate (same auth cookie/bearer as other proxies). Confirm the exact path in the browser Network tab when downloading from eCraft; Zap returns **501** if unset.
 

@@ -2,7 +2,7 @@ import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import {
   eautomateConfigured,
-  eautomateProxyHeaders,
+  fetchEautomate,
   getEautomateBaseUrl,
 } from "@/server/eautomate-proxy";
 
@@ -98,8 +98,7 @@ async function fetchEautomateJson(pathSuffix: string): Promise<unknown> {
   }
   const base = getEautomateBaseUrl();
   const u = `${base}/public/api${pathSuffix.startsWith("/") ? pathSuffix : `/${pathSuffix}`}`;
-  const res = await fetch(u, {
-    headers: eautomateProxyHeaders(),
+  const res = await fetchEautomate(u, {
     cache: "no-store",
     signal: AbortSignal.timeout(120_000),
   });

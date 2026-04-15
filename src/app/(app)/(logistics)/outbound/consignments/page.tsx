@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { OutboundConsignmentsTable } from "./outbound-consignments-table";
 
@@ -8,7 +9,9 @@ export default function OutboundConsignmentsPage() {
         title="Consignments"
         description="Data from Zap (sync: npm run sync:outbound-consignments). Companies: npm run sync:outbound-companies. Delivery locations are refreshed by the consignments sync."
       />
-      <OutboundConsignmentsTable />
+      <Suspense fallback={<p className="text-muted-foreground text-sm">Loading…</p>}>
+        <OutboundConsignmentsTable />
+      </Suspense>
     </div>
   );
 }

@@ -42,8 +42,14 @@ export async function GET(request: Request, context: Ctx) {
       outboundPoService.listOutboundPoZapAttachments(id),
     ]);
 
+    const listings =
+      po.listings_snapshot && typeof po.listings_snapshot === "object"
+        ? po.listings_snapshot
+        : {};
+
     return NextResponse.json({
       po,
+      listings,
       eautomateFiles,
       zapAttachments,
       sync: syncResult,

@@ -1,4 +1,4 @@
-import { getEautomateBaseUrl, eautomateProxyHeaders } from "@/server/eautomate-proxy";
+import { fetchEautomate, getEautomateBaseUrl } from "@/server/eautomate-proxy";
 import { query } from "@/server/db";
 
 export function extractEautomateCompanyRows(data: unknown): unknown[] {
@@ -15,8 +15,7 @@ export function extractEautomateCompanyRows(data: unknown): unknown[] {
 export async function fetchEautomateCompaniesJson(): Promise<unknown> {
   const base = getEautomateBaseUrl();
   const url = `${base}/public/api/companies`;
-  const res = await fetch(url, {
-    headers: eautomateProxyHeaders(),
+  const res = await fetchEautomate(url, {
     cache: "no-store",
   });
   if (!res.ok) {

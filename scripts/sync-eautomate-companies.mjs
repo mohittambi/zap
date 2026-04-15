@@ -10,6 +10,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,14 +40,8 @@ async function main() {
     process.exit(1);
   }
   const base = (process.env.EAUTOMATE_BASE_URL || "https://web.eautomate.in").replace(/\/$/, "");
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
 
-  const res = await fetch(`${base}/public/api/companies`, {
-    headers,
+  const res = await fetchEautomate(`${base}/public/api/companies`, {
     cache: "no-store",
   });
   if (!res.ok) {

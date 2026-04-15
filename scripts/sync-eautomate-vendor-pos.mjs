@@ -25,6 +25,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,34 +66,22 @@ function parseTimestamptz(value) {
   return d.toISOString();
 }
 
-function eautomateFetchInit() {
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-  return { headers };
-}
-
 /** POST /purchase_orders/with_filters — query has page/count; body has filter payload. */
 async function fetchPurchaseOrdersWithFilters(base, page, perPage, vendorIds) {
   const u = new URL(`${base}/public/api/purchase_orders/with_filters`);
   u.searchParams.set("search_keyword", "");
   u.searchParams.set("page", String(page));
   u.searchParams.set("count", String(perPage));
-  const init = {
+  const res = await fetchEautomate(u.toString(), {
     method: "POST",
-    headers: {
-      ...eautomateFetchInit().headers,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       poNumber: "",
       vendorIds: Array.isArray(vendorIds) ? vendorIds : [],
       vendorNames: [],
     }),
-  };
-  const res = await fetch(u.toString(), init);
+    cache: "no-store",
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let hint = "";

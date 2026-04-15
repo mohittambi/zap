@@ -25,6 +25,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,15 +44,6 @@ function num(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function eautomateFetchInit() {
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-  return { headers };
-}
-
 /** Optional: EAUTOMATE_FETCH_TIMEOUT_MS (default 0 = no timeout). Prevents silent hangs on slow networks. */
 function fetchTimeoutMs() {
   const n = Number(process.env.EAUTOMATE_FETCH_TIMEOUT_MS);
@@ -60,11 +52,11 @@ function fetchTimeoutMs() {
 
 async function fetchWithOptionalTimeout(url, init) {
   const ms = fetchTimeoutMs();
-  if (!ms) return fetch(url, init);
+  if (!ms) return fetchEautomate(url, init);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetchEautomate(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(t);
   }
@@ -83,7 +75,6 @@ async function fetchSecondaryListingsPaginated(base, searchKeyword, page, perPag
   u.searchParams.set("page", String(page));
   u.searchParams.set("count", String(perPage));
   const res = await fetchWithOptionalTimeout(u.toString(), {
-    ...eautomateFetchInit(),
     cache: "no-store",
   });
   if (!res.ok) {
@@ -139,10 +130,7 @@ async function postSkuWiseDetails(base, body) {
   const url = `${base}/public/api/inventory/secondary_listings/sku_wise_details`;
   const res = await fetchWithOptionalTimeout(url, {
     method: "POST",
-    headers: {
-      ...eautomateFetchInit().headers,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
   });

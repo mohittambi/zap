@@ -28,6 +28,7 @@ If you see only code, use the **ASCII overview** in the next section; it carries
 | `037` | `outbound_purchase_orders.eautomate_raw`, `eautomate_synced_at`, indexes |
 | `038` | `outbound_po_eautomate_files` (PO file metadata from eAutomate) |
 | `039` | `outbound_consignments`, `outbound_consignment_delivery_locations` |
+| `040` | `outbound_purchase_orders.listings_snapshot` (JSONB cache from eAutomate listings/paginated) |
 
 ### Table catalogue
 
@@ -668,6 +669,7 @@ Curated lists; items: `focus_list_id` FK CASCADE, `sku_id` FK `listings` CASCADE
 | `remarks` | TEXT | |
 | `company_name` | VARCHAR(220) | |
 | `analytics_object` | JSONB | default `{}` |
+| `listings_snapshot` | JSONB | default `{}`; paginated SKU lines from `GET .../incoming_purchase_orders/listings/paginated/{po_number}` (`040`) |
 | `calculated_po_status` | VARCHAR(120) | |
 | `eautomate_raw` | JSONB | default `{}`; last full row from eAutomate partial PO sync (`037`) |
 | `eautomate_synced_at` | TIMESTAMPTZ | last successful upsert from `sync-eautomate-outbound-partial-pos.ts` |

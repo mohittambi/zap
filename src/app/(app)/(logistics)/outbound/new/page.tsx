@@ -38,6 +38,26 @@ function daysInMonth(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+function classifyPoUploadLocal(file: File): "pdf" | "spreadsheet" | "other" {
+  const lower = file.name.toLowerCase();
+  const mt = (file.type || "").toLowerCase();
+  if (lower.endsWith(".pdf") || mt.includes("pdf")) return "pdf";
+  if (
+    lower.endsWith(".csv") ||
+    lower.endsWith(".xlsx") ||
+    lower.endsWith(".xls") ||
+    mt.includes("spreadsheet") ||
+    mt.includes("csv") ||
+    mt.includes("excel") ||
+    mt.includes("sheet")
+  ) {
+    return "spreadsheet";
+  }
+  return "other";
+}
+
 type SoldViaOpt = { code: string; label: string };
 type CompanyOpt = { id: number; name: string | null; description: string | null };
 
@@ -47,12 +67,14 @@ function SearchableSelect({
   options,
   placeholder,
   emptyText = "No matches",
+  variant = "solid",
 }: {
   value: string | null;
   onChange: (key: string) => void;
   options: { key: string; label: string }[];
   placeholder: string;
   emptyText?: string;
+  variant?: "solid" | "soft";
 }) {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState("");
@@ -175,8 +197,10 @@ function SearchableSelect({
         ref={triggerRef}
         type="button"
         className={cn(
-          "bg-primary text-primary-foreground flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-4 py-2 text-left text-sm font-medium shadow-sm",
-          "hover:bg-primary/90",
+          "flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-4 py-2 text-left text-sm font-medium shadow-sm",
+          variant === "soft"
+            ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
+            : "bg-primary text-primary-foreground hover:bg-primary/90",
           open && "ring-ring ring-2 ring-offset-2 ring-offset-background"
         )}
         onClick={() => {
@@ -187,7 +211,11 @@ function SearchableSelect({
       >
         <span className="truncate">{selected?.label ?? placeholder}</span>
         <ChevronDown
-          className={cn("size-4 shrink-0 opacity-90 transition-transform", open && "rotate-180")}
+          className={cn(
+            "size-4 shrink-0 opacity-90 transition-transform",
+            open && "rotate-180",
+            variant === "soft" && "text-foreground"
+          )}
         />
       </button>
       {dropdown && typeof document !== "undefined"
@@ -231,7 +259,7 @@ function TripletDateSection({
     <Card className="border-border shadow-sm">
       <CardContent className="space-y-3 pt-4">
         <p className="text-sm font-medium">
-          {title}:{" "}
+          {title} :{" "}
           <span className={value ? "text-foreground" : "text-muted-foreground"}>
             {value
               ? value.toLocaleDateString(undefined, {
@@ -300,7 +328,6 @@ function TripletDateSection({
                 return;
               }
               onSet(new Date(Date.UTC(y, m, d, 12, 0, 0)));
-              toast.success(`${title} saved`);
             }}
           >
             {setButtonLabel}
@@ -338,6 +365,7 @@ export default function OutboundNewPoPage() {
   const [poType, setPoType] = React.useState<string | null>(null);
   const [files, setFiles] = React.useState<File[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true);
@@ -347,9 +375,23 @@ export default function OutboundNewPoPage() {
       const data = (await res.json()) as {
         soldVia: SoldViaOpt[];
         companies: CompanyOpt[];
+        companySync?: {
+          ok: boolean;
+          upserted: number;
+          skipped: boolean;
+          error?: string;
+        };
       };
       setSoldVia(data.soldVia ?? []);
       setCompanies(data.companies ?? []);
+      const sync = data.companySync;
+      if (sync?.error) {
+        toast.warning(
+          `Could not refresh companies from eAutomate (${sync.error}). Showing data already in Zap.`
+        );
+      } else if (sync?.ok && !sync.skipped && sync.upserted > 0) {
+        toast.success(`Updated ${sync.upserted} companies from the directory.`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load form");
     } finally {
@@ -371,9 +413,65 @@ export default function OutboundNewPoPage() {
   }));
   const poTypeOptions = OUTBOUND_PO_TYPES.map((t) => ({ key: t, label: t }));
 
+  const validateForm = React.useCallback((): boolean => {
+    const err: Record<string, string> = {};
+    if (!soldViaCode) err.soldVia = "Select Sold Via.";
+    if (!companyId) err.company = "Select Company.";
+    if (poLocation.trim().length < 2) err.poLocation = "PO location is required (at least 2 characters).";
+    if (billingAddress.trim().length < 3) {
+      err.billingAddress = "Billing address is required (at least 3 characters).";
+    }
+    if (shippingAddress.trim().length < 3) {
+      err.shippingAddress = "Shipping address is required (at least 3 characters).";
+    }
+    const g = buyerGstin.trim();
+    if (g && !GSTIN_RE.test(g)) {
+      err.buyerGstin = "Enter a valid 15-character GSTIN or leave the field empty.";
+    }
+    if (!releaseDate) err.releaseDate = "Set PO release date using Year / Month / Day, then the button.";
+    if (!expiryDate) err.expiryDate = "Set PO expiry date using Year / Month / Day, then the button.";
+    if (releaseDate && expiryDate && expiryDate < releaseDate) {
+      err.expiryDate = "Expiry date must be on or after the release date.";
+    }
+    if (!poType) err.poType = "Select PO type.";
+    if (files.length !== 2) {
+      err.poFiles = "Choose exactly two files: one PDF and one spreadsheet (CSV or Excel).";
+    } else {
+      const pdfN = files.filter((f) => classifyPoUploadLocal(f) === "pdf").length;
+      const ssN = files.filter((f) => classifyPoUploadLocal(f) === "spreadsheet").length;
+      if (pdfN !== 1 || ssN !== 1) {
+        err.poFiles = "Provide one PDF and one spreadsheet or CSV (one of each, max 2MB per file).";
+      }
+      for (const f of files) {
+        if (classifyPoUploadLocal(f) === "other") {
+          err.poFiles = `Unsupported type: ${f.name}. Use PDF or Excel/CSV only.`;
+          break;
+        }
+        if (f.size > 2 * 1024 * 1024) {
+          err.poFiles = `File "${f.name}" exceeds the 2MB limit.`;
+          break;
+        }
+      }
+    }
+    setFieldErrors(err);
+    return Object.keys(err).length === 0;
+  }, [
+    soldViaCode,
+    companyId,
+    poLocation,
+    billingAddress,
+    shippingAddress,
+    buyerGstin,
+    releaseDate,
+    expiryDate,
+    poType,
+    files,
+  ]);
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canCreate) return;
+    if (!validateForm()) return;
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -425,52 +523,91 @@ export default function OutboundNewPoPage() {
     <div className="mx-auto max-w-3xl space-y-6 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Add New Purchase Order"
-        description="Sold Via is Eunoia or Intellozene only. Companies are loaded from Zap’s database (populate with npm run sync:outbound-companies). Set release and expiry with Year / Month / Day, then Set. Upload original PO files (PDF and/or spreadsheet, max 2 × 2MB)."
+        description="Sold Via lists the two channels from Zap (Eunoia and Intellozene). Companies are synced from eAutomate when you open this page, stored in Zap, and shown in Select Company. Set release and expiry dates with Year / Month / Day, then the Set button. Upload one PDF and one spreadsheet, each up to 2MB."
       />
 
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading form…</p>
       ) : (
-        <form onSubmit={(e) => void onSubmit(e)} className="space-y-6">
-          <div className="space-y-2">
-            <Label>Select Sold Via</Label>
-            <SearchableSelect
-              value={soldViaCode}
-              onChange={setSoldViaCode}
-              options={soldViaOptions}
-              placeholder="Select Sold Via"
-              emptyText="No sold-via options"
-            />
-          </div>
+        <form onSubmit={(e) => void onSubmit(e)} className="space-y-6" noValidate>
+          <Card className="border-primary/25 overflow-hidden shadow-sm">
+            <div className="bg-primary/90 text-primary-foreground px-4 py-2.5 text-sm font-semibold">
+              Select Sold Via
+            </div>
+            <CardContent className="space-y-2 pt-4">
+              <SearchableSelect
+                value={soldViaCode}
+                onChange={(v) => {
+                  setSoldViaCode(v);
+                  setFieldErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.soldVia;
+                    return n;
+                  });
+                }}
+                options={soldViaOptions}
+                placeholder="Select Sold Via"
+                emptyText="No sold-via options"
+                variant="soft"
+              />
+              {fieldErrors.soldVia ? (
+                <p className="text-destructive text-xs">{fieldErrors.soldVia}</p>
+              ) : null}
+            </CardContent>
+          </Card>
 
-          <div className="space-y-2">
-            <Label>Select Company</Label>
-            <SearchableSelect
-              value={companyId}
-              onChange={setCompanyId}
-              options={companyOptions}
-              placeholder="Select Company"
-              emptyText="No companies in database — run npm run sync:outbound-companies, then refresh this page"
-            />
-            {companyId ? (
-              <p className="text-muted-foreground text-xs">
-                {companies.find((c) => String(c.id) === companyId)?.description ??
-                  "No description stored for this company."}
-              </p>
-            ) : null}
-          </div>
+          <Card className="border-primary/30 overflow-hidden shadow-sm">
+            <div className="bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold">
+              Select Company
+            </div>
+            <CardContent className="space-y-2 pt-4">
+              <SearchableSelect
+                value={companyId}
+                onChange={(v) => {
+                  setCompanyId(v);
+                  setFieldErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.company;
+                    return n;
+                  });
+                }}
+                options={companyOptions}
+                placeholder="Select Company"
+                emptyText="No companies in Zap yet — check eAutomate access, then refresh."
+              />
+              {fieldErrors.company ? (
+                <p className="text-destructive text-xs">{fieldErrors.company}</p>
+              ) : null}
+              {companyId ? (
+                <p className="text-muted-foreground text-xs">
+                  {companies.find((c) => String(c.id) === companyId)?.description ??
+                    "No description stored for this company."}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
 
           <div className="space-y-2">
             <Label htmlFor="po-loc">PO Location</Label>
             <Input
               id="po-loc"
               value={poLocation}
-              onChange={(e) => setPoLocation(e.target.value)}
+              onChange={(e) => {
+                setPoLocation(e.target.value);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.poLocation;
+                  return n;
+                });
+              }}
               className="min-h-11"
-              placeholder="City / warehouse / location"
-              required
+              placeholder="PO Location"
               minLength={2}
+              aria-invalid={!!fieldErrors.poLocation}
             />
+            {fieldErrors.poLocation ? (
+              <p className="text-destructive text-xs">{fieldErrors.poLocation}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -478,12 +615,22 @@ export default function OutboundNewPoPage() {
             <textarea
               id="bill"
               value={billingAddress}
-              onChange={(e) => setBillingAddress(e.target.value)}
+              onChange={(e) => {
+                setBillingAddress(e.target.value);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.billingAddress;
+                  return n;
+                });
+              }}
               className={textareaClass}
-              placeholder="Billing address"
-              required
+              placeholder="Billing Address"
               minLength={3}
+              aria-invalid={!!fieldErrors.billingAddress}
             />
+            {fieldErrors.billingAddress ? (
+              <p className="text-destructive text-xs">{fieldErrors.billingAddress}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -491,12 +638,22 @@ export default function OutboundNewPoPage() {
             <textarea
               id="ship"
               value={shippingAddress}
-              onChange={(e) => setShippingAddress(e.target.value)}
+              onChange={(e) => {
+                setShippingAddress(e.target.value);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.shippingAddress;
+                  return n;
+                });
+              }}
               className={textareaClass}
-              placeholder="Shipping address"
-              required
+              placeholder="Shipping Address"
               minLength={3}
+              aria-invalid={!!fieldErrors.shippingAddress}
             />
+            {fieldErrors.shippingAddress ? (
+              <p className="text-destructive text-xs">{fieldErrors.shippingAddress}</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -504,52 +661,102 @@ export default function OutboundNewPoPage() {
             <Input
               id="gstin"
               value={buyerGstin}
-              onChange={(e) => setBuyerGstin(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                setBuyerGstin(e.target.value.toUpperCase());
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.buyerGstin;
+                  return n;
+                });
+              }}
               className="min-h-11 font-mono uppercase"
-              placeholder="15-character GSTIN (optional unless you fill it)"
+              placeholder="Buyer GSTIN"
               maxLength={15}
+              aria-invalid={!!fieldErrors.buyerGstin}
             />
+            {fieldErrors.buyerGstin ? (
+              <p className="text-destructive text-xs">{fieldErrors.buyerGstin}</p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Optional. If filled, must be a valid 15-character GSTIN.
+              </p>
+            )}
           </div>
 
-          <TripletDateSection
-            title="Select PO Release date"
-            value={releaseDate}
-            onSet={setReleaseDate}
-            setButtonLabel="Set PO Release date"
-          />
+          <div className="space-y-1">
+            <TripletDateSection
+              title="Select PO Release date"
+              value={releaseDate}
+              onSet={(d) => {
+                setReleaseDate(d);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.releaseDate;
+                  delete n.expiryDate;
+                  return n;
+                });
+              }}
+              setButtonLabel="Set PO Release date"
+            />
+            {fieldErrors.releaseDate ? (
+              <p className="text-destructive px-1 text-xs">{fieldErrors.releaseDate}</p>
+            ) : null}
+          </div>
 
-          <TripletDateSection
-            title="Select PO expiry date"
-            value={expiryDate}
-            onSet={setExpiryDate}
-            setButtonLabel="Set PO expiry date"
-          />
+          <div className="space-y-1">
+            <TripletDateSection
+              title="Select PO expiry date"
+              value={expiryDate}
+              onSet={(d) => {
+                setExpiryDate(d);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.expiryDate;
+                  return n;
+                });
+              }}
+              setButtonLabel="Set PO expiry date"
+            />
+            {fieldErrors.expiryDate ? (
+              <p className="text-destructive px-1 text-xs">{fieldErrors.expiryDate}</p>
+            ) : null}
+          </div>
 
           <div className="space-y-2">
             <Label>Select PO Type</Label>
             <SearchableSelect
               value={poType}
-              onChange={setPoType}
+              onChange={(v) => {
+                setPoType(v);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.poType;
+                  return n;
+                });
+              }}
               options={poTypeOptions}
               placeholder="Select PO Type"
               emptyText="No PO types"
+              variant="soft"
             />
+            {fieldErrors.poType ? (
+              <p className="text-destructive text-xs">{fieldErrors.poType}</p>
+            ) : null}
           </div>
 
           <Card className="border-border shadow-sm">
             <CardContent className="space-y-3 pt-4">
-              <Label htmlFor="po-files">Upload Original PO files</Label>
+              <Label htmlFor="po-files">Upload Original PO files :</Label>
               <p className="text-muted-foreground text-xs leading-relaxed">
-                Maximum 2 files. Each file must be 2MB or less. Upload the PDF and a spreadsheet
-                (or CSV) version of the PO where applicable.{" "}
+                (Maximum 2 files are allowed. File size should not exceed 2MB. Please upload both
+                pdf and spreadsheet version of the PO.){" "}
                 <Link
                   href="/samples/outbound/sample_po_line_items_spreadsheet.csv"
                   className="text-primary font-medium underline-offset-2 hover:underline"
                   download
                 >
-                  Download sample spreadsheet (CSV)
-                </Link>{" "}
-                for line-item layout.
+                  Sample spreadsheet (CSV)
+                </Link>
               </p>
               <Input
                 id="po-files"
@@ -557,11 +764,26 @@ export default function OutboundNewPoPage() {
                 accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 multiple
                 className="min-h-11 cursor-pointer"
+                aria-invalid={!!fieldErrors.poFiles}
                 onChange={(e) => {
                   const list = e.target.files ? Array.from(e.target.files) : [];
+                  if (list.length > 2) {
+                    toast.message("Only two files are used", {
+                      description: "Select one PDF and one spreadsheet.",
+                    });
+                  }
                   setFiles(list.slice(0, 2));
+                  setFieldErrors((p) => {
+                    const n = { ...p };
+                    delete n.poFiles;
+                    return n;
+                  });
+                  e.target.value = "";
                 }}
               />
+              {fieldErrors.poFiles ? (
+                <p className="text-destructive text-xs">{fieldErrors.poFiles}</p>
+              ) : null}
               {files.length > 0 ? (
                 <ul className="text-muted-foreground font-mono text-xs">
                   {files.map((f) => (

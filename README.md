@@ -49,6 +49,18 @@ Rows referencing SKUs, warehouses, or vendors that are **not** present in the wo
 npm run dev    # http://localhost:3000
 ```
 
+### eAutomate: sync everything (orchestrator)
+
+To pull **all** integrated eAutomate data into PostgreSQL in one ordered pass (vendors → inbound POs/GRNs → secondary listings → outbound → PO/GRN detail ingests), use:
+
+```bash
+npm run sync:eautomate:all
+```
+
+Options, safety notes, and what each phase does are documented in **[docs/sync-all-eautomate.md](docs/sync-all-eautomate.md)**. For a quick preview of commands without running them: `npm run sync:eautomate:all:dry`.
+
+**eAutomate login (optional):** set `EAUTOMATE_LOGIN_USER_ID` and `EAUTOMATE_LOGIN_PASSWORD` in `.env.local` so sync scripts and the Next server can POST `{ userId, password }` to eAutomate **`/public/api/login`**, build `access_token` / `id_token` cookies, and **re-login automatically on HTTP 401** (expired token). With **`EAUTOMATE_WRITE_AUTH_TO_ENV_LOCAL=1`**, each successful login also **rewrites `EAUTOMATE_COOKIE` (and the login lines) into `.env.local`** so tokens stay fresh on disk. Details: [docs/eautomate-public-api-reference.md](docs/eautomate-public-api-reference.md#authentication).
+
 ## Environment
 
 | Variable | Description |

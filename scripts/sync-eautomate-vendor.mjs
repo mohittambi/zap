@@ -20,20 +20,12 @@ import {
   executeVendorSync,
   num,
 } from "./lib/eautomateVendorUpsert.mjs";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function eautomateFetchInit() {
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-  return { headers };
-}
-
 async function fetchJson(url) {
-  const res = await fetch(url, eautomateFetchInit());
+  const res = await fetchEautomate(url, { cache: "no-store" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let hint = "";

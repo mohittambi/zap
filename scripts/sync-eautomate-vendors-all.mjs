@@ -5,6 +5,7 @@
  * Env: DATABASE_URL (required)
  *      EAUTOMATE_BASE_URL (optional, default https://web.eautomate.in)
  *      EAUTOMATE_COOKIE / EAUTOMATE_BEARER_TOKEN (same as other eautomate sync scripts)
+ *      EAUTOMATE_LOGIN_USER_ID + EAUTOMATE_LOGIN_PASSWORD (optional; POST /public/api/login on 401 / cold start)
  *
  * Usage: node scripts/sync-eautomate-vendors-all.mjs
  *        node scripts/sync-eautomate-vendors-all.mjs --file path/to/vendors-all.json
@@ -14,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,18 +43,9 @@ function num(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function eautomateFetchInit() {
-  const headers = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-  return { headers };
-}
-
 async function fetchVendorsAllJson(base) {
   const url = `${base.replace(/\/$/, "")}/public/api/vendors/all`;
-  const res = await fetch(url, eautomateFetchInit());
+  const res = await fetchEautomate(url, { cache: "no-store" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     let hint = "";

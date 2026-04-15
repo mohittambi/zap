@@ -216,6 +216,8 @@ Inbound sub-pages for GRNs, pending audits, pending invoice collection, and pend
 
 Manages the selling side — purchase orders sent to customers or fulfilment partners.
 
+**Cross-cutting plan:** end-to-end warehouse → PO → dispatch → accounting pipeline, validation gates, and phased delivery are documented in [warehouse-inventory-po-pipeline-plan.md](./warehouse-inventory-po-pipeline-plan.md).
+
 | Capability | Description |
 |---|---|
 | **All outbound POs** | Paginated list of outbound PO headers with keyword search. |

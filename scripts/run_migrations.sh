@@ -69,7 +69,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/036_outbound_sold_via_and_po_attachments.sql \
          migrations/037_outbound_po_eautomate_sync_meta.sql \
          migrations/038_outbound_po_eautomate_files.sql \
-         migrations/039_outbound_consignments.sql; do
+         migrations/039_outbound_consignments.sql \
+         migrations/040_outbound_po_listings_snapshot.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

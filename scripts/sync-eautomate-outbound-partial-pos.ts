@@ -15,6 +15,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { fetchEautomate } from "../src/server/eautomate-proxy";
 import { upsertOutboundPoFromEautomatePartial } from "../src/server/services/outboundPurchaseOrdersService";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,11 +50,11 @@ async function fetchWithOptionalTimeout(
   init: RequestInit
 ): Promise<Response> {
   const ms = fetchTimeoutMs();
-  if (!ms) return fetch(url, init);
+  if (!ms) return fetchEautomate(url, init);
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetchEautomate(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(t);
   }
@@ -90,12 +91,6 @@ async function main() {
   );
   const { searchKeyword, count, maxPages } = parseArgs(process.argv.slice(2));
 
-  const headers: Record<string, string> = { Accept: "application/json" };
-  const token = process.env.EAUTOMATE_BEARER_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const cookie = process.env.EAUTOMATE_COOKIE;
-  if (cookie) headers.Cookie = cookie;
-
   console.log(
     `[outbound-partial-pos] Sync start — base=${base} search_keyword=${JSON.stringify(searchKeyword)} count/page=${count} maxPages=${maxPages}`
   );
@@ -113,7 +108,6 @@ async function main() {
     console.log(`[outbound-partial-pos] GET page ${page}…`);
     const t0 = Date.now();
     const res = await fetchWithOptionalTimeout(u.toString(), {
-      headers,
       cache: "no-store",
     });
     if (!res.ok) {

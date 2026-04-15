@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -140,6 +141,7 @@ function SortHeader({
 }
 
 export function OutboundConsignmentsTable() {
+  const searchParams = useSearchParams();
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
   const [applied, setApplied] = React.useState("");
@@ -182,6 +184,15 @@ export function OutboundConsignmentsTable() {
       setLoading(false);
     }
   }, [page, applied, sort, dir]);
+
+  React.useEffect(() => {
+    const q = searchParams.get("search")?.trim();
+    if (q) {
+      setSearch(q);
+      setApplied(q);
+      setPage(1);
+    }
+  }, [searchParams]);
 
   React.useEffect(() => {
     void load();

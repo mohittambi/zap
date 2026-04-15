@@ -3,10 +3,8 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
-import {
-  buildEautomateOutboundPoFileDownloadUrl,
-  eautomateBinaryHeaders,
-} from "@/server/eautomate-outbound-po-files";
+import { buildEautomateOutboundPoFileDownloadUrl } from "@/server/eautomate-outbound-po-files";
+import { fetchEautomate } from "@/server/eautomate-proxy";
 import { eautomateConfigured } from "@/server/eautomate-proxy";
 
 type Ctx = { params: Promise<{ id: string; fileId: string }> };
@@ -58,8 +56,8 @@ export async function GET(request: Request, context: Ctx) {
       );
     }
 
-    const upstream = await fetch(target.toString(), {
-      headers: eautomateBinaryHeaders(),
+    const upstream = await fetchEautomate(target.toString(), {
+      headers: { Accept: "*/*" },
       cache: "no-store",
       signal: AbortSignal.timeout(120_000),
     });

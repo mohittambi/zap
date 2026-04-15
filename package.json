@@ -36,6 +36,8 @@
     "sync:grn:details:all": "tsx scripts/sync-eautomate-grn-details.ts --all-known-grns",
     "sync:po:details": "tsx scripts/sync-eautomate-po-details.ts",
     "sync:po:details:from-db": "tsx scripts/sync-eautomate-po-details.ts --from-vendor-pos",
+    "sync:eautomate:all": "bash scripts/sync-all-eautomate.sh",
+    "sync:eautomate:all:dry": "bash scripts/sync-all-eautomate.sh --dry-run",
     "test:db": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); const pg=require('pg'); const c=new pg.Client({connectionString:process.env.DATABASE_URL}); c.connect().then(()=>c.query('SELECT 1 AS ok')).then(r=>{console.log('PG OK:',r.rows[0]);c.end();}).catch(e=>{console.error(e.message);process.exit(1);})\"",
     "test": "tsx --test --import ./tests/setup.mjs tests/unit/pagination.test.ts tests/unit/rbac.test.ts tests/unit/errors.test.ts tests/api/integration.test.mjs",
     "test:unit": "tsx --test tests/unit/pagination.test.ts tests/unit/rbac.test.ts tests/unit/errors.test.ts",

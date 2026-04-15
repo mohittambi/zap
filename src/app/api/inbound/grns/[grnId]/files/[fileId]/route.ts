@@ -3,10 +3,8 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
-import {
-  buildEautomateGrnFileUrl,
-  eautomateBinaryHeaders,
-} from "@/server/eautomate-grn-files";
+import { buildEautomateGrnFileUrl } from "@/server/eautomate-grn-files";
+import { fetchEautomate } from "@/server/eautomate-proxy";
 import { eautomateConfigured } from "@/server/eautomate-proxy";
 
 type RouteContext = { params: Promise<{ grnId: string; fileId: string }> };
@@ -91,8 +89,8 @@ export async function GET(request: Request, context: RouteContext) {
       );
     }
 
-    const upstream = await fetch(target.toString(), {
-      headers: eautomateBinaryHeaders(),
+    const upstream = await fetchEautomate(target.toString(), {
+      headers: { Accept: "*/*" },
       cache: "no-store",
       signal: AbortSignal.timeout(120_000),
     });
