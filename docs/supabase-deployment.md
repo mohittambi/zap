@@ -6,6 +6,8 @@ Zap’s `web` app uses **PostgreSQL via `pg`** and a single **`DATABASE_URL`**. 
 
 In the Supabase dashboard: **Project → Connect** (or **Database → Settings**, scroll to **Connection string**). Copy the URI Supabase shows — it includes a **`[YOUR-PASSWORD]`** placeholder you replace with your database password (**Database → Settings → Database password** / reset if needed).
 
+**Wrong host (common mistake):** `https://<ref>.supabase.co` is the **project / REST** URL. Postgres **direct** host is always **`db.<ref>.supabase.co`**, not `<ref>.supabase.co`. Using the non-`db.` hostname for `postgresql://…:5432` often hits CDN/edge IPs (e.g. Cloudflare) and ends in **`ETIMEDOUT`**, not a password error.
+
 Hostnames and ports differ by mode; **always use the string from the dashboard** rather than hand-building URLs.
 
 Supabase typically offers three styles:

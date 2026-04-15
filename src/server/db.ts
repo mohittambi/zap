@@ -18,7 +18,8 @@ function isLocalDatabase(url: string | undefined): boolean {
 
 function isSupabaseHost(url: string | undefined): boolean {
   if (!url) return false;
-  return /supabase\.co/i.test(url);
+  // Direct: *.supabase.co — Pooler: *.pooler.supabase.com (transaction pooler :6543)
+  return /supabase\.co|pooler\.supabase\.com/i.test(url);
 }
 
 /**
