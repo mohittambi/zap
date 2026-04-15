@@ -31,6 +31,7 @@ function getPool(): pg.Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL;
     const config: pg.PoolConfig = {
+      // Port comes from the URL (6543 for Supabase transaction pooler, 5432 for direct); node-pg does not override it.
       connectionString,
       // Serverless: keep pool small; Supabase pooler has its own limits.
       max: Number(process.env.PG_POOL_MAX ?? (process.env.VERCEL ? 5 : 10)),
