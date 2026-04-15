@@ -68,3 +68,13 @@ Seeds under `npm run seed` are intended for **localhost** only—do not run them
 2. Add `DATABASE_URL`, `JWT_SECRET`, and any other vars from `.env.local.example` your deployment needs (e.g. eAutomate sync is optional).
 
 See also the root [README](../../README.md) **Deploy (Vercel)** section.
+
+## 5. Troubleshooting: `ETIMEDOUT` / `AggregateError` on login or API
+
+Login hits PostgreSQL via `pg`. A **connection timeout** usually means the app never finished opening a TCP connection to the DB host.
+
+1. **Use the transaction pooler URI (port `6543`)** for **Vercel** (and often for local dev if direct fails). In **Connect**, choose **Transaction** / **Pooler** mode and copy that `DATABASE_URL`. Direct `db.<ref>.supabase.co:5432` can time out from some networks (IPv6-only direct host vs IPv4-only client, etc.).
+2. Ensure **`DATABASE_URL`** is set on Vercel (same name as local) for **Production** and **Preview** if you test previews.
+3. Optional env tuning (see `src/server/db.ts`): `PG_CONNECTION_TIMEOUT_MS`, `PG_POOL_MAX`.
+
+The pool enables TLS for `*.supabase.co` hosts. If you use another host, put `?sslmode=require` (or equivalent) in the URI.
