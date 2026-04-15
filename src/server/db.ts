@@ -1,6 +1,13 @@
+import dns from "node:dns";
 import pg from "pg";
 
 const { Pool } = pg;
+
+// Supabase hostnames are often dual-stack; Node defaults can prefer IPv6 first. Vercel and some
+// networks don't reach IPv6 reliably → ETIMEDOUT on connect. Prefer IPv4 for Postgres hosts.
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
 
 let pool: pg.Pool | null = null;
 
@@ -24,9 +31,10 @@ function getPool(): pg.Pool {
     const connectionString = process.env.DATABASE_URL;
     const config: pg.PoolConfig = {
       connectionString,
-      max: Number(process.env.PG_POOL_MAX ?? 10),
+      // Serverless: keep pool small; Supabase pooler has its own limits.
+      max: Number(process.env.PG_POOL_MAX ?? (process.env.VERCEL ? 5 : 10)),
       connectionTimeoutMillis: Number(
-        process.env.PG_CONNECTION_TIMEOUT_MS ?? 20_000
+        process.env.PG_CONNECTION_TIMEOUT_MS ?? 30_000
       ),
       idleTimeoutMillis: 30_000,
     };

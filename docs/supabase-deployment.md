@@ -69,12 +69,34 @@ Seeds under `npm run seed` are intended for **localhost** only—do not run them
 
 See also the root [README](../../README.md) **Deploy (Vercel)** section.
 
-## 5. Troubleshooting: `ETIMEDOUT` / `AggregateError` on login or API
+## 5. Mental model: where login runs
 
-Login hits PostgreSQL via `pg`. A **connection timeout** usually means the app never finished opening a TCP connection to the DB host.
+Zap login does **not** call `https://<project>.supabase.co` (REST). Flow:
 
-1. **Use the transaction pooler URI (port `6543`)** for **Vercel** (and often for local dev if direct fails). In **Connect**, choose **Transaction** / **Pooler** mode and copy that `DATABASE_URL`. Direct `db.<ref>.supabase.co:5432` can time out from some networks (IPv6-only direct host vs IPv4-only client, etc.).
-2. Ensure **`DATABASE_URL`** is set on Vercel (same name as local) for **Production** and **Preview** if you test previews.
-3. Optional env tuning (see `src/server/db.ts`): `PG_CONNECTION_TIMEOUT_MS`, `PG_POOL_MAX`.
+```text
+Browser → POST /api/auth/login → Node (pg Pool) → TCP to Postgres (DATABASE_URL)
+```
 
-The pool enables TLS for `*.supabase.co` hosts. If you use another host, put `?sslmode=require` (or equivalent) in the URI.
+Failures with **`ETIMEDOUT`** / **`AggregateError`** happen on that **last hop** (network connect to Postgres). They are **not** “wrong email/password” and **not** missing Supabase publishable/secret API keys for this app path.
+
+### Two different Supabase surfaces
+
+| Layer | What it is | Credentials | Used by Zap `web` today? |
+| ----- | ---------- | ----------- | ------------------------- |
+| **REST / HTTP API** | `https://<project-ref>.supabase.co` (PostgREST, Auth, etc.) | Publishable / anon / secret API keys | No — unless you add `@supabase/supabase-js` or call REST yourself |
+| **Postgres (TCP)** | `postgresql://…` in **`DATABASE_URL`** | Database user + password | **Yes** — all `query()` / migrations via `pg` |
+
+Production issues like **`ETIMEDOUT`** are almost always **layer 2** (wrong host/port/mode for serverless), not layer 1.
+
+### Anti-pattern to avoid on Vercel
+
+**Serverless + direct Postgres** (`db.<ref>.supabase.co:5432` only) is a common source of timeouts: IPv6 routing, short-lived functions, and many concurrent connects. Prefer the **transaction pooler (port 6543)** for runtime `DATABASE_URL` on Vercel; keep **direct** for migrations if the pooler rejects a specific DDL statement.
+
+## 6. Troubleshooting: `ETIMEDOUT` / `AggregateError` on login or API
+
+1. **Set `DATABASE_URL` to the transaction pooler** from **Connect** (transaction mode, port **6543**). Update **Vercel → Environment Variables** and **redeploy**. Local can use the same URI, or direct if your network is stable.
+2. Confirm **`DATABASE_URL`** exists for **Production** (and **Preview** if you test previews).
+3. **`src/server/db.ts`** already sets IPv4-first DNS, TLS for `*.supabase.co`, and configurable timeouts (`PG_CONNECTION_TIMEOUT_MS`, `PG_POOL_MAX`). That helps but does **not** replace a pooler URL on Vercel.
+4. **`src/server/errors.ts`** unwraps **`AggregateError`** so API responses are not `{ "error": "" }` when `pg` wraps multiple connection errors.
+
+If you use a non-Supabase host, add `?sslmode=require` (or equivalent) to the URI.
