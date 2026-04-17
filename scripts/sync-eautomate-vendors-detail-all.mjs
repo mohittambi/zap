@@ -154,11 +154,13 @@ async function main() {
     try {
       const vendorUrl = `${base}/public/api/vendors/${vid}`;
       const listingsUrl = `${base}/public/api/vendors/listings/${vid}`;
+      console.log(`Vendor ${vid}: fetching detail + listings…`);
       const vendor = await fetchJson(vendorUrl);
       const listingRows = await fetchJson(listingsUrl);
       if (!Array.isArray(listingRows)) {
         throw new Error("listings: expected array");
       }
+      console.log(`Vendor ${vid}: upserting ${listingRows.length} listing row(s) to Postgres…`);
 
       await client.query("BEGIN");
       const stats = await executeVendorSync(client, vendor, listingRows);

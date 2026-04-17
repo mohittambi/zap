@@ -16,6 +16,20 @@ Equivalent:
 bash scripts/sync-all-eautomate.sh
 ```
 
+## Fresh Supabase (or any Postgres): wipe synced tables, then full sync
+
+Point `DATABASE_URL` in `web/.env.local` at your **Supabase Postgres** URI (see [supabase-deployment.md](supabase-deployment.md)), run **`npm run migrate`** once so tables exist, then:
+
+```bash
+cd web
+ZAP_CONFIRM_TRUNCATE_SYNC=1 npm run sync:eautomate:fresh
+```
+
+This runs `scripts/reset-eautomate-synced-data.sql` (truncates eAutomate-ingested operational tables; **keeps** users, RBAC, forms, `outbound_sold_via`) and then the same steps as `npm run sync:eautomate:all`.
+
+- **Dry run** (no truncate, print sync commands only): `npm run sync:eautomate:fresh -- --dry-run`
+- **Pass-through** to the master shell (e.g. skip heavy phases): `ZAP_CONFIRM_TRUNCATE_SYNC=1 npm run sync:eautomate:fresh -- --skip-vendor-details`
+
 **Dry run** (print the `npm` sequence without executing):
 
 ```bash

@@ -102,3 +102,27 @@ Production issues like **`ETIMEDOUT`** are almost always **layer 2** (wrong host
 4. **`src/server/errors.ts`** unwraps **`AggregateError`** so API responses are not `{ "error": "" }` when `pg` wraps multiple connection errors.
 
 If you use a non-Supabase host, add `?sslmode=require` (or equivalent) to the URI.
+
+## 7. Troubleshooting: `getaddrinfo ENOTFOUND` for `db.<ref>.supabase.co`
+
+The **`db.<project-ref>.supabase.co`** hostname is often **IPv6-only** (AAAA in DNS, **no** IPv4 A record). Some networks and some cloud runtimes resolve this inconsistently; you may see **`ENOTFOUND`** even though the project exists.
+
+**What to do:**
+
+1. In **Supabase → Connect**, copy the **Transaction pooler** URI (host like **`aws-0-<region>.pooler.supabase.com`**, port **6543**). That pooler typically has **IPv4** and works on Vercel.
+2. Paste it **exactly** into **`DATABASE_URL`** — username and region must match what Connect shows (wrong combo → **`Tenant or user not found`**).
+3. If you must use the **`db.*`** host from a network that lacks IPv6, use Supabase’s **IPv4 add-on** for direct connections (see Supabase **Database** settings / docs), or use the **pooler** URI instead.
+
+Zap’s **`db.ts`** sets **`dns.setDefaultResultOrder("ipv4first")`** to reduce IPv6 routing issues when **both** A and AAAA exist; it does not add IPv4 for **AAAA-only** names.
+
+## 8. Troubleshooting: `FATAL: Tenant or user not found`
+
+That message comes from Supabase’s **pooler (Supavisor)**, not from Zap SQL or a `tenants` table. It means the **username + hostname + port** in `DATABASE_URL` do not match a tenant the pooler knows.
+
+**Do not mix** connection styles from different docs or regions. If **`aws-0-<region>.pooler.supabase.com:6543`** with **`postgres.<project-ref>`** returns this error for your project, open **Connect → Transaction pooler** and use **exactly** the URI shown there. Many projects use **`postgres` @ `db.<project-ref>.supabase.co:6543`** for transaction mode; another project’s `aws-0-ap-south-1` string will **not** work.
+
+After fixing `DATABASE_URL`, update **Vercel** (Production and Preview) and **redeploy**. `npm run test:db` in `web/` should print `PG OK` before you rely on `/api/auth/login`. (If **`test:db`** works locally but **Vercel** fails with **`ENOTFOUND`** on **`db.*`**, prefer the **pooler** host from **Connect** as in §7.)
+
+Some regions (e.g. **ap-northeast-1 / Tokyo**) use a pooler hostname **`aws-1-<region>.pooler.supabase.com`** instead of **`aws-0-…`**. Always paste the URI from **Connect** rather than guessing the `aws-0` / `aws-1` prefix.
+
+**Dashboard “Last migration”:** that card tracks **Supabase CLI–managed** migrations (`supabase/migrations`). This repo applies SQL from **`web/migrations/`** via `npm run migrate` and **does not** update that card—tables in **Table Editor** are the source of truth for whether those files ran.
