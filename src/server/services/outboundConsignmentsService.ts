@@ -530,9 +530,16 @@ export async function getOutboundConsignmentById(
 export async function listOutboundConsignments(opts: {
   page: number;
   limit: number;
+  /** When set, only consignments for this PO number (matches `outbound_purchase_orders.po_number`). */
+  poNumber?: string | null;
   search?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
+  /**
+   * When true, only rows that still need invoice capture (no invoice number and/or status contains “pending”).
+   * Powers Outbound → Pending Invoices (web + mobile).
+   */
+  invoicePending?: boolean;
 }) {
   const { page, limit, search } = opts;
   const sortBy = SORT_COLUMNS.has(opts.sortBy ?? "") ? opts.sortBy! : "created_at";
@@ -542,6 +549,13 @@ export async function listOutboundConsignments(opts: {
   const conditions: string[] = [];
   const params: unknown[] = [];
   let p = 1;
+
+  const poNum = opts.poNumber != null ? String(opts.poNumber).trim() : "";
+  if (poNum.length > 0) {
+    conditions.push(`TRIM(COALESCE(po_number, '')) = $${p}`);
+    params.push(poNum);
+    p += 1;
+  }
 
   if (search && search.trim()) {
     const q = `%${search.trim().toLowerCase()}%`;
@@ -555,6 +569,14 @@ export async function listOutboundConsignments(opts: {
     );
     params.push(q);
     p += 1;
+  }
+
+  if (opts.invoicePending) {
+    conditions.push(`(
+      (invoice_number IS NULL OR TRIM(COALESCE(invoice_number, '')) = '')
+      OR COALESCE(LOWER(invoice_upload_status), '') LIKE '%pending%'
+      OR COALESCE(LOWER(invoice_number_status), '') LIKE '%pending%'
+    )`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";

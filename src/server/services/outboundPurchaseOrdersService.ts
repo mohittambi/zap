@@ -238,6 +238,16 @@ export type OutboundCompanyDirectoryRow = {
   last_po_at: string | null;
 };
 
+/** Rolled-up metrics across all companies matching the same filters as the directory list. */
+export type OutboundCompanyDirectorySummary = {
+  company_count: number;
+  ack_pending: number;
+  open_pos: number;
+  expired_pos: number;
+  cancelled_pos: number;
+  last_po_at: string | null;
+};
+
 function companyLogoFromAttributes(attributes: unknown): string | null {
   if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
     return null;
@@ -248,6 +258,67 @@ function companyLogoFromAttributes(attributes: unknown): string | null {
   if (raw == null || typeof raw !== "string") return null;
   const t = raw.trim();
   return t.length ? t : null;
+}
+
+/**
+ * Same per-company PO metrics as {@link listOutboundCompaniesPaginated}, aggregated for a summary strip.
+ * Keep FILTER clauses in sync with the list query.
+ */
+async function summarizeOutboundCompaniesDirectory(
+  whereSql: string,
+  params: unknown[]
+): Promise<OutboundCompanyDirectorySummary> {
+  const r = await query(
+    `WITH roll AS (
+       SELECT
+         MAX(o.updated_at) AS last_po_at,
+         COUNT(o.id) FILTER (
+           WHERE (o.expiry_date IS NULL OR o.expiry_date >= NOW())
+             AND COALESCE(UPPER(TRIM(o.calculated_po_status)), '') NOT IN (
+               'EXPIRED', 'CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED', 'CANCEL'
+             )
+             AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%expir%')
+             AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%cancel%')
+             AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%clos%')
+             AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%complet%')
+             AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%deliver%')
+         )::int AS open_pos,
+         COUNT(o.id) FILTER (
+           WHERE o.expiry_date IS NOT NULL AND o.expiry_date < NOW()
+         )::int AS expired_pos,
+         COUNT(o.id) FILTER (
+           WHERE COALESCE(o.calculated_po_status, '') ILIKE '%CANCEL%'
+              OR COALESCE(UPPER(TRIM(o.calculated_po_status)), '') IN ('CANCELLED', 'CANCEL')
+         )::int AS cancelled_pos,
+         COUNT(o.id) FILTER (
+           WHERE COALESCE(o.po_acknowledgement_status, '') ILIKE '%PENDING%'
+              OR UPPER(TRIM(COALESCE(o.po_acknowledgement_status, ''))) IN ('NO', 'N', 'UNACK', 'PENDING')
+         )::int AS ack_pending
+       FROM companies c
+       LEFT JOIN outbound_purchase_orders o ON o.company_id = c.id
+       ${whereSql}
+       GROUP BY c.id, c.name, c.attributes
+     )
+     SELECT
+       COUNT(*)::int AS company_count,
+       COALESCE(SUM(roll.open_pos), 0)::int AS open_pos,
+       COALESCE(SUM(roll.expired_pos), 0)::int AS expired_pos,
+       COALESCE(SUM(roll.cancelled_pos), 0)::int AS cancelled_pos,
+       COALESCE(SUM(roll.ack_pending), 0)::int AS ack_pending,
+       MAX(roll.last_po_at) AS last_po_at
+     FROM roll`,
+    params
+  );
+  const row = r.rows[0] as Record<string, unknown>;
+  return {
+    company_count: Number(row.company_count) || 0,
+    ack_pending: Number(row.ack_pending) || 0,
+    open_pos: Number(row.open_pos) || 0,
+    expired_pos: Number(row.expired_pos) || 0,
+    cancelled_pos: Number(row.cancelled_pos) || 0,
+    last_po_at:
+      row.last_po_at != null ? new Date(row.last_po_at as string).toISOString() : null,
+  };
 }
 
 /** Paginated companies + PO rollups — used by mobile Outbound journey (All Companies). */
@@ -261,6 +332,7 @@ export async function listOutboundCompaniesPaginated(opts: {
   per_page_count: number;
   curr_page_count: number;
   content: OutboundCompanyDirectoryRow[];
+  summary: OutboundCompanyDirectorySummary;
 }> {
   const { page, limit } = opts;
   const offset = (page - 1) * limit;
@@ -284,6 +356,8 @@ export async function listOutboundCompaniesPaginated(opts: {
 
   const countR = await query(`SELECT COUNT(*)::int AS n FROM companies c ${whereSql}`, params);
   const total = countR.rows[0].n as number;
+
+  const summary = await summarizeOutboundCompaniesDirectory(whereSql, params);
 
   const listR = await query(
     `SELECT
@@ -344,6 +418,7 @@ export async function listOutboundCompaniesPaginated(opts: {
     per_page_count: limit,
     curr_page_count: content.length,
     content,
+    summary,
   };
 }
 
@@ -452,6 +527,95 @@ export async function updateOutboundPoListingsSnapshot(
     `UPDATE outbound_purchase_orders SET listings_snapshot = $2::jsonb WHERE id = $1`,
     [outboundPoId, json]
   );
+}
+
+/**
+ * Line-item rows from `listings_snapshot` (eAutomate paginated envelope stored as JSON, or legacy shapes).
+ */
+export function extractListingsRowsFromSnapshot(
+  snapshot: unknown
+): Record<string, unknown>[] {
+  if (snapshot == null) {
+    return [];
+  }
+  if (Array.isArray(snapshot)) {
+    return snapshot as Record<string, unknown>[];
+  }
+  if (typeof snapshot !== "object") {
+    return [];
+  }
+  const o = snapshot as Record<string, unknown>;
+  for (const k of ["content", "items", "data", "rows", "results"] as const) {
+    const a = o[k];
+    if (Array.isArray(a)) {
+      return a as Record<string, unknown>[];
+    }
+  }
+  return [];
+}
+
+function filterListingsRowsBySearch(
+  rows: Record<string, unknown>[],
+  search: string | undefined
+): Record<string, unknown>[] {
+  const t = search?.trim().toLowerCase();
+  if (!t) {
+    return rows;
+  }
+  return rows.filter((row) => {
+    try {
+      return JSON.stringify(row).toLowerCase().includes(t);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Paginated slice of PO line items (from snapshot rows). Matches Zap list envelope fields.
+ */
+export function paginateOutboundPoLineItemRows(opts: {
+  rows: Record<string, unknown>[];
+  page: number;
+  limit: number;
+}): {
+  total: number;
+  current_page: number;
+  per_page_count: number;
+  curr_page_count: number;
+  content: Record<string, unknown>[];
+} {
+  const { rows, page, limit } = opts;
+  const total = rows.length;
+  const offset = (page - 1) * limit;
+  const content = rows.slice(offset, offset + limit);
+  return {
+    total,
+    current_page: page,
+    per_page_count: limit,
+    curr_page_count: content.length,
+    content,
+  };
+}
+
+/** Build paginated items payload from `listings_snapshot` (used by GET …/purchase-orders/:id/items). */
+export function buildOutboundPoItemsPayloadFromSnapshot(
+  snapshot: unknown,
+  opts: { page: number; limit: number; search?: string }
+): {
+  total: number;
+  current_page: number;
+  per_page_count: number;
+  curr_page_count: number;
+  content: Record<string, unknown>[];
+} {
+  const all = extractListingsRowsFromSnapshot(snapshot);
+  const filtered = filterListingsRowsBySearch(all, opts.search);
+  return paginateOutboundPoLineItemRows({
+    rows: filtered,
+    page: opts.page,
+    limit: opts.limit,
+  });
 }
 
 export type OutboundPoEautomateFileRow = {

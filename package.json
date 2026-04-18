@@ -34,6 +34,8 @@
     "sync:outbound-partial-pos": "tsx scripts/sync-eautomate-outbound-partial-pos.ts",
     "sync:outbound-po-detail": "tsx scripts/sync-eautomate-outbound-po-detail.ts",
     "sync:outbound-consignments": "tsx scripts/sync-eautomate-outbound-consignments.ts",
+    "fetch:outbound-companies": "node scripts/fetch-outbound-companies-directory.mjs",
+    "verify:outbound-companies": "tsx scripts/verify-outbound-companies-directory.ts",
     "sync:grn:details": "tsx scripts/sync-eautomate-grn-details.ts",
     "sync:grn:details:all": "tsx scripts/sync-eautomate-grn-details.ts --all-known-grns",
     "sync:po:details": "tsx scripts/sync-eautomate-po-details.ts",

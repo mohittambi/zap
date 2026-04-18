@@ -75,7 +75,7 @@ The orchestrator does **not** replace individual scripts; it only sequences them
 | 4 | GRN index | `sync:grns:all` | Paginated GRN list → `inbound_grns` |
 | 5 | GRN queues | `sync:grns:pending-audit`, `sync:grns:pending-invoice-collection`, `sync:grns:pending-debit-credit` | Pending subsets + queue tables |
 | 6 | Secondary listings | `sync:secondary-listings` | Paginated secondary listings + per-row detail POSTs (**heavy**) |
-| 7 | Outbound | `sync:outbound-companies`, `sync:outbound-partial-pos`, `sync:outbound-consignments` | Companies, outbound PO partial list, consignments + delivery locations |
+| 7 | Outbound | `sync:outbound-companies`, `sync:outbound-partial-pos`, `sync:outbound-consignments`, `verify:outbound-companies` | Companies, outbound PO partial list, consignments + delivery locations; then DB verification of company-directory rollups (same data as `GET /api/outbound/companies` summary) |
 | 8 | PO line/detail | `sync:po:details:from-db` | For each `(vendor_id, po_id)` in `vendor_purchase_orders`, full PO snapshot (**many calls per PO**) |
 | 9 | GRN deep ingest | `sync:grn:details:all` | For each `grn_id` in `inbound_grns`, full GRN snapshot (**eight calls per GRN**) |
 
@@ -105,7 +105,8 @@ These are **single-entity** or optional flows; run them manually when needed:
 | `--skip-grns` | Skip `sync:grns:all` |
 | `--skip-grns-pending` | Skip the three GRN “pending” syncs |
 | `--skip-secondary` | Skip `sync:secondary-listings` |
-| `--skip-outbound` | Skip outbound companies / partial POs / consignments |
+| `--skip-outbound` | Skip outbound companies / partial POs / consignments (and `verify:outbound-companies`) |
+| `--skip-verify-outbound-companies` | Skip `verify:outbound-companies` only (after outbound syncs; uses `DATABASE_URL`) |
 | `--skip-po-details` | Skip `sync:po:details:from-db` |
 | `--skip-grn-details` | Skip `sync:grn:details:all` |
 
