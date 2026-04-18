@@ -1,5 +1,42 @@
 import { query } from "@/server/db";
 
+function nonEmptyTrimmed(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "object") return null;
+  const s = String(v).trim();
+  return s.length ? s : null;
+}
+
+/**
+ * DB `calculated_po_status` is often null until eAutomate sync fills it.
+ * Fall back to analytics JSON and fulfilment / acknowledgement columns so list UIs are useful.
+ */
+function resolveDisplayedPoStatus(r: Record<string, unknown>): string | null {
+  const direct = nonEmptyTrimmed(r.calculated_po_status);
+  if (direct) return direct.slice(0, 120);
+
+  const aoRaw = r.analytics_object;
+  if (typeof aoRaw === "object" && aoRaw !== null && !Array.isArray(aoRaw)) {
+    const ao = aoRaw as Record<string, unknown>;
+    const fromAo =
+      nonEmptyTrimmed(ao.calculated_po_status) ??
+      nonEmptyTrimmed(ao.po_status) ??
+      nonEmptyTrimmed(ao.status) ??
+      nonEmptyTrimmed(ao.poStatus) ??
+      nonEmptyTrimmed(ao.fulfillment_status) ??
+      nonEmptyTrimmed(ao.po_fulfillment_status);
+    if (fromAo) return fromAo.slice(0, 120);
+  }
+
+  const fulfil = nonEmptyTrimmed(r.po_fulfillment_status);
+  if (fulfil) return fulfil.slice(0, 120);
+
+  const ack = nonEmptyTrimmed(r.po_acknowledgement_status);
+  if (ack) return ack.slice(0, 120);
+
+  return null;
+}
+
 export type OutboundPoRow = {
   id: number;
   sold_via: string | null;
@@ -59,7 +96,7 @@ function rowToApi(r: Record<string, unknown>): OutboundPoRow {
       typeof ls === "object" && ls !== null && !Array.isArray(ls)
         ? (ls as Record<string, unknown>)
         : {},
-    calculated_po_status: r.calculated_po_status as string | null,
+    calculated_po_status: resolveDisplayedPoStatus(r),
     eautomate_synced_at: r.eautomate_synced_at
       ? new Date(r.eautomate_synced_at as string).toISOString()
       : null,
@@ -72,52 +109,65 @@ export async function listOutboundPurchaseOrders(opts: {
   search?: string;
   wipOnly?: boolean;
   partialOnly?: boolean;
+  /** When set, restrict to POs for this marketplace company */
+  companyId?: number;
 }) {
-  const { page, limit, search, wipOnly, partialOnly } = opts;
+  const { page, limit, search, wipOnly, partialOnly, companyId } = opts;
   const offset = (page - 1) * limit;
   const conditions: string[] = [];
   const params: unknown[] = [];
   let p = 1;
 
   if (wipOnly) {
-    conditions.push(`is_wip = $${p}`);
+    /** Match Zap web + mobile display logic (YES/yes, trimming); strict `= 'YES'` misses legacy rows. */
+    conditions.push(`UPPER(TRIM(COALESCE(o.is_wip::text, ''))) = $${p}`);
     params.push("YES");
     p += 1;
   }
 
   if (partialOnly) {
-    conditions.push(`UPPER(TRIM(COALESCE(po_creation_status, ''))) = 'PARTIAL'`);
+    conditions.push(`UPPER(TRIM(COALESCE(o.po_creation_status, ''))) = 'PARTIAL'`);
   }
 
   if (search && search.trim()) {
     const q = `%${search.trim().toLowerCase()}%`;
     if (partialOnly) {
-      conditions.push(`LOWER(po_number) LIKE $${p}`);
+      conditions.push(`LOWER(o.po_number) LIKE $${p}`);
     } else {
       conditions.push(
-        `(LOWER(po_number) LIKE $${p} OR LOWER(COALESCE(company_name,'')) LIKE $${p} OR LOWER(COALESCE(delivery_city,'')) LIKE $${p})`
+        `(LOWER(o.po_number) LIKE $${p} OR LOWER(COALESCE(o.company_name, c.name,'')) LIKE $${p} OR LOWER(COALESCE(o.delivery_city,'')) LIKE $${p})`
       );
     }
     params.push(q);
     p += 1;
   }
 
+  if (companyId != null && Number.isFinite(companyId) && companyId > 0) {
+    conditions.push(`o.company_id = $${p}`);
+    params.push(companyId);
+    p += 1;
+  }
+
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const fromPoJoinCompany = `FROM outbound_purchase_orders o
+     LEFT JOIN companies c ON c.id = o.company_id`;
 
   const countR = await query(
-    `SELECT COUNT(*)::int AS total FROM outbound_purchase_orders ${where}`,
+    `SELECT COUNT(*)::int AS total ${fromPoJoinCompany} ${where}`,
     params
   );
   const total = countR.rows[0].total as number;
 
   const listR = await query(
-    `SELECT id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
-            buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
-            po_acknowledgement_status, po_fulfillment_status, created_by, created_at, updated_at,
-            is_wip, remarks, company_name, analytics_object, calculated_po_status, eautomate_synced_at
-     FROM outbound_purchase_orders
+    `SELECT o.id, o.sold_via, o.company_id, o.po_number, o.delivery_city, o.delivery_address, o.billing_address,
+            o.buyer_gstin, o.po_issue_date, o.expiry_date, o.po_type, o.po_creation_status,
+            o.po_acknowledgement_status, o.po_fulfillment_status, o.created_by, o.created_at, o.updated_at,
+            o.is_wip, o.remarks,
+            COALESCE(o.company_name, c.name) AS company_name,
+            o.analytics_object, o.calculated_po_status, o.eautomate_synced_at
+     ${fromPoJoinCompany}
      ${where}
-     ORDER BY created_at DESC NULLS LAST, id DESC
+     ORDER BY o.created_at DESC NULLS LAST, o.id DESC
      LIMIT $${p} OFFSET $${p + 1}`,
     [...params, limit, offset]
   );
@@ -174,6 +224,127 @@ export async function listOutboundCompaniesForForm(): Promise<OutboundCompanyOpt
     name: row.name != null ? String(row.name) : null,
     description: companyDescriptionFromAttributes(row.attributes),
   }));
+}
+
+export type OutboundCompanyDirectoryRow = {
+  id: number;
+  name: string | null;
+  logo_url: string | null;
+  status: string | null;
+  ack_pending: number;
+  open_pos: number;
+  expired_pos: number;
+  cancelled_pos: number;
+  last_po_at: string | null;
+};
+
+function companyLogoFromAttributes(attributes: unknown): string | null {
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
+    return null;
+  }
+  const att = attributes as Record<string, unknown>;
+  const raw =
+    att.logo_url ?? att.logoUrl ?? att.logo ?? att.company_logo_url ?? att.companyLogoUrl;
+  if (raw == null || typeof raw !== "string") return null;
+  const t = raw.trim();
+  return t.length ? t : null;
+}
+
+/** Paginated companies + PO rollups — used by mobile Outbound journey (All Companies). */
+export async function listOutboundCompaniesPaginated(opts: {
+  page: number;
+  limit: number;
+  search?: string;
+}): Promise<{
+  total: number;
+  current_page: number;
+  per_page_count: number;
+  curr_page_count: number;
+  content: OutboundCompanyDirectoryRow[];
+}> {
+  const { page, limit } = opts;
+  const offset = (page - 1) * limit;
+  /** Include inactive rows if they still have outbound POs (web PO lists show those POs). */
+  const conditions: string[] = [
+    "(COALESCE(c.is_active, 1) = 1 OR EXISTS (SELECT 1 FROM outbound_purchase_orders o2 WHERE o2.company_id = c.id))",
+  ];
+  const params: unknown[] = [];
+  let p = 1;
+
+  if (opts.search && opts.search.trim()) {
+    const q = `%${opts.search.trim().toLowerCase()}%`;
+    conditions.push(
+      `(LOWER(c.name) LIKE $${p} OR CAST(c.id AS TEXT) LIKE $${p} OR LOWER(COALESCE(c.code_primary,'')) LIKE $${p})`
+    );
+    params.push(q);
+    p += 1;
+  }
+
+  const whereSql = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const countR = await query(`SELECT COUNT(*)::int AS n FROM companies c ${whereSql}`, params);
+  const total = countR.rows[0].n as number;
+
+  const listR = await query(
+    `SELECT
+       c.id,
+       c.name,
+       c.attributes,
+       MAX(o.updated_at) AS last_po_at,
+       COUNT(o.id) FILTER (
+         WHERE (o.expiry_date IS NULL OR o.expiry_date >= NOW())
+           AND COALESCE(UPPER(TRIM(o.calculated_po_status)), '') NOT IN (
+             'EXPIRED', 'CANCELLED', 'CLOSED', 'COMPLETED', 'DELIVERED', 'CANCEL'
+           )
+           AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%expir%')
+           AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%cancel%')
+           AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%clos%')
+           AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%complet%')
+           AND NOT (COALESCE(o.calculated_po_status, '') ILIKE '%deliver%')
+       )::int AS open_pos,
+       COUNT(o.id) FILTER (
+         WHERE o.expiry_date IS NOT NULL AND o.expiry_date < NOW()
+       )::int AS expired_pos,
+       COUNT(o.id) FILTER (
+         WHERE COALESCE(o.calculated_po_status, '') ILIKE '%CANCEL%'
+            OR COALESCE(UPPER(TRIM(o.calculated_po_status)), '') IN ('CANCELLED', 'CANCEL')
+       )::int AS cancelled_pos,
+       COUNT(o.id) FILTER (
+         WHERE COALESCE(o.po_acknowledgement_status, '') ILIKE '%PENDING%'
+            OR UPPER(TRIM(COALESCE(o.po_acknowledgement_status, ''))) IN ('NO', 'N', 'UNACK', 'PENDING')
+       )::int AS ack_pending
+     FROM companies c
+     LEFT JOIN outbound_purchase_orders o ON o.company_id = c.id
+     ${whereSql}
+     GROUP BY c.id, c.name, c.attributes
+     ORDER BY c.name NULLS LAST, c.id ASC
+     LIMIT $${p} OFFSET $${p + 1}`,
+    [...params, limit, offset]
+  );
+
+  const content: OutboundCompanyDirectoryRow[] = listR.rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    const attr = r.attributes;
+    return {
+      id: Number(r.id),
+      name: r.name != null ? String(r.name) : null,
+      logo_url: companyLogoFromAttributes(attr),
+      status: null,
+      ack_pending: Number(r.ack_pending) || 0,
+      open_pos: Number(r.open_pos) || 0,
+      expired_pos: Number(r.expired_pos) || 0,
+      cancelled_pos: Number(r.cancelled_pos) || 0,
+      last_po_at: r.last_po_at != null ? new Date(r.last_po_at as string).toISOString() : null,
+    };
+  });
+
+  return {
+    total,
+    current_page: page,
+    per_page_count: limit,
+    curr_page_count: content.length,
+    content,
+  };
 }
 
 export async function createOutboundPurchaseOrderRow(input: {

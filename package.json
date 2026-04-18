@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:fresh": "next build && next start",
     "lint": "eslint",
     "migrate": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/run_migrations.sh', { env: process.env, stdio: 'inherit', cwd: process.cwd() })\"",
     "seed": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/run_seed_local.sh seeds/001_rbac_seed.sql', { env: process.env, stdio: 'inherit' })\"",

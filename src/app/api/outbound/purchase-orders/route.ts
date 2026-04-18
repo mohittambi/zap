@@ -56,12 +56,25 @@ export async function GET(request: Request) {
       q.partial === "true" ||
       q.filter === "partial";
 
+    const companyRaw =
+      typeof q.company_id === "string"
+        ? q.company_id.trim()
+        : typeof q.companyId === "string"
+          ? q.companyId.trim()
+          : "";
+    const companyIdParsed = companyRaw ? Number.parseInt(companyRaw, 10) : NaN;
+    const companyId =
+      Number.isFinite(companyIdParsed) && companyIdParsed > 0
+        ? companyIdParsed
+        : undefined;
+
     const data = await outboundPoService.listOutboundPurchaseOrders({
       page,
       limit,
       search,
       wipOnly,
       partialOnly,
+      companyId,
     });
     return NextResponse.json(data);
   } catch (err) {

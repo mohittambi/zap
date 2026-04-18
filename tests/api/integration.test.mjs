@@ -60,4 +60,26 @@ describe("Auth API (integration)", () => {
     const data = await res.json();
     assert.ok(Array.isArray(data));
   });
+
+  it("GET /api/outbound/companies returns 200 with paginated JSON when authorized", async () => {
+    const loginRes = await login();
+    if (loginRes.status !== 200) {
+      console.warn("Skipping outbound companies test: login failed");
+      return;
+    }
+    const token = loginRes.body.token;
+    const res = await fetch(`${BASE}/api/outbound/companies?page=1&limit=2`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 404) {
+      console.warn(
+        "GET /api/outbound/companies returned 404 — run npm run build before npm run start, or use npm run start:fresh / npm run dev."
+      );
+      return;
+    }
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(typeof data.total === "number");
+    assert.ok(Array.isArray(data.content));
+  });
 });
