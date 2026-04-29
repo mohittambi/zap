@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -66,12 +67,23 @@ function AlertDialogFooter({ className, children, ...props }: React.ComponentPro
 function AlertDialogCancel({
   className,
   children,
+  disabled,
   ...props
 }: React.ComponentProps<typeof Button>) {
   return (
-    <Button variant="outline" className={className} {...props}>
+    <DialogClose
+      render={
+        <Button
+          variant="outline"
+          className={className}
+          disabled={disabled}
+          type="button"
+          {...props}
+        />
+      }
+    >
       {children ?? "Cancel"}
-    </Button>
+    </DialogClose>
   );
 }
 

@@ -153,7 +153,7 @@ export async function listVendorPurchaseOrdersAll(opts) {
 }
 
 /**
- * Paginated list across all vendors (optional vendor_id filter). Same JSON shape as eautomate with_filters.
+ * Paginated list across all vendors (optional `filterVendorIds`). Same JSON shape as eautomate with_filters.
  */
 export async function listAllPurchaseOrdersWithFilters(opts) {
   const page = Math.max(1, Number(opts.page) || 1);
@@ -161,16 +161,19 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
   const offset = (page - 1) * perPage;
   const kw = str(opts.searchKeyword);
 
-  let vendorFilter = null;
-  if (opts.vendorId != null && opts.vendorId !== "") {
-    const v = Number(opts.vendorId);
-    if (!Number.isFinite(v) || v < 1) {
-      throw new AppError("Invalid vendor_id", 400);
-    }
-    vendorFilter = v;
-    const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vendorFilter]);
-    if (vCheck.rows.length === 0) {
-      throw new AppError("Vendor not found", 404);
+  /** Non-empty finite vendor ids (>0), deduped. */
+  let filterVendorIds = null;
+  const rawVid = opts.filterVendorIds;
+  if (Array.isArray(rawVid) && rawVid.length > 0) {
+    const ids = [
+      ...new Set(
+        rawVid
+          .map(Number)
+          .filter((n) => Number.isFinite(n) && n >= 1)
+      ),
+    ].sort((a, b) => a - b);
+    if (ids.length > 0) {
+      filterVendorIds = ids;
     }
   }
 
@@ -178,9 +181,9 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
   const params = [];
   let p = 1;
 
-  if (vendorFilter != null) {
-    conditions.push(`po.vendor_id = $${p}`);
-    params.push(vendorFilter);
+  if (filterVendorIds != null && filterVendorIds.length > 0) {
+    conditions.push(`po.vendor_id = ANY($${p}::bigint[])`);
+    params.push(filterVendorIds);
     p += 1;
   }
 
@@ -194,6 +197,13 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
       OR LOWER(COALESCE(po.po_remarks, '')) LIKE $${p}
     )`);
     params.push(likeParam);
+    p += 1;
+  }
+
+  const fp = str(opts.filterPoId ?? "");
+  if (fp) {
+    conditions.push(`CAST(po.po_id AS TEXT) ILIKE $${p}`);
+    params.push(`%${fp.toLowerCase()}%`);
     p += 1;
   }
 

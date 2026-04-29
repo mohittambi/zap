@@ -22,9 +22,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import { ChevronDown, Download } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 type PoRow = {
   po_id: number;
@@ -61,6 +70,112 @@ type VendorOpt = {
   vendor_name: string;
 };
 
+type ColumnMultiSelectProps = {
+  readonly options: readonly { id: number; label: string }[];
+  readonly selected: ReadonlySet<number>;
+  readonly onToggle: (id: number) => void;
+  readonly onClear: () => void;
+  readonly placeholder: string;
+  readonly ariaLabel: string;
+};
+
+function ColumnMultiSelect({
+  options,
+  selected,
+  onToggle,
+  onClear,
+  placeholder,
+  ariaLabel,
+}: ColumnMultiSelectProps) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
+
+  React.useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+
+  const filtered = React.useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return options.slice();
+    return options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(needle) ||
+        String(o.id).toLowerCase().includes(needle)
+    );
+  }, [options, q]);
+
+  const label =
+    selected.size > 0
+      ? `${selected.size} selected`
+      : placeholder;
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        type="button"
+        aria-label={ariaLabel}
+        className="border-input bg-background hover:bg-accent/50 ring-offset-background focus-visible:ring-ring flex h-8 w-full items-center gap-1.5 rounded-md border px-2 text-left font-normal text-xs focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronDown className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        className="max-w-[min(320px,calc(100vw-2rem))] min-w-[200px] p-2"
+      >
+        <div
+          className="px-0 pb-2"
+          onPointerDown={(e) => {
+            /* keep menu open while interacting with search */
+            e.preventDefault();
+          }}
+        >
+          <Input
+            aria-label={`${ariaLabel} search`}
+            className="h-8 text-xs"
+            placeholder="Search…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="max-h-[min(240px,40vh)] overflow-y-auto pr-1">
+          <DropdownMenuGroup>
+            {filtered.length === 0 ? (
+              <div className="text-muted-foreground px-1.5 py-2 text-xs">
+                No matches
+              </div>
+            ) : (
+              filtered.map((opt) => (
+                <DropdownMenuCheckboxItem
+                  key={opt.id}
+                  checked={selected.has(opt.id)}
+                  onCheckedChange={() => {
+                    onToggle(opt.id);
+                  }}
+                  inset
+                  className="cursor-pointer text-xs"
+                >
+                  {opt.label}
+                </DropdownMenuCheckboxItem>
+              ))
+            )}
+          </DropdownMenuGroup>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-muted-foreground justify-center text-xs font-normal"
+          onClick={() => {
+            onClear();
+          }}
+        >
+          Clear
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
   month: "short",
@@ -92,6 +207,7 @@ function parseExpectedDateOnly(s: string | null): Date | null {
   );
 }
 
+/** Expiry: today … today+5 (inclusive) = "soon"; before today = expired; after = ok. */
 function expiryTone(
   expected: string | null
 ): "expired" | "soon" | "ok" | "unknown" {
@@ -103,12 +219,84 @@ function expiryTone(
     now.getMonth(),
     now.getDate()
   );
-  const endSoon = new Date(startToday);
-  endSoon.setDate(endSoon.getDate() + 5);
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  if (day < startToday) return "expired";
-  if (day < endSoon) return "soon";
+  const lastSoonDay = new Date(startToday);
+  lastSoonDay.setDate(lastSoonDay.getDate() + 5);
+  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const t0 = startToday.getTime();
+  const t1 = lastSoonDay.getTime();
+  if (day < t0) return "expired";
+  if (day <= t1) return "soon";
   return "ok";
+}
+
+const expiryDayFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function formatExpiryDateDisplay(raw: string | null): string {
+  const d = parseExpectedDateOnly(raw);
+  if (!d || Number.isNaN(d.getTime())) return raw ?? "—";
+  return expiryDayFormatter.format(d);
+}
+
+function csvEscape(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function rowsToCsv(rows: PoRow[]): string {
+  const headers = [
+    "po_id",
+    "vendor_id",
+    "vendor_name",
+    "expected_date",
+    "status",
+    "sku_count",
+    "total_quantity",
+    "number_of_grns",
+    "sku_fill_rate",
+    "quantity_fill_rate",
+    "po_remarks",
+    "created_at",
+    "updated_at",
+  ];
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(
+      [
+        row.po_id,
+        row.vendor_id,
+        row.vendor_name,
+        row.expected_date,
+        row.status,
+        row.sku_count,
+        row.total_quantity,
+        row.number_of_grns,
+        row.sku_fill_rate,
+        row.quantity_fill_rate,
+        row.po_remarks,
+        row.created_at,
+        row.updated_at,
+      ]
+        .map(csvEscape)
+        .join(",")
+    );
+  }
+  return lines.join("\n");
+}
+
+function downloadSelectedCsv(rows: PoRow[]): void {
+  const csv = rowsToCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `purchase_orders_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function displayPoStatus(status: string | null): string {
@@ -127,8 +315,12 @@ export default function InboundPurchaseOrdersPage() {
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
-  const [vendorFilter, setVendorFilter] = React.useState("");
-  const [vendorApplied, setVendorApplied] = React.useState("");
+  const [poIdColDraft, setPoIdColDraft] = React.useState("");
+  const [poIdColApplied, setPoIdColApplied] = React.useState("");
+  const [appliedVendorIds, setAppliedVendorIds] = React.useState<number[]>([]);
+  const [selectedPoIds, setSelectedPoIds] = React.useState<Set<number>>(
+    () => new Set()
+  );
   const [data, setData] = React.useState<PoListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -155,8 +347,11 @@ export default function InboundPurchaseOrdersPage() {
         count: "50",
         search_keyword: searchApplied,
       });
-      if (vendorApplied.trim()) {
-        q.set("vendor_id", vendorApplied.trim());
+      if (appliedVendorIds.length > 0) {
+        q.set("vendor_ids", [...appliedVendorIds].sort((a, b) => a - b).join(","));
+      }
+      if (poIdColApplied.trim()) {
+        q.set("po_id_filter", poIdColApplied.trim());
       }
       const res = await apiFetch<PoListResponse>(
         `/api/inbound/purchase-orders?${q}`
@@ -168,17 +363,120 @@ export default function InboundPurchaseOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchApplied, vendorApplied]);
+  }, [page, searchApplied, appliedVendorIds, poIdColApplied]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
+  const clearSelection = React.useCallback(() => {
+    setSelectedPoIds(new Set());
+  }, []);
+
+  React.useEffect(() => {
+    clearSelection();
+  }, [page, searchApplied, appliedVendorIds, poIdColApplied, clearSelection]);
+
+  const appliedVendorSet = React.useMemo(
+    () => new Set(appliedVendorIds),
+    [appliedVendorIds]
+  );
+
+  const vendorIdOptions = React.useMemo(
+    () => vendors.map((v) => ({ id: v.id, label: String(v.id) })),
+    [vendors]
+  );
+
+  const vendorNameOptions = React.useMemo(
+    () =>
+      vendors.map((v) => ({
+        id: v.id,
+        label: v.vendor_name?.trim() ? v.vendor_name : String(v.id),
+      })),
+    [vendors]
+  );
+
+  const toggleAppliedVendor = React.useCallback((id: number) => {
+    setPage(1);
+    setAppliedVendorIds((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return [...s].sort((a, b) => a - b);
+    });
+  }, []);
+
+  const clearAppliedVendors = React.useCallback(() => {
+    setPage(1);
+    setAppliedVendorIds([]);
+  }, []);
+
   const applyFilters = () => {
     setPage(1);
     setSearchApplied(searchDraft);
-    setVendorApplied(vendorFilter);
+    setPoIdColApplied(poIdColDraft.trim());
   };
+
+  const selectedRows = React.useMemo(() => {
+    if (!data?.content.length) return [];
+    return data.content.filter((r) => selectedPoIds.has(r.po_id));
+  }, [data, selectedPoIds]);
+
+  const rows = data?.content;
+  const allPageSelected =
+    Array.isArray(rows) &&
+    rows.length > 0 &&
+    rows.every((r) => selectedPoIds.has(r.po_id));
+
+  const somePageSelected =
+    Array.isArray(rows) &&
+    rows.length > 0 &&
+    rows.some((r) => selectedPoIds.has(r.po_id));
+
+  function togglePo(poId: number, checked: boolean) {
+    setSelectedPoIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(poId);
+      else next.delete(poId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPage() {
+    if (!data?.content.length) return;
+    if (allPageSelected) {
+      setSelectedPoIds((prev) => {
+        const next = new Set(prev);
+        for (const r of data.content) next.delete(r.po_id);
+        return next;
+      });
+    } else {
+      setSelectedPoIds((prev) => {
+        const next = new Set(prev);
+        for (const r of data.content) next.add(r.po_id);
+        return next;
+      });
+    }
+  }
+
+  function handleDownloadSelected() {
+    if (selectedRows.length === 0) {
+      toast.error("Select at least one purchase order");
+      return;
+    }
+    downloadSelectedCsv(selectedRows);
+    toast.success(`Downloaded ${selectedRows.length} row(s)`);
+  }
+
+  const headerSelectRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const el = headerSelectRef.current;
+    if (el) {
+      el.indeterminate =
+        Boolean(somePageSelected) && Boolean(data?.content.length) && !allPageSelected;
+    }
+  }, [somePageSelected, allPageSelected, data?.content.length]);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 px-2 py-4 md:px-4">
@@ -187,23 +485,40 @@ export default function InboundPurchaseOrdersPage() {
           title="Purchase Orders"
           description="All inbound purchase orders across vendors. Filter by vendor or search."
         />
-        <div className="flex flex-wrap items-center gap-4 text-xs sm:justify-end">
-          <div className="text-muted-foreground flex items-center gap-3">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1.5">
               <span
-                className="inline-block size-2.5 rounded-sm bg-destructive"
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-destructive"
                 aria-hidden
               />
               Expired
             </span>
             <span className="flex items-center gap-1.5">
               <span
-                className="inline-block size-2.5 rounded-sm bg-amber-500"
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-amber-500"
                 aria-hidden
               />
               Expiring in the next 5 days
             </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-emerald-500"
+                aria-hidden
+              />
+              On track
+            </span>
           </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0 gap-2"
+            disabled={selectedRows.length === 0}
+            onClick={handleDownloadSelected}
+          >
+            <Download className="h-4 w-4" />
+            Download Purchase Orders Data
+          </Button>
         </div>
       </div>
 
@@ -227,27 +542,6 @@ export default function InboundPurchaseOrdersPage() {
                 }}
               />
             </div>
-            <div className="flex min-w-[200px] flex-col gap-2 sm:max-w-xs">
-              <Label
-                htmlFor="po-vendor-filter"
-                className="text-muted-foreground text-xs font-medium"
-              >
-                Vendor
-              </Label>
-              <select
-                id="po-vendor-filter"
-                className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                value={vendorFilter}
-                onChange={(e) => setVendorFilter(e.target.value)}
-              >
-                <option value="">All vendors</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={String(v.id)}>
-                    {v.vendor_name ?? v.id} ({v.id})
-                  </option>
-                ))}
-              </select>
-            </div>
             <Button type="button" variant="secondary" onClick={applyFilters}>
               Apply
             </Button>
@@ -259,26 +553,20 @@ export default function InboundPurchaseOrdersPage() {
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 px-4 py-6">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : null}
-          {!loading && (!data || data.content.length === 0) ? (
-            <div className="px-4 py-8">
-              <EmptyState
-                title="No purchase orders"
-                description="Run vendor PO sync (npm run sync:vendor-pos:all) or create POs from a vendor under Inbound → Vendors."
-              />
-            </div>
-          ) : null}
-          {!loading && data && data.content.length > 0 ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                   <TableRow className="bg-muted/60 hover:bg-muted/60">
-                    <TableHead className="w-10" />
+                    <TableHead className="w-10 p-2">
+                      <input
+                        ref={headerSelectRef}
+                        type="checkbox"
+                        className="border-input size-4 rounded"
+                        checked={allPageSelected}
+                        onChange={() => toggleSelectAllPage()}
+                        aria-label="Select all POs on this page"
+                      />
+                    </TableHead>
                     <TableHead className="whitespace-nowrap">PO Id</TableHead>
                     <TableHead className="whitespace-nowrap">Vendor Id</TableHead>
                     <TableHead className="min-w-[140px]">Vendor Name</TableHead>
@@ -303,9 +591,71 @@ export default function InboundPurchaseOrdersPage() {
                     <TableHead className="whitespace-nowrap">Updated</TableHead>
                     <TableHead>Created By</TableHead>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.content.map((row, idx) => {
+                  <TableRow className="bg-muted/40 border-b">
+                    <TableHead className="p-1" />
+                    <TableHead className="min-w-[88px] p-1">
+                      <Input
+                        className="h-8 text-xs"
+                        placeholder="Filter…"
+                        value={poIdColDraft}
+                        onChange={(e) => setPoIdColDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") applyFilters();
+                        }}
+                        aria-label="Filter by PO id"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[112px] p-1">
+                      <ColumnMultiSelect
+                        options={vendorIdOptions}
+                        selected={appliedVendorSet}
+                        onToggle={toggleAppliedVendor}
+                        onClear={clearAppliedVendors}
+                        placeholder="All vendors"
+                        ariaLabel="Filter by vendor id"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[144px] p-1">
+                      <ColumnMultiSelect
+                        options={vendorNameOptions}
+                        selected={appliedVendorSet}
+                        onToggle={toggleAppliedVendor}
+                        onClear={clearAppliedVendors}
+                        placeholder="All vendors"
+                        ariaLabel="Filter by vendor name"
+                      />
+                    </TableHead>
+                    <TableHead
+                      colSpan={16}
+                      className="text-muted-foreground p-2 text-left align-bottom text-[10px] font-normal"
+                    >
+                      Vendor filters apply immediately when you toggle; PO id and
+                      global Search use <strong>Apply</strong>.
+                    </TableHead>
+                  </TableRow>
+              </TableHeader>
+              <TableBody>
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 20 }).map((__, j) => (
+                          <TableCell key={j} className="py-2">
+                            <Skeleton className="h-5 w-full" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : !data || data.content.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={20}
+                        className="text-muted-foreground py-10 text-center text-sm"
+                      >
+                        No purchase orders match the current filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {!loading && data && data.content.map((row, idx) => {
                     const tone = expiryTone(row.expected_date);
                     const grnDone = row.number_of_grns > 0;
                     return (
@@ -320,7 +670,10 @@ export default function InboundPurchaseOrdersPage() {
                           <input
                             type="checkbox"
                             className="border-input size-4 rounded"
-                            disabled
+                            checked={selectedPoIds.has(row.po_id)}
+                            onChange={(e) =>
+                              togglePo(row.po_id, e.target.checked)
+                            }
                             aria-label={`Select PO ${row.po_id}`}
                           />
                         </TableCell>
@@ -396,10 +749,16 @@ export default function InboundPurchaseOrdersPage() {
                           className={cn(
                             "whitespace-nowrap text-xs font-medium",
                             tone === "expired" && "text-destructive",
-                            tone === "soon" && "text-amber-600 dark:text-amber-400"
+                            tone === "soon" &&
+                              "text-amber-600 dark:text-amber-400",
+                            tone === "ok" &&
+                              "text-emerald-600 dark:text-emerald-400",
+                            tone === "unknown" && "text-muted-foreground"
                           )}
                         >
-                          {row.expected_date ?? "—"}
+                          {row.expected_date
+                            ? formatExpiryDateDisplay(row.expected_date)
+                            : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatDisplayDateTime(row.updated_at)}
@@ -413,10 +772,9 @@ export default function InboundPurchaseOrdersPage() {
                       </TableRow>
                     );
                   })}
-                </TableBody>
-              </Table>
-            </div>
-          ) : null}
+              </TableBody>
+            </Table>
+          </div>
           {data && data.total > 0 ? (
             <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-xs">
               <span>
