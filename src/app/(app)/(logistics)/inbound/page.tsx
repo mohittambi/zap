@@ -22,6 +22,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -59,6 +69,7 @@ export default function InboundVendorsPage() {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("vendors", "create");
+  const canDelete = hasPermission("vendors", "delete");
 
   const [rows, setRows] = React.useState<Vendor[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -75,6 +86,9 @@ export default function InboundVendorsPage() {
   const [formPostal, setFormPostal] = React.useState("");
   const [formGstin, setFormGstin] = React.useState("");
   const [formPhone, setFormPhone] = React.useState("");
+
+  const [deleteTarget, setDeleteTarget] = React.useState<Vendor | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -107,6 +121,21 @@ export default function InboundVendorsPage() {
     setFormPostal("");
     setFormGstin("");
     setFormPhone("");
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/vendors/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success(`Vendor "${deleteTarget.vendor_name}" deleted`);
+      setDeleteTarget(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function submitCreate() {
@@ -197,7 +226,7 @@ export default function InboundVendorsPage() {
             <div className="px-6 py-8">
               <EmptyState
                 title="No vendors"
-                description="Sync from eautomate, seed the database, or add a vendor."
+                description="Run vendor sync, seed the database, or add a vendor."
               />
             </div>
           ) : filtered.length === 0 ? (
@@ -216,6 +245,7 @@ export default function InboundVendorsPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>City</TableHead>
                     <TableHead className="hidden md:table-cell">GSTIN</TableHead>
+                    {canDelete ? <TableHead className="w-20" /> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -236,6 +266,18 @@ export default function InboundVendorsPage() {
                       <TableCell className="hidden font-mono text-xs md:table-cell">
                         {v.vendor_gstin ?? "—"}
                       </TableCell>
+                      {canDelete ? (
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive h-7 px-2 text-xs"
+                            onClick={() => setDeleteTarget(v)}
+                          >
+                            Delete
+                          </Button>
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -244,6 +286,28 @@ export default function InboundVendorsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.vendor_name}</strong> (ID {deleteTarget?.id}).
+              This cannot be undone. Vendors with existing purchase orders cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={createOpen}

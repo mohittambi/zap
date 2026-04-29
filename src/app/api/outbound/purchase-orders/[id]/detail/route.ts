@@ -6,6 +6,7 @@ import { eautomateConfigured } from "@/server/eautomate-proxy";
 import { outboundPoFileDownloadConfigured } from "@/server/eautomate-outbound-po-files";
 import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
+import { isZapStorageConfigured } from "@/server/zapStorage";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -47,6 +48,10 @@ export async function GET(request: Request, context: Ctx) {
         ? po.listings_snapshot
         : {};
 
+    const legacyRemote =
+      eautomateConfigured() && outboundPoFileDownloadConfigured();
+    const zapOk = isZapStorageConfigured();
+
     return NextResponse.json({
       po,
       listings,
@@ -54,6 +59,11 @@ export async function GET(request: Request, context: Ctx) {
       zapAttachments,
       sync: syncResult,
       eautomateDownloadConfigured: outboundPoFileDownloadConfigured(),
+      zapStorageConfigured: zapOk,
+      /** True when at least one download path can work (Zap Storage or legacy remote template). */
+      poFileDownloadEnabled: zapOk || legacyRemote,
+      /** Legacy upstream file fetch (requires sync credentials + URL template). */
+      legacyOutboundFileFetchEnabled: legacyRemote,
     });
   } catch (err) {
     return handleApiError(err);

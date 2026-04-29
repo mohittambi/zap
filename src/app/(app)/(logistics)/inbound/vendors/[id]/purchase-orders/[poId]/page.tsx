@@ -4,7 +4,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   FileText,
@@ -14,7 +14,7 @@ import {
   Download,
   Plus,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -27,6 +27,23 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -172,10 +189,6 @@ function statusClosedClass(s: string | null | undefined): string {
   return "";
 }
 
-function notInEautomate() {
-  toast.message("This action is only available in eautomate.");
-}
-
 function grnIdFromRow(g: PoGrnRow): number | null {
   if (g.grn_id != null && Number.isFinite(Number(g.grn_id))) return Number(g.grn_id);
   const p = pick(g.raw, ["grn_id", "grnId"]);
@@ -186,10 +199,31 @@ function grnIdFromRow(g: PoGrnRow): number | null {
 
 export default function InboundPoDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const vendorId = typeof params.id === "string" ? params.id : "";
   const poId = typeof params.poId === "string" ? params.poId : "";
   const [bundle, setBundle] = React.useState<PoDetailBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [modifyOpen, setModifyOpen] = React.useState(false);
+  const [modifyNotes, setModifyNotes] = React.useState("");
+  const [cancelOpen, setCancelOpen] = React.useState(false);
+  const [actionBusy, setActionBusy] = React.useState(false);
+
+  const reloadBundle = React.useCallback(async () => {
+    if (!vendorId || !poId) return;
+    setLoading(true);
+    try {
+      const data = await apiFetch<PoDetailBundle>(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details?refresh=1`
+      );
+      setBundle(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load PO");
+      setBundle(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [vendorId, poId]);
 
   React.useEffect(() => {
     if (!vendorId || !poId) {
@@ -217,6 +251,117 @@ export default function InboundPoDetailPage() {
       c = true;
     };
   }, [vendorId, poId]);
+
+  const downloadPdf = async () => {
+    setActionBusy(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/document`
+        ),
+        { headers }
+      );
+      if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `po-${poId}-document.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PDF download started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const downloadGrnReport = async () => {
+    setActionBusy(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/grn-report`
+        ),
+        { headers }
+      );
+      if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `po-${poId}-grn-report.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV download started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openModify = () => {
+    const raw = bundle?.snapshot?.po_raw as Record<string, unknown> | undefined;
+    const n = raw?.zap_notes;
+    setModifyNotes(typeof n === "string" ? n : "");
+    setModifyOpen(true);
+  };
+
+  const saveModify = async () => {
+    const notes = modifyNotes.trim();
+    if (!notes) {
+      toast.error("Notes are required");
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await apiFetch(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/modify`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ zap_notes: notes }),
+        }
+      );
+      toast.success("PO notes saved");
+      setModifyOpen(false);
+      await reloadBundle();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const confirmCancel = async () => {
+    setActionBusy(true);
+    try {
+      await apiFetch(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/cancel`,
+        { method: "PATCH" }
+      );
+      toast.success("PO marked cancelled in Zap");
+      setCancelOpen(false);
+      await reloadBundle();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cancel failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openNewGrn = () => {
+    router.push(
+      `/inbound/grns/new?vendor_id=${encodeURIComponent(vendorId)}&po_id=${encodeURIComponent(poId)}`
+    );
+  };
 
   const snap = bundle?.snapshot;
   const poRaw = snap?.po_raw ?? {};
@@ -290,7 +435,7 @@ export default function InboundPoDetailPage() {
 
       <AppPageTitle
         title={loading ? "Purchase order" : `PO ${poId}`}
-        description="Synced from eautomate into the PO detail cache."
+        description="Purchase order detail cached in Zap from the sync pipeline."
       />
 
       {loading ? (
@@ -302,9 +447,8 @@ export default function InboundPoDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Not found</CardTitle>
             <CardDescription>
-              Could not load this PO. Check vendor id and PO id, eautomate
-              credentials, and run npm run sync:po:details with --vendor and
-              --po.
+              Could not load this PO. Check vendor id and PO id, sync credentials in .env.local,
+              and run npm run sync:po:details with --vendor and --po.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -371,7 +515,8 @@ export default function InboundPoDetailPage() {
               type="button"
               variant="secondary"
               className="gap-2"
-              onClick={notInEautomate}
+              disabled={actionBusy}
+              onClick={() => void downloadPdf()}
             >
               <FileText className="size-4" />
               Generate PO document
@@ -380,7 +525,8 @@ export default function InboundPoDetailPage() {
               type="button"
               variant="default"
               className="gap-2"
-              onClick={notInEautomate}
+              disabled={actionBusy}
+              onClick={openModify}
             >
               <Pencil className="size-4" />
               Modify PO
@@ -389,7 +535,8 @@ export default function InboundPoDetailPage() {
               type="button"
               variant="default"
               className="gap-2"
-              onClick={notInEautomate}
+              disabled={actionBusy}
+              onClick={() => setCancelOpen(true)}
             >
               <XCircle className="size-4" />
               Cancel PO
@@ -562,7 +709,8 @@ export default function InboundPoDetailPage() {
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  onClick={notInEautomate}
+                  disabled={actionBusy}
+                  onClick={openNewGrn}
                 >
                   <Plus className="size-3.5" />
                   Open new GRN
@@ -572,7 +720,8 @@ export default function InboundPoDetailPage() {
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  onClick={notInEautomate}
+                  disabled={actionBusy}
+                  onClick={() => void downloadGrnReport()}
                 >
                   <Download className="size-3.5" />
                   Download GRN report
@@ -652,6 +801,60 @@ export default function InboundPoDetailPage() {
               Detail cache synced at {formatDt(snap.synced_at)}
             </p>
           ) : null}
+
+          <Dialog open={modifyOpen} onOpenChange={setModifyOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Modify PO (Zap notes)</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2 py-2">
+                <p className="text-muted-foreground text-xs">
+                  Internal notes stored on the PO snapshot in Zap (does not change vendor master data).
+                </p>
+                <textarea
+                  value={modifyNotes}
+                  onChange={(e) => setModifyNotes(e.target.value)}
+                  placeholder="Notes"
+                  className={cn(
+                    "border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring",
+                    "flex min-h-[120px] w-full rounded-md border px-3 py-2 text-sm shadow-sm",
+                    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  )}
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setModifyOpen(false)}>
+                  Close
+                </Button>
+                <Button type="button" disabled={actionBusy} onClick={() => void saveModify()}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel this PO in Zap?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This marks the PO as cancelled in the Zap snapshot (zap_status). It does not cancel the order in any external system.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={actionBusy}>Back</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={actionBusy}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmCancel();
+                  }}
+                >
+                  Confirm cancel
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       ) : null}
     </div>

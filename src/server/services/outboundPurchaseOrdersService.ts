@@ -1,4 +1,5 @@
 import { query } from "@/server/db";
+import { AppError } from "@/server/errors";
 
 function nonEmptyTrimmed(v: unknown): string | null {
   if (v == null) return null;
@@ -624,13 +625,14 @@ export type OutboundPoEautomateFileRow = {
   file_uploaded_by: string | null;
   created_at: string | null;
   file_type: string | null;
+  zap_storage_path: string | null;
 };
 
 export async function listOutboundPoEautomateFiles(
   outboundPoId: number
 ): Promise<OutboundPoEautomateFileRow[]> {
   const r = await query(
-    `SELECT eautomate_file_id, file_name, file_uploaded_by, created_at, file_type
+    `SELECT eautomate_file_id, file_name, file_uploaded_by, created_at, file_type, zap_storage_path
      FROM outbound_po_eautomate_files
      WHERE outbound_po_id = $1
      ORDER BY eautomate_file_id ASC`,
@@ -645,7 +647,51 @@ export async function listOutboundPoEautomateFiles(
       ? new Date(row.created_at as string).toISOString()
       : null,
     file_type: row.file_type != null ? String(row.file_type) : null,
+    zap_storage_path:
+      row.zap_storage_path != null ? String(row.zap_storage_path) : null,
   }));
+}
+
+/** Zap-uploaded file (negative eautomate_file_id key space). */
+export async function insertOutboundPoZapStoredFile(
+  outboundPoId: number,
+  opts: {
+    file_name: string;
+    zap_storage_path: string;
+    uploaded_by: string | null;
+  }
+): Promise<number> {
+  const po = await query(
+    `SELECT po_number FROM outbound_purchase_orders WHERE id = $1`,
+    [outboundPoId]
+  );
+  if (po.rows.length === 0) throw new AppError("Outbound PO not found", 404);
+  const po_number = String(po.rows[0].po_number);
+
+  const negR = await query(
+    `SELECT COALESCE(MIN(eautomate_file_id), 0) - 1 AS next_id
+     FROM outbound_po_eautomate_files
+     WHERE outbound_po_id = $1 AND eautomate_file_id < 0`,
+    [outboundPoId]
+  );
+  const fid = Number(negR.rows[0].next_id);
+
+  await query(
+    `INSERT INTO outbound_po_eautomate_files (
+      eautomate_file_id, outbound_po_id, po_number, file_name, zap_storage_path,
+      file_uploaded_by, created_at, updated_at, raw
+    ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW(), $7::jsonb)`,
+    [
+      fid,
+      outboundPoId,
+      po_number.slice(0, 80),
+      opts.file_name.slice(0, 500),
+      opts.zap_storage_path,
+      opts.uploaded_by,
+      JSON.stringify({ source: "zap_storage_upload" }),
+    ]
+  );
+  return fid;
 }
 
 export type OutboundPoZapAttachmentRow = {

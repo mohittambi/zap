@@ -73,6 +73,7 @@ type EaFile = {
   file_uploaded_by: string | null;
   created_at: string | null;
   file_type: string | null;
+  zap_storage_path?: string | null;
 };
 
 type ZapAtt = {
@@ -89,6 +90,9 @@ type DetailPayload = {
   zapAttachments: ZapAtt[];
   sync: { ok: boolean; message?: string };
   eautomateDownloadConfigured: boolean;
+  zapStorageConfigured?: boolean;
+  poFileDownloadEnabled?: boolean;
+  legacyOutboundFileFetchEnabled?: boolean;
 };
 
 type SaveFieldKey =
@@ -227,6 +231,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canMutate = hasPermission("purchase_orders", "create");
+  const canWritePo = hasPermission("purchase_orders", "write");
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<DetailPayload | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
@@ -234,6 +239,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [uploading, setUploading] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [dlBusy, setDlBusy] = React.useState<number | string | null>(null);
+  const eaZapInputRef = React.useRef<HTMLInputElement>(null);
+  const [eaZapUploading, setEaZapUploading] = React.useState(false);
   const [stubBusy, setStubBusy] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState("details");
   const [editOpen, setEditOpen] = React.useState(false);
@@ -426,6 +433,34 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     }
   };
 
+  const onUploadEaZap = async () => {
+    const input = eaZapInputRef.current;
+    const f = input?.files?.[0];
+    if (!f || !canWritePo) return;
+    setEaZapUploading(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", f);
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl(`/api/outbound/purchase-orders/${poId}/files-zap`), {
+        method: "POST",
+        headers,
+        body: fd,
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      toast.success("File stored in Zap Storage");
+      input.value = "";
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setEaZapUploading(false);
+    }
+  };
+
   if (loading && !data) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-8 text-sm">
@@ -450,18 +485,45 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const wip = (po.is_wip ?? "").toUpperCase().trim();
   const listingsEnvelope = (data.listings ?? {}) as OutboundListingsEnvelope;
 
+  const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
+  const zapReady = data.zapStorageConfigured === true;
+
   const filesTable = (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Original PO files (eAutomate)</CardTitle>
-        {!data.eautomateDownloadConfigured ? (
+        <CardTitle className="text-base">Original PO files</CardTitle>
+        {!zapReady && !data.eautomateDownloadConfigured ? (
           <CardDescription>
-            Set <code className="text-xs">EAUTOMATE_OUTBOUND_PO_FILE_URL_PATH</code> on the server
-            (placeholders {"{"}fileId{"}"}, {"{"}poNumber{"}"}) to enable download proxy.
+            Upload files to Zap Storage (configure Supabase keys), or set the legacy outbound file URL template on the server to enable downloads from the sync source.
           </CardDescription>
         ) : null}
       </CardHeader>
       <CardContent className="p-0">
+        {canWritePo && zapReady ? (
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+            <input ref={eaZapInputRef} type="file" className="hidden" />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => eaZapInputRef.current?.click()}
+            >
+              Choose file
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void onUploadEaZap()}
+              disabled={eaZapUploading}
+            >
+              {eaZapUploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                "Upload to Zap Storage"
+              )}
+            </Button>
+          </div>
+        ) : null}
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead>
@@ -477,7 +539,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               {data.eautomateFiles.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="text-muted-foreground px-3 py-4 text-center">
-                    No files synced yet (open page again after eAutomate sync).
+                    No synced files yet — open this page again after sync, or upload a copy to Zap Storage.
                   </td>
                 </tr>
               ) : (
@@ -496,7 +558,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                         size="icon"
                         className="text-primary h-8 w-8"
                         disabled={
-                          !data.eautomateDownloadConfigured ||
+                          !(f.zap_storage_path || legacyFetch) ||
                           dlBusy === `ea-${f.eautomate_file_id}`
                         }
                         aria-label={`Download ${f.file_name}`}
@@ -941,8 +1003,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
 
         <TabsContent value="postdispatch" className="mt-4">
           <p className="text-muted-foreground text-sm">
-            Post dispatch documents are not wired in Zap yet. When the eAutomate API is available,
-            this tab will list uploads and status.
+            Post dispatch documents are not wired in Zap yet. This tab will list uploads and status when the workflow is implemented.
           </p>
         </TabsContent>
 
@@ -958,7 +1019,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           <DialogHeader>
             <DialogTitle>Edit {editLabel}</DialogTitle>
             <DialogDescription>
-              Saving calls Zap (stub) until the eAutomate update endpoint is configured.
+              Saving calls a Zap stub until the outbound update API is wired.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

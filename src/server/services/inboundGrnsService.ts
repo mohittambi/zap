@@ -287,9 +287,41 @@ export async function listPendingInvoiceCollectionGrnsPaginated(opts) {
   };
 }
 
+/**
+ * Update status fields on a GRN row (audit status, invoice collection status, or grn_status).
+ * Allowed fields: grn_audit_status, grn_audit_by, grn_invoice_collection_status, grn_invoice_collection_by, grn_status
+ */
+export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId) || grnId === 0) throw new AppError("Invalid grn id", 400);
+
+  const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status"];
+  const setClauses = [];
+  const params = [];
+  let idx = 1;
+
+  for (const col of allowed) {
+    if (col in fields) {
+      setClauses.push(`${col} = $${idx++}`);
+      params.push(fields[col] ?? null);
+    }
+  }
+  if (setClauses.length === 0) throw new AppError("No fields to update", 400);
+
+  setClauses.push(`updated_at = NOW()`);
+  params.push(grnId);
+
+  const result = await query(
+    `UPDATE inbound_grns SET ${setClauses.join(", ")} WHERE grn_id = $${idx} RETURNING grn_id`,
+    params
+  );
+  if (result.rows.length === 0) throw new AppError("GRN not found", 404);
+  return getGrnById(grnId);
+}
+
 export async function getGrnById(grnIdRaw) {
   const grnId = Number(grnIdRaw);
-  if (!Number.isFinite(grnId) || grnId < 1) {
+  if (!Number.isFinite(grnId) || grnId === 0) {
     throw new AppError("Invalid grn id", 400);
   }
   const r = await query(`${listSelect} WHERE g.grn_id = $1`, [grnId]);
@@ -297,4 +329,50 @@ export async function getGrnById(grnIdRaw) {
     throw new AppError("GRN not found", 404);
   }
   return rowToListItem(r.rows[0]);
+}
+
+/**
+ * Create a draft GRN row in Zap for a vendor + PO (negative grn_id space reserved for Zap-created drafts).
+ */
+export async function createDraftGrnForPo({ vendorId, poId, createdBy }) {
+  const vid = Number(vendorId);
+  const pid = Number(poId);
+  if (!Number.isFinite(vid) || vid < 1) throw new AppError("Invalid vendor id", 400);
+  if (!Number.isFinite(pid) || pid < 1) throw new AppError("Invalid PO id", 400);
+
+  const v = await query(`SELECT id, name FROM vendors WHERE id = $1`, [vid]);
+  if (v.rows.length === 0) throw new AppError("Vendor not found", 404);
+
+  const poSnap = await query(
+    `SELECT 1 FROM inbound_po_detail_snapshot WHERE po_id = $1 AND vendor_id = $2`,
+    [pid, vid]
+  );
+  if (poSnap.rows.length === 0) {
+    throw new AppError("PO snapshot not found for this vendor", 404);
+  }
+
+  const negR = await query(
+    `SELECT COALESCE(MIN(grn_id), 0) - 1 AS next_id
+     FROM inbound_grns
+     WHERE grn_id < 0`
+  );
+  let grnId = Number(negR.rows[0].next_id);
+  if (!Number.isFinite(grnId) || grnId > -1) grnId = -1;
+
+  const vendorName = v.rows[0].name != null ? String(v.rows[0].name) : null;
+
+  await query(
+    `INSERT INTO inbound_grns (
+      grn_id, po_id, vendor_id, vendor_name, grn_status,
+      box_count_invoice, actual_box_count_received, grn_sku_count,
+      grn_invoice_quantity, grn_accepted_quantity, grn_rejected_quantity, grn_shortage_quantity,
+      po_sku_count, po_total_quantity, created_by, created_at, updated_at
+    ) VALUES (
+      $1, $2, $3, $4, $5,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, $6, NOW(), NOW()
+    )`,
+    [grnId, pid, vid, vendorName, "DRAFT_ZAP", createdBy ?? null]
+  );
+
+  return getGrnById(grnId);
 }

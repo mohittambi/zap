@@ -80,7 +80,7 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
           <CardTitle className="text-lg">Consignment {row.id}</CardTitle>
           <CardDescription>
             Denormalized columns plus full upstream JSON in <code className="text-xs">raw</code>{" "}
-            (every key from eAutomate).
+            (full upstream payload).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

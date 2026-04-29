@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +88,7 @@ export function OutboundPurchaseOrdersTable({
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Paginated | null>(null);
+  const [selected, setSelected] = React.useState<Set<number>>(new Set());
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -113,6 +115,49 @@ export function OutboundPurchaseOrdersTable({
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.per_page_count)) : 1;
 
+  const rows = data?.content ?? [];
+  const allIds = rows.map((r) => r.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someSelected = allIds.some((id) => selected.has(id));
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected((prev) => { const s = new Set(prev); allIds.forEach((id) => s.delete(id)); return s; });
+    } else {
+      setSelected((prev) => { const s = new Set(prev); allIds.forEach((id) => s.add(id)); return s; });
+    }
+  }
+
+  function toggleRow(id: number) {
+    setSelected((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  }
+
+  function exportSelectedCsv() {
+    const selectedRows = rows.filter((r) => selected.has(r.id));
+    if (selectedRows.length === 0) { toast.error("No rows selected"); return; }
+    const headers = ["PO Number", "PO Type", "Company", "City", "Status", "SKU Count", "Demand", "Dispatched", "Packed", "Pending", "Qty Fill %", "SKU Fill %"];
+    const lines = selectedRows.map((r) => {
+      const a = r.analytics_object ?? {};
+      return [
+        r.po_number, r.po_type ?? "", r.company_name ?? "", r.delivery_city ?? "",
+        r.calculated_po_status ?? "", a.sku_count ?? "", a.total_demand ?? "",
+        a.total_dispatched ?? "", a.total_packed ?? "", a.total_pending ?? "",
+        a.quantity_fill_rate ?? "", a.sku_fill_rate ?? "",
+      ].map((v) => `"${String(v).replaceAll('"', '""')}"`).join(",");
+    });
+    const csv = [headers.join(","), ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "outbound-pos.csv"; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${selectedRows.length} rows`);
+  }
+
   return (
     <Card className="border-primary/10 shadow-sm">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -135,6 +180,23 @@ export function OutboundPurchaseOrdersTable({
             </Button>
           </div>
         </div>
+        {someSelected ? (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground text-xs">{selected.size} selected</span>
+            <Button type="button" size="sm" variant="outline" onClick={exportSelectedCsv}>
+              Export CSV
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground text-xs"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="p-0">
         {err && (
@@ -154,7 +216,14 @@ export function OutboundPurchaseOrdersTable({
               <thead>
                 <tr className="bg-muted/50 border-b">
                   <th className="sticky left-0 z-10 bg-muted/50 px-2 py-2">
-                    <input type="checkbox" disabled className="accent-primary" aria-label="Select all" />
+                    <input
+                      type="checkbox"
+                      className="accent-primary cursor-pointer"
+                      aria-label="Select all"
+                      checked={allSelected}
+                      ref={(el: HTMLInputElement | null) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                      onChange={toggleAll}
+                    />
                   </th>
                   <th className="whitespace-nowrap px-2 py-2 font-semibold">PO Number</th>
                   <th className="whitespace-nowrap px-2 py-2 font-semibold">PO Type</th>
@@ -183,13 +252,14 @@ export function OutboundPurchaseOrdersTable({
                 {(data?.content ?? []).map((row) => {
                   const a = row.analytics_object ?? {};
                   return (
-                    <tr key={row.id} className="border-b hover:bg-muted/30">
+                    <tr key={row.id} className={`border-b hover:bg-muted/30 ${selected.has(row.id) ? "bg-primary/5" : ""}`}>
                       <td className="sticky left-0 z-10 bg-background px-2 py-1.5">
                         <input
                           type="checkbox"
-                          disabled
-                          className="accent-primary"
+                          className="accent-primary cursor-pointer"
                           aria-label={`Select ${row.po_number}`}
+                          checked={selected.has(row.id)}
+                          onChange={() => toggleRow(row.id)}
                         />
                       </td>
                       <td className="px-2 py-1.5">

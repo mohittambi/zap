@@ -100,6 +100,7 @@ export default function InboundPendingInvoiceCollectionPage() {
   const [searchApplied, setSearchApplied] = React.useState("");
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [markingId, setMarkingId] = React.useState<number | null>(null);
 
   const perPage = 100;
 
@@ -134,6 +135,23 @@ export default function InboundPendingInvoiceCollectionPage() {
     setSearchApplied(searchDraft.trim());
   };
 
+  async function markCollected(grnId: number) {
+    setMarkingId(grnId);
+    try {
+      await apiFetch(`/api/inbound/grns/${grnId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grn_invoice_collection_status: "COLLECTED" }),
+      });
+      toast.success(`GRN ${grnId} invoice marked as Collected`);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark collected");
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
   const totalPages =
     data && data.total > 0
       ? Math.ceil(data.total / data.per_page_count)
@@ -143,7 +161,7 @@ export default function InboundPendingInvoiceCollectionPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Invoice Collection"
-        description="GRNs from eautomate pending-for-invoice-collection API. Run npm run sync:grns:pending-invoice-collection to refresh."
+        description="GRNs in the pending invoice collection queue. Run npm run sync:grns:pending-invoice-collection to refresh."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -182,7 +200,7 @@ export default function InboundPendingInvoiceCollectionPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No invoices in queue"
-                description="Run npm run migrate (027), sync vendors, then npm run sync:grns:pending-invoice-collection with EAUTOMATE_COOKIE."
+                description="Run npm run migrate (027), sync vendors, then npm run sync:grns:pending-invoice-collection (sync credentials in .env.local)."
               />
             </div>
           ) : null}
@@ -233,6 +251,7 @@ export default function InboundPendingInvoiceCollectionPage() {
                       <TableHead className="whitespace-nowrap">
                         GRN opened at
                       </TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -331,6 +350,17 @@ export default function InboundPendingInvoiceCollectionPage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatDisplayDateTime(row.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 whitespace-nowrap px-2 text-xs"
+                            disabled={markingId === row.grn_id}
+                            onClick={() => void markCollected(row.grn_id)}
+                          >
+                            {markingId === row.grn_id ? "Saving…" : "Mark Collected"}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}

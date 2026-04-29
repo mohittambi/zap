@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -375,6 +375,8 @@ export default function InboundGrnDetailPage() {
   const grnId = typeof params.grnId === "string" ? params.grnId : "";
   const [bundle, setBundle] = React.useState<GrnDetailsBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const dcUploadRef = React.useRef<HTMLInputElement>(null);
+  const [dcUploading, setDcUploading] = React.useState(false);
 
   React.useEffect(() => {
     if (!grnId) {
@@ -416,7 +418,7 @@ export default function InboundGrnDetailPage() {
 
       <AppPageTitle
         title={loading ? "GRN" : row ? `GRN ${row.grn_id}` : "GRN"}
-        description="Goods receipt note — synced from eautomate and cached in the database."
+        description="Goods receipt note — synced into Zap and cached in the database."
       />
 
       {loading ? (
@@ -1034,14 +1036,52 @@ export default function InboundGrnDetailPage() {
                         </div>
                       </div>
                     ))}
+                    <input
+                      ref={dcUploadRef}
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file || !row?.grn_id) return;
+                        setDcUploading(true);
+                        void (async () => {
+                          try {
+                            const fd = new FormData();
+                            fd.set("file", file);
+                            fd.set("kind", "debit_note");
+                            fd.set("noteId", "-1");
+                            const token = getStoredToken();
+                            const headers = new Headers();
+                            if (token)
+                              headers.set("Authorization", `Bearer ${token}`);
+                            const res = await fetch(
+                              apiUrl(`/api/inbound/grns/${row.grn_id}/upload-zap`),
+                              { method: "POST", headers, body: fd }
+                            );
+                            const text = await res.text();
+                            if (!res.ok) throw new Error(text.slice(0, 200));
+                            toast.success("File uploaded to Zap Storage");
+                            globalThis.location.reload();
+                          } catch (err) {
+                            toast.error(
+                              err instanceof Error ? err.message : "Upload failed"
+                            );
+                          } finally {
+                            setDcUploading(false);
+                          }
+                        })();
+                      }}
+                    />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled
-                      title="Upload reverse debit/credit notes in eAutomate"
+                      disabled={dcUploading || !row?.grn_id}
+                      title="Upload reverse debit/credit note file to Zap Storage"
+                      onClick={() => dcUploadRef.current?.click()}
                     >
-                      Upload Reverse Debit/Credit Note
+                      {dcUploading ? "Uploading…" : "Upload Reverse Debit/Credit Note"}
                     </Button>
                     <div>
                       <h4 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
@@ -1049,7 +1089,7 @@ export default function InboundGrnDetailPage() {
                       </h4>
                       <p className="text-muted-foreground text-sm">
                         Debit/Credit note data (.csv) is not included in the ingested API
-                        payloads. Export from eAutomate if available.
+                        payloads. Export from the source system if available.
                       </p>
                     </div>
                     </>

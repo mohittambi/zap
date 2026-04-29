@@ -269,7 +269,7 @@ export default function InboundPurchaseOrdersPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No purchase orders"
-                description="Sync from eautomate (npm run sync:vendor-pos:all) or create POs from a vendor under Inbound → Vendors."
+                description="Run vendor PO sync (npm run sync:vendor-pos:all) or create POs from a vendor under Inbound → Vendors."
               />
             </div>
           ) : null}

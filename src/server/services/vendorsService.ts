@@ -135,6 +135,55 @@ export async function createVendor(input, actorEmail) {
   return getVendorById(id);
 }
 
+export async function updateVendor(id, input, actorEmail) {
+  const by = str(actorEmail, 100) || null;
+  const setClauses = [];
+  const params = [];
+  let idx = 1;
+
+  const fields = [
+    ['vendor_name', str(input.vendor_name, 200)],
+    ['vendor_address_line', input.vendor_address_line == null ? undefined : str(input.vendor_address_line)],
+    ['vendor_city', input.vendor_city == null ? undefined : str(input.vendor_city, 100)],
+    ['vendor_state', input.vendor_state == null ? undefined : str(input.vendor_state, 100)],
+    ['vendor_postal_code', input.vendor_postal_code == null ? undefined : str(input.vendor_postal_code, 20)],
+    ['vendor_gstin', input.vendor_gstin == null ? undefined : str(input.vendor_gstin, 50)],
+    ['vendor_contact_number', input.vendor_contact_number == null ? undefined : str(input.vendor_contact_number, 50)],
+  ];
+
+  for (const [col, val] of fields) {
+    if (val !== undefined) {
+      if (col === 'vendor_name' && !val) throw new AppError('vendor_name cannot be empty', 400);
+      setClauses.push(`${col} = $${idx++}`);
+      params.push(val || null);
+    }
+  }
+
+  if (setClauses.length === 0) throw new AppError('No fields to update', 400);
+
+  setClauses.push(`modified_by = $${idx++}`);
+  params.push(by);
+  setClauses.push(`updated_at = NOW()`);
+  params.push(id);
+
+  const result = await query(
+    `UPDATE vendors SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id`,
+    params
+  );
+  if (result.rows.length === 0) throw new AppError('Vendor not found', 404);
+  return getVendorById(id);
+}
+
+export async function deleteVendor(id) {
+  const poCheck = await query(`SELECT 1 FROM inbound_purchase_orders WHERE vendor_id = $1 LIMIT 1`, [id]);
+  if (poCheck.rows.length > 0) {
+    throw new AppError('Cannot delete vendor with existing purchase orders', 409);
+  }
+  const result = await query(`DELETE FROM vendors WHERE id = $1 RETURNING id`, [id]);
+  if (result.rows.length === 0) throw new AppError('Vendor not found', 404);
+  return { deleted: true };
+}
+
 export async function getVendorsBySku(skuId) {
   const vsResult = await query(
     `SELECT vs.id, vs.vendor_id, vs.sku_id, vs.cost_price, vs.modified_by, vs.created_at, vs.updated_at,

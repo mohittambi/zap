@@ -3,9 +3,9 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-browser";
 import { formatLogDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ import type {
   PaginatedPurchaseOrders,
   SkuAnalytics,
 } from "@/types/listing";
+import { AvailableQuantityCard, ListingInfoCard } from "./listing-detail-cards";
 
 const INR = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -86,9 +87,7 @@ export default function ListingDetailPage() {
   const [logPage, setLogPage] = React.useState(1);
   const [outboundSummary, setOutboundSummary] =
     React.useState<OutboundSummaryResponse | null>(null);
-  const [poData, setPoData] = React.useState<PaginatedPurchaseOrders | null>(
-    null
-  );
+  const [poData, setPoData] = React.useState<PaginatedPurchaseOrders | null>(null);
   const [poPage, setPoPage] = React.useState(1);
   const [vendors, setVendors] = React.useState<VendorBySkuApi[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -164,6 +163,10 @@ export default function ListingDetailPage() {
     };
   }, [skuId, logPage, poPage]);
 
+  const handleListingUpdated = React.useCallback((updated: ListingDetail) => {
+    setListing(updated);
+  }, []);
+
   React.useEffect(() => {
     setThumbIndex(0);
   }, [skuId, listing?.img_hd]);
@@ -191,8 +194,6 @@ export default function ListingDetailPage() {
   const gallery = collectGalleryUrls(listing);
   const mainImage = gallery[thumbIndex]?.url ?? gallery[0]?.url;
   const mainLabel = gallery[thumbIndex]?.label ?? "img_hd";
-  const bins = listing.bins ?? [];
-  const avail = Number(listing.available_quantity ?? 0);
 
   const avgVendorCost =
     vendors.length > 0
@@ -288,71 +289,16 @@ export default function ListingDetailPage() {
 
             {/* Right column cards */}
             <div className="space-y-4">
-              <Card className="shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-primary text-2xl font-semibold">
-                    {listing.sku_id}
-                  </CardTitle>
-                  <p className="text-muted-foreground text-sm">
-                    <span className="font-medium text-foreground">
-                      Description
-                    </span>{" "}
-                    {listing.description ?? "—"}
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <DetailCell
-                      label="Inventory SKU ID"
-                      value={listing.inventory_sku_id}
-                    />
-                    <DetailCell label="Ops Tag" value={listing.ops_tag} />
-                    <DetailCell
-                      label="Master SKU ID"
-                      value={listing.master_sku}
-                    />
-                    <DetailCell
-                      label="Bulk Transfer Price"
-                      value={
-                        listing.bulk_price != null
-                          ? String(listing.bulk_price)
-                          : "—"
-                      }
-                    />
-                    <DetailCell
-                      label="Pack-Combo SKU ID"
-                      value={listing.pack_combo_sku_id}
-                    />
-                    <DetailCell label="Category" value={listing.category} />
-                    <DetailCell
-                      label="Sku Type"
-                      value={listing.sku_type ?? "—"}
-                    />
-                    <DetailCell
-                      label="Number of Constituents"
-                      value={
-                        listing.no_of_constituents != null
-                          ? String(listing.no_of_constituents)
-                          : "—"
-                      }
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" disabled variant="default">
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="outline" disabled>
-                      Cancel
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <ListingInfoCard
+                listing={listing}
+                skuId={skuId}
+                onSaved={handleListingUpdated}
+              />
 
+              {/* ── Outward Data Card ─────────────────────────────────── */}
               <Card className="shadow-sm">
                 <CardHeader>
-                  <CardTitle className="text-primary text-base">
-                    OUTWARD DATA
-                  </CardTitle>
+                  <CardTitle className="text-primary text-base">OUTWARD DATA</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
@@ -382,47 +328,12 @@ export default function ListingDetailPage() {
                 </CardContent>
               </Card>
 
-              <Card className="shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-primary text-base">
-                    AVAILABLE QUANTITY : {avail}
-                  </CardTitle>
-                  <div className="flex gap-2">
-                    <Button size="sm" disabled variant="default">
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="outline" disabled>
-                      Cancel
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {bins.map((b) => (
-                      <div
-                        key={b.id}
-                        className="rounded-lg border bg-card p-4 text-center shadow-sm"
-                      >
-                        <p className="font-mono text-sm font-semibold">
-                          {b.bin_id}
-                        </p>
-                        <p className="text-primary mt-2 text-2xl tabular-nums">
-                          {b.available_quantity}
-                        </p>
-                      </div>
-                    ))}
-                    {bins.length === 0 && (
-                      <p className="text-muted-foreground text-sm">
-                        No bin locations.
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
+              <AvailableQuantityCard listing={listing} onSaved={handleListingUpdated} />
             </div>
           </div>
         </TabsContent>
 
+        {/* ── Inventory Logs Tab ─────────────────────────────────────── */}
         <TabsContent value="logs" className="mt-6 space-y-4">
           <p className="text-muted-foreground text-sm">
             {logsUnavailable
@@ -450,8 +361,7 @@ export default function ListingDetailPage() {
                   <TableBody>
                     {logs.content.map((row, idx) => {
                       const isAdd =
-                        String(row.inventory_operation_type).toUpperCase() ===
-                        "ADD";
+                        String(row.inventory_operation_type).toUpperCase() === "ADD";
                       return (
                         <TableRow
                           key={`${row.created_at}-${idx}`}
@@ -478,9 +388,7 @@ export default function ListingDetailPage() {
                           <TableCell className="text-center font-mono text-sm">
                             {row.bin_id}
                           </TableCell>
-                          <TableCell className="text-sm">
-                            {row.user_id}
-                          </TableCell>
+                          <TableCell className="text-sm">{row.user_id}</TableCell>
                           <TableCell className="text-sm">
                             {formatLogDate(row.created_at)}
                           </TableCell>
@@ -500,9 +408,7 @@ export default function ListingDetailPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={
-                    !logs || logs.content.length < (logs.per_page_count || 200)
-                  }
+                  disabled={!logs || logs.content.length < (logs.per_page_count || 200)}
                   onClick={() => setLogPage((p) => p + 1)}
                 >
                   Next
@@ -512,14 +418,13 @@ export default function ListingDetailPage() {
           ) : null}
         </TabsContent>
 
+        {/* ── Outbound Details Tab ───────────────────────────────────── */}
         <TabsContent value="outbound" className="mt-6 space-y-6">
           <div>
-            <h2 className="text-primary text-lg font-semibold">
-              Recieved Order Summary
-            </h2>
+            <h2 className="text-primary text-lg font-semibold">Recieved Order Summary</h2>
             <p className="text-muted-foreground mt-1 text-xs">
-              *Provided summary is calculated based on loaded data. Loading more
-              data will change this summary.
+              *Provided summary is calculated based on loaded data. Loading more data will change
+              this summary.
             </p>
           </div>
           {outboundSummary ? (
@@ -533,9 +438,7 @@ export default function ListingDetailPage() {
                     <TableHead className="text-right">Unfulfilled</TableHead>
                     <TableHead className="text-right">Revenue Gain</TableHead>
                     <TableHead className="text-right">Revenue Loss</TableHead>
-                    <TableHead className="text-right">
-                      Avg. Price (incl. Tax)
-                    </TableHead>
+                    <TableHead className="text-right">Avg. Price (incl. Tax)</TableHead>
                     <TableHead className="text-right">Loss %</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -560,9 +463,7 @@ export default function ListingDetailPage() {
                       {formatInr(outboundSummary.overall.revenue_loss)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {formatInr(
-                        outboundSummary.overall.avg_price_incl_tax ?? undefined
-                      )}
+                      {formatInr(outboundSummary.overall.avg_price_incl_tax ?? undefined)}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatPct(outboundSummary.overall.loss_pct ?? undefined)}
@@ -580,12 +481,8 @@ export default function ListingDetailPage() {
                       <TableCell className="text-right tabular-nums">
                         {row.total_unfulfilled}
                       </TableCell>
-                      <TableCell className="text-right">
-                        {formatInr(row.revenue_gain)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatInr(row.revenue_loss)}
-                      </TableCell>
+                      <TableCell className="text-right">{formatInr(row.revenue_gain)}</TableCell>
+                      <TableCell className="text-right">{formatInr(row.revenue_loss)}</TableCell>
                       <TableCell className="text-right">
                         {formatInr(row.avg_price_incl_tax ?? undefined)}
                       </TableCell>
@@ -662,10 +559,7 @@ export default function ListingDetailPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={
-                    !poData ||
-                    poData.content.length < (poData.per_page_count || 200)
-                  }
+                  disabled={!poData || poData.content.length < (poData.per_page_count || 200)}
                   onClick={() => setPoPage((p) => p + 1)}
                 >
                   Next
@@ -675,12 +569,11 @@ export default function ListingDetailPage() {
           )}
         </TabsContent>
 
+        {/* ── Inbound Details Tab ────────────────────────────────────── */}
         <TabsContent value="inbound" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-primary text-base">
-                ASSOCIATED VENDORS
-              </CardTitle>
+              <CardTitle className="text-primary text-base">ASSOCIATED VENDORS</CardTitle>
               <p className="text-sm font-medium">
                 [Cumulative Average Associated Cost Price :{" "}
                 {avgVendorCost != null && Number.isFinite(avgVendorCost)
@@ -689,15 +582,13 @@ export default function ListingDetailPage() {
                 ]
               </p>
               <p className="text-muted-foreground text-xs">
-                *Please note that the associated cost price refers to the
-                expected cost price that the vendor is expected to bill us.
+                *Please note that the associated cost price refers to the expected cost price that
+                the vendor is expected to bill us.
               </p>
             </CardHeader>
             <CardContent>
               {vendors.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No associated vendors.
-                </p>
+                <p className="text-muted-foreground text-sm">No associated vendors.</p>
               ) : (
                 <div className="flex flex-wrap gap-4">
                   {vendors.map((v) => (
@@ -705,12 +596,8 @@ export default function ListingDetailPage() {
                       key={v.id}
                       className="min-w-[200px] flex-1 rounded-lg border bg-card p-4 shadow-sm"
                     >
-                      <p className="font-mono text-sm font-semibold">
-                        {v.vendor_id}
-                      </p>
-                      <p className="mt-1 font-medium">
-                        {v.vendor?.vendor_name ?? "—"}
-                      </p>
+                      <p className="font-mono text-sm font-semibold">{v.vendor_id}</p>
+                      <p className="mt-1 font-medium">{v.vendor?.vendor_name ?? "—"}</p>
                       <p className="text-muted-foreground mt-2 text-sm">
                         Associated Cost Price : {v.cost_price ?? 0} Rs.
                       </p>
@@ -723,38 +610,29 @@ export default function ListingDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-primary text-base">
-                VENDOR BILLING SUMMARY
-              </CardTitle>
+              <CardTitle className="text-primary text-base">VENDOR BILLING SUMMARY</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-sm">
-                No billing details were found.
-              </p>
+              <p className="text-muted-foreground text-sm">No billing details were found.</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-primary text-base">
-                PURCHASE ORDERS SUMMARY
-              </CardTitle>
+              <CardTitle className="text-primary text-base">PURCHASE ORDERS SUMMARY</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-4 text-sm">
-                For line-level purchase orders for this SKU, see{" "}
-                <strong>Outbound Details</strong>. Inbound-specific PO
-                breakdown will appear here when product rules define inbound vs
+                For line-level purchase orders for this SKU, see <strong>Outbound Details</strong>.
+                Inbound-specific PO breakdown will appear here when product rules define inbound vs
                 outbound order types.
               </p>
               {poData && poData.total === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No purchase orders were found.
-                </p>
+                <p className="text-muted-foreground text-sm">No purchase orders were found.</p>
               ) : poData && poData.total > 0 ? (
                 <p className="text-sm">
-                  {poData.total} purchase order line(s) exist for this SKU —
-                  view the full table under Outbound Details.
+                  {poData.total} purchase order line(s) exist for this SKU — view the full table
+                  under Outbound Details.
                 </p>
               ) : (
                 <p className="text-muted-foreground text-sm">Loading…</p>
@@ -763,21 +641,6 @@ export default function ListingDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function DetailCell({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | null;
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-muted-foreground text-xs font-medium">{label}</p>
-      <p className="font-mono text-sm break-all">{value ?? "—"}</p>
     </div>
   );
 }

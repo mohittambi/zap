@@ -1,5 +1,7 @@
 // @ts-nocheck
 import { query } from '@/server/db';
+import { AppError } from '@/server/errors';
+import * as companySkuService from '@/server/services/companySkuService';
 
 function jsonbCompanyDetails(row) {
   const v = row?.company_details;
@@ -184,14 +186,23 @@ export async function getPacksAndCombosPaginated(searchKeyword, page, count) {
   };
 }
 
-export async function getSecondaryListingsPaginated(searchKeyword, page, count) {
+export async function getSecondaryListingsPaginated(searchKeyword, page, count, skuType?: string) {
   const offset = (page - 1) * count;
-  let whereClause = '';
-  const params = [];
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
   if (searchKeyword) {
     params.push(`%${searchKeyword}%`);
-    whereClause = `WHERE secondary_sku ILIKE $1 OR master_sku ILIKE $1 OR inventory_sku_id ILIKE $1 OR COALESCE(pack_combo_sku_id::text,'') ILIKE $1`;
+    conditions.push(
+      `(secondary_sku ILIKE $${params.length} OR master_sku ILIKE $${params.length} OR inventory_sku_id ILIKE $${params.length} OR COALESCE(pack_combo_sku_id::text,'') ILIKE $${params.length})`
+    );
   }
+  if (skuType && skuType !== 'ALL') {
+    params.push(skuType.toUpperCase());
+    conditions.push(`sku_type = $${params.length}`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const countResult = await query(
     `SELECT COUNT(*)::int AS total FROM secondary_listings ${whereClause}`,
@@ -385,6 +396,13 @@ export async function getSkuWiseDetails(secondarySku) {
     );
   }
 
+  const cssAssocs =
+    await companySkuService.fetchCompanyAssociationsForSecondarySku(secondarySku);
+  secondary_sku_company_details = mergeSecondaryCompanies(
+    cssAssocs,
+    secondary_sku_company_details
+  );
+
   const labelsMergedFromRaw = mergeSecondaryLabels(
     extractLabelsFromSkuWiseRaw(rawUnwrapped),
     extractLabelsFromSkuWiseRaw(skuWiseRaw)
@@ -407,4 +425,50 @@ export async function getSkuWiseDetails(secondarySku) {
     pack_combo_childs,
     pack_combo_components,
   };
+}
+
+/**
+ * Persist label fields into secondary_listings.labels_data (JSON merge).
+ * Mandatory fields are enforced by the API route before calling this.
+ */
+export async function updateLabelsData(
+  secondarySku,
+  fields
+) {
+  const secondary_sku = String(secondarySku ?? '').trim();
+  if (!secondary_sku) throw new AppError('secondary_sku is required', 400);
+
+  const patch = {
+    secondary_sku,
+    ean_code:
+      fields.ean_code != null ? String(fields.ean_code).trim() || 'NA' : 'NA',
+    size: fields.size != null ? String(fields.size).trim() : '',
+    color: fields.color != null ? String(fields.color).trim() : '',
+    one_set_contains:
+      fields.one_set_contains != null ? String(fields.one_set_contains).trim() : '',
+    mrp:
+      fields.mrp != null && fields.mrp !== ''
+        ? Number(fields.mrp)
+        : NaN,
+    material: fields.material != null ? String(fields.material).trim() : '',
+  };
+
+  if (!patch.size) throw new AppError('size is required', 400);
+  if (!patch.color) throw new AppError('color is required', 400);
+  if (!patch.one_set_contains) throw new AppError('one_set_contains is required', 400);
+  if (!Number.isFinite(patch.mrp)) throw new AppError('mrp must be a valid number', 400);
+  if (!patch.material) throw new AppError('material is required', 400);
+
+  const r = await query(
+    `UPDATE secondary_listings
+     SET labels_data = COALESCE(labels_data, '{}'::jsonb) || $1::jsonb
+     WHERE secondary_sku = $2
+     RETURNING labels_data`,
+    [JSON.stringify(patch), secondary_sku]
+  );
+  if (r.rows.length === 0) {
+    throw new AppError('Secondary SKU not found', 404);
+  }
+  const labels_data = jsonbLabelsData(r.rows[0]);
+  return { secondary_sku_labels_data: labels_data };
 }

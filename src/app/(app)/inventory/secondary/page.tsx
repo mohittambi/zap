@@ -23,6 +23,8 @@ type Row = {
   id: number;
   secondary_sku: string;
   master_sku?: string;
+  inventory_sku_id?: string;
+  pack_combo_sku_id?: string;
   available_quantity?: number;
 };
 
@@ -62,7 +64,11 @@ export default function InventorySecondaryPage() {
       <div>
         <h1 className="text-2xl font-semibold">Secondary listings</h1>
         <p className="text-sm text-muted-foreground">
-          Paginated secondary SKUs. Open SKU wise from the dedicated tool.
+          Paginated secondary SKUs (same API as Listings → Secondary). For labels and preview, use{" "}
+          <Link className="text-primary underline-offset-4 hover:underline" href="/listings/secondary">
+            Secondary Listings
+          </Link>
+          .
         </p>
       </div>
       <Card>
@@ -103,6 +109,8 @@ export default function InventorySecondaryPage() {
                   <TableRow>
                     <TableHead className="font-mono">secondary_sku</TableHead>
                     <TableHead>master</TableHead>
+                    <TableHead className="font-mono">inventory_sku</TableHead>
+                    <TableHead className="font-mono">pack_combo_sku</TableHead>
                     <TableHead className="text-right">Available</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -119,6 +127,12 @@ export default function InventorySecondaryPage() {
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {r.master_sku ?? "—"}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {r.inventory_sku_id?.trim() ? r.inventory_sku_id : "—"}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {r.pack_combo_sku_id?.trim() ? r.pack_combo_sku_id : "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {r.available_quantity ?? "—"}

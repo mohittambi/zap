@@ -111,6 +111,7 @@ export default function InboundPendingAuditsPage() {
   const [searchApplied, setSearchApplied] = React.useState("");
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [markingId, setMarkingId] = React.useState<number | null>(null);
 
   const perPage = 100;
 
@@ -143,6 +144,23 @@ export default function InboundPendingAuditsPage() {
     setSearchApplied(searchDraft.trim());
   };
 
+  async function markAudited(grnId: number) {
+    setMarkingId(grnId);
+    try {
+      await apiFetch(`/api/inbound/grns/${grnId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grn_audit_status: "AUDITED" }),
+      });
+      toast.success(`GRN ${grnId} marked as Audited`);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark audited");
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
   const totalPages =
     data && data.total > 0
       ? Math.ceil(data.total / data.per_page_count)
@@ -152,7 +170,7 @@ export default function InboundPendingAuditsPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Audits"
-        description="GRNs returned by eautomate pending-for-audit API. Run npm run sync:grns:pending-audit to refresh the queue."
+        description="GRNs in the pending audit queue. Run npm run sync:grns:pending-audit to refresh."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -191,7 +209,7 @@ export default function InboundPendingAuditsPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No grns were found"
-                description="Run npm run migrate (026), sync vendors, then npm run sync:grns:pending-audit with EAUTOMATE_COOKIE. The list matches the last pending-audit sync."
+                description="Run npm run migrate (026), sync vendors, then npm run sync:grns:pending-audit (sync credentials in .env.local). The list matches the last pending-audit sync."
               />
             </div>
           ) : null}
@@ -250,6 +268,7 @@ export default function InboundPendingAuditsPage() {
                       <TableHead className="whitespace-nowrap">
                         GRN opened at
                       </TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -336,6 +355,17 @@ export default function InboundPendingAuditsPage() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatDisplayDateTime(row.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 whitespace-nowrap px-2 text-xs"
+                            disabled={markingId === row.grn_id}
+                            onClick={() => void markAudited(row.grn_id)}
+                          >
+                            {markingId === row.grn_id ? "Saving…" : "Mark Audited"}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}

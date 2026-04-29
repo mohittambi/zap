@@ -377,7 +377,7 @@ function LotDetailsSheet({
                 </Link>
               </>
             ) : (
-              "Nested listing from eautomate"
+              "Nested listing from import"
             )}
           </SheetDescription>
         </SheetHeader>
@@ -531,7 +531,7 @@ export default function InboundSkuWisePage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="SKU Wise View"
-        description="Purchase order lines by SKU from eautomate (lot listings). Links open Zap listing, vendor, or PO context where available."
+        description="Purchase order lines by SKU (lot listings). Links open Zap listing, vendor, or PO context where available."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -581,7 +581,7 @@ export default function InboundSkuWisePage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No lot listings"
-                description="Configure EAUTOMATE_COOKIE on the Zap server (.env.local), or adjust search. Data loads live from eautomate."
+                description="Configure sync credentials on the Zap server (.env.local), or adjust search. Data loads from the live lot-listings API when configured."
               />
             </div>
           ) : null}
@@ -654,7 +654,7 @@ export default function InboundSkuWisePage() {
                                   rel="noopener noreferrer"
                                   className="relative block size-10 overflow-hidden rounded border bg-muted"
                                 >
-                                  {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary eautomate CDN hosts */}
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary remote image hosts */}
                                   <img
                                     src={img}
                                     alt=""

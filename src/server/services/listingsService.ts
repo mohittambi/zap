@@ -151,6 +151,52 @@ export async function getListingsByPage(searchKeyword, page, count) {
   };
 }
 
+export async function updateListingBySku(
+  skuId: string,
+  fields: {
+    ops_tag?: string | null;
+    category?: string | null;
+    sku_type?: string | null;
+    bulk_price?: number | null;
+    no_of_constituents?: number | null;
+  }
+) {
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  if ('ops_tag' in fields) {
+    setClauses.push(`ops_tag = $${idx++}`);
+    params.push(fields.ops_tag ?? null);
+  }
+  if ('category' in fields) {
+    setClauses.push(`category = $${idx++}`);
+    params.push(fields.category ?? null);
+  }
+  if ('sku_type' in fields) {
+    setClauses.push(`sku_type = $${idx++}`);
+    params.push(fields.sku_type ?? null);
+  }
+  if ('bulk_price' in fields) {
+    setClauses.push(`bulk_price = $${idx++}`);
+    params.push(fields.bulk_price ?? null);
+  }
+  if ('no_of_constituents' in fields) {
+    setClauses.push(`no_of_constituents = $${idx++}`);
+    params.push(fields.no_of_constituents ?? null);
+  }
+
+  if (setClauses.length === 0) return null;
+
+  params.push(skuId);
+  const result = await query(
+    `UPDATE listings SET ${setClauses.join(', ')} WHERE sku_id = $${idx} RETURNING sku_id`,
+    params
+  );
+  if (result.rows.length === 0) return null;
+  return getListingBySku(skuId);
+}
+
 export async function getInboundSummary(skuId) {
   const result = await query(
     `SELECT id, sku_id, summary_date, quantity, source, raw_data

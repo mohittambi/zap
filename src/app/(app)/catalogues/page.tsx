@@ -37,20 +37,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
-
-type CatRow = {
-  id: number;
-  catalogue_type: string;
-  name: string;
-  description?: string | null;
-  created_by?: string | null;
-  created_at: string;
-  updated_at?: string | null;
-  sku_count: number;
-  catalogue_name?: string;
-  catalogue_description?: string | null;
-  catalogue_type_legacy?: string;
-};
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  EditCatalogueDialog,
+  type CatRow,
+} from "./edit-catalogue-dialog";
 
 type PageData = {
   total: number;
@@ -72,6 +72,11 @@ export default function CataloguesPage() {
   const [createName, setCreateName] = React.useState("");
   const [createDesc, setCreateDesc] = React.useState("");
   const [createSubmitting, setCreateSubmitting] = React.useState(false);
+
+  const [editTarget, setEditTarget] = React.useState<CatRow | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = React.useState<CatRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -95,6 +100,21 @@ export default function CataloguesPage() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/catalogues/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success("Catalogue deleted");
+      setDeleteTarget(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function createCatalogue() {
     if (!createName.trim()) {
@@ -302,6 +322,7 @@ export default function CataloguesPage() {
                           <TableHead className="min-w-[120px] font-semibold">
                             Created By
                           </TableHead>
+                          <TableHead className="w-[130px]" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -334,6 +355,26 @@ export default function CataloguesPage() {
                             </TableCell>
                             <TableCell className="text-sm">
                               {row.created_by ?? "—"}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => setEditTarget(row)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive h-7 px-2 text-xs"
+                                  onClick={() => setDeleteTarget(row)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -375,6 +416,10 @@ export default function CataloguesPage() {
                           </span>
                           <span>By: {row.created_by ?? "—"}</span>
                         </div>
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditTarget(row)}>Edit</Button>
+                          <Button size="sm" variant="ghost" className="text-destructive h-7 px-2 text-xs" onClick={() => setDeleteTarget(row)}>Delete</Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -410,6 +455,33 @@ export default function CataloguesPage() {
           </TabsContent>
         </Card>
       </Tabs>
+      <EditCatalogueDialog
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => void load()}
+      />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete catalogue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.name}</strong> (ID {deleteTarget?.id}).
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

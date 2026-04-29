@@ -387,7 +387,7 @@ export default function OutboundNewPoPage() {
       const sync = data.companySync;
       if (sync?.error) {
         toast.warning(
-          `Could not refresh companies from eAutomate (${sync.error}). Showing data already in Zap.`
+          `Could not refresh company list (${sync.error}). Showing data already saved in Zap.`
         );
       } else if (sync?.ok && !sync.skipped && sync.upserted > 0) {
         toast.success(`Updated ${sync.upserted} companies from the directory.`);
@@ -523,7 +523,7 @@ export default function OutboundNewPoPage() {
     <div className="mx-auto max-w-3xl space-y-6 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Add New Purchase Order"
-        description="Sold Via lists the two channels from Zap (Eunoia and Intellozene). Companies are synced from eAutomate when you open this page, stored in Zap, and shown in Select Company. Set release and expiry dates with Year / Month / Day, then the Set button. Upload one PDF and one spreadsheet, each up to 2MB."
+        description="Sold Via lists the two channels from Zap (Eunoia and Intellozene). Companies refresh from the directory sync when you open this page, are stored in Zap, and shown in Select Company. Set release and expiry dates with Year / Month / Day, then the Set button. Upload one PDF and one spreadsheet, each up to 2MB."
       />
 
       {loading ? (
@@ -573,7 +573,7 @@ export default function OutboundNewPoPage() {
                 }}
                 options={companyOptions}
                 placeholder="Select Company"
-                emptyText="No companies in Zap yet — check eAutomate access, then refresh."
+                emptyText="No companies in Zap yet — check sync credentials and refresh."
               />
               {fieldErrors.company ? (
                 <p className="text-destructive text-xs">{fieldErrors.company}</p>

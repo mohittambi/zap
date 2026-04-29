@@ -83,3 +83,78 @@ describe("Auth API (integration)", () => {
     assert.ok(Array.isArray(data.content));
   });
 });
+
+describe("Secondary Listings API (integration)", () => {
+  async function getToken() {
+    const { status, body } = await login();
+    if (status !== 200) return null;
+    return body.token;
+  }
+
+  it("GET /api/inventory/secondary_listings/paginated returns paginated shape", async () => {
+    const token = await getToken();
+    if (!token) { console.warn("Skipping: login failed"); return; }
+    const res = await fetch(`${BASE}/api/inventory/secondary_listings/paginated?page=1&count=5`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 503 || res.status === 0) { console.warn("Skipping: server unreachable"); return; }
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(typeof data.total === "number", "total must be number");
+    assert.ok(typeof data.current_page === "number", "current_page must be number");
+    assert.ok(Array.isArray(data.content), "content must be array");
+  });
+
+  it("every row in /paginated has pack_combo_sku_id as string or null", async () => {
+    const token = await getToken();
+    if (!token) { console.warn("Skipping: login failed"); return; }
+    const res = await fetch(`${BASE}/api/inventory/secondary_listings/paginated?page=1&count=50`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status !== 200) { console.warn("Skipping: HTTP", res.status); return; }
+    const data = await res.json();
+    for (const row of data.content) {
+      assert.ok(
+        row.pack_combo_sku_id === null ||
+        row.pack_combo_sku_id === undefined ||
+        typeof row.pack_combo_sku_id === "string",
+        `row ${row.secondary_sku}: pack_combo_sku_id must be string or null, got ${typeof row.pack_combo_sku_id}`
+      );
+    }
+  });
+
+  it("MULTI rows have a non-null pack_combo_sku_id that differs from 'NA'", async () => {
+    const token = await getToken();
+    if (!token) { console.warn("Skipping: login failed"); return; }
+    // Filter by sku_type=MULTI (new filter param)
+    const res = await fetch(
+      `${BASE}/api/inventory/secondary_listings/paginated?page=1&count=10&sku_type=MULTI`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status !== 200) { console.warn("Skipping: HTTP", res.status); return; }
+    const data = await res.json();
+    if (data.content.length === 0) { console.warn("Skipping: no MULTI rows in DB"); return; }
+    for (const row of data.content) {
+      assert.strictEqual(row.sku_type, "MULTI", `Expected sku_type=MULTI, got ${row.sku_type}`);
+      assert.ok(
+        row.pack_combo_sku_id != null && row.pack_combo_sku_id !== "NA" && row.pack_combo_sku_id !== "",
+        `MULTI row ${row.secondary_sku}: pack_combo_sku_id should be a real value, got "${row.pack_combo_sku_id}"`
+      );
+    }
+  });
+
+  it("sku_type=SINGLE filter returns only SINGLE rows", async () => {
+    const token = await getToken();
+    if (!token) { console.warn("Skipping: login failed"); return; }
+    const res = await fetch(
+      `${BASE}/api/inventory/secondary_listings/paginated?page=1&count=10&sku_type=SINGLE`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status !== 200) { console.warn("Skipping: HTTP", res.status); return; }
+    const data = await res.json();
+    if (data.content.length === 0) { console.warn("Skipping: no SINGLE rows in DB"); return; }
+    for (const row of data.content) {
+      assert.strictEqual(row.sku_type, "SINGLE", `Expected sku_type=SINGLE, got ${row.sku_type}`);
+    }
+  });
+});

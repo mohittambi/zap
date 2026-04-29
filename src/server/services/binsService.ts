@@ -54,6 +54,27 @@ export async function getBins(filters = {}, page, limit) {
   };
 }
 
+export async function updateBinQuantity(id: number, skuId: string, availableQuantity: number) {
+  const result = await query(
+    `UPDATE bins SET available_quantity = $1
+     WHERE id = $2 AND sku_id = $3 AND is_deleted = false
+     RETURNING id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted, created_at, updated_at`,
+    [availableQuantity, id, skuId]
+  );
+  if (result.rows.length === 0) return null;
+  const r = result.rows[0];
+  return {
+    id: Number(r.id),
+    warehouse_id: Number(r.warehouse_id),
+    sku_id: r.sku_id,
+    bin_id: r.bin_id,
+    available_quantity: r.available_quantity,
+    is_deleted: Boolean(r.is_deleted),
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  };
+}
+
 export async function getBinById(id) {
   const result = await query(
     `SELECT id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted, created_at, updated_at

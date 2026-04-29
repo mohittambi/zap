@@ -8,14 +8,12 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
@@ -40,28 +38,10 @@ import {
   InboundVendorListingsTable,
   type VendorListingRow,
 } from "../inbound-vendor-listings-table";
-
-type Specialty = {
-  id: number;
-  vendor_id: number;
-  vendor_speciality: string;
-};
-
-type VendorDetail = {
-  id: number;
-  vendor_name: string;
-  created_by?: string | null;
-  modified_by?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  vendor_address_line?: string;
-  vendor_city?: string;
-  vendor_state?: string;
-  vendor_postal_code?: string;
-  vendor_gstin?: string;
-  vendor_contact_number?: string;
-  specialties?: Specialty[];
-};
+import {
+  VendorDetailsCard,
+  type VendorDetail,
+} from "../vendor-details-card";
 
 type PoRow = {
   po_id: number;
@@ -92,20 +72,6 @@ type PoListResponse = {
   curr_page_count: number;
   content: PoRow[];
 };
-
-function Field({
-  label,
-  value,
-}: Readonly<{ label: string; value: string }>) {
-  return (
-    <div className="space-y-0.5">
-      <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-        {label}
-      </p>
-      <p className="text-sm break-words">{value || "—"}</p>
-    </div>
-  );
-}
 
 type PoLineDraft = { key: string; sku_id: string; quantity: string };
 
@@ -306,8 +272,6 @@ function InboundVendorHubBody() {
     );
   }
 
-  const specs = data.specialties ?? [];
-
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
       <Button variant="ghost" size="sm" asChild className="-ml-2">
@@ -385,7 +349,7 @@ function InboundVendorHubBody() {
                 <div className="px-6 py-8">
                   <EmptyState
                     title="No purchase orders"
-                    description="Create a PO or sync from eautomate to populate this list."
+                    description="Create a PO or run the vendor PO sync to populate this list."
                   />
                 </div>
               ) : null}
@@ -505,46 +469,7 @@ function InboundVendorHubBody() {
         </TabsContent>
 
         <TabsContent value="details" className="mt-4 space-y-6">
-          <Card className="border-primary/10 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Contact &amp; address</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <Field label="GSTIN" value={data.vendor_gstin ?? ""} />
-                <Field label="Contact" value={data.vendor_contact_number ?? ""} />
-                <div className="sm:col-span-2">
-                  <Field label="Address" value={data.vendor_address_line ?? ""} />
-                </div>
-                <Field label="City" value={data.vendor_city ?? ""} />
-                <Field label="State" value={data.vendor_state ?? ""} />
-                <Field label="Postal code" value={data.vendor_postal_code ?? ""} />
-                <Field label="Created by" value={data.created_by ?? ""} />
-                <Field label="Updated" value={data.updated_at ?? ""} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/10 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Specialties</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {specs.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No specialties recorded.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {specs.map((s) => (
-                    <Badge key={s.id} variant="secondary">
-                      {s.vendor_speciality}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <VendorDetailsCard data={data} vendorId={id} onSaved={setData} />
         </TabsContent>
       </Tabs>
 

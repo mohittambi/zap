@@ -6,6 +6,10 @@ import { query } from "@/server/db";
 import { buildEautomateOutboundPoFileDownloadUrl } from "@/server/eautomate-outbound-po-files";
 import { fetchEautomate } from "@/server/eautomate-proxy";
 import { eautomateConfigured } from "@/server/eautomate-proxy";
+import {
+  downloadBufferFromBucket,
+  getOutboundBucket,
+} from "@/server/zapStorage";
 
 type Ctx = { params: Promise<{ id: string; fileId: string }> };
 
@@ -25,15 +29,8 @@ export async function GET(request: Request, context: Ctx) {
       return NextResponse.json({ error: "Invalid PO or file id" }, { status: 400 });
     }
 
-    if (!eautomateConfigured()) {
-      return NextResponse.json(
-        { error: "eAutomate is not configured for downloads" },
-        { status: 503 }
-      );
-    }
-
     const r = await query(
-      `SELECT f.file_name, o.po_number
+      `SELECT f.file_name, o.po_number, f.zap_storage_path
        FROM outbound_po_eautomate_files f
        JOIN outbound_purchase_orders o ON o.id = f.outbound_po_id
        WHERE f.eautomate_file_id = $1 AND f.outbound_po_id = $2`,
@@ -44,6 +41,37 @@ export async function GET(request: Request, context: Ctx) {
     }
     const file_name = r.rows[0].file_name as string;
     const po_number = String(r.rows[0].po_number);
+    const zapPath =
+      r.rows[0].zap_storage_path != null
+        ? String(r.rows[0].zap_storage_path)
+        : null;
+
+    if (zapPath) {
+      try {
+        const { buffer, contentType } = await downloadBufferFromBucket(
+          getOutboundBucket(),
+          zapPath
+        );
+        const ct =
+          contentType?.split(";")[0]?.trim() || "application/octet-stream";
+        return new NextResponse(new Uint8Array(buffer), {
+          status: 200,
+          headers: {
+            "Content-Type": ct,
+            "Content-Disposition": `attachment; filename="${safeFilename(file_name)}"`,
+          },
+        });
+      } catch {
+        /* fall through to legacy proxy */
+      }
+    }
+
+    if (!eautomateConfigured()) {
+      return NextResponse.json(
+        { error: "File is not available in Zap Storage and legacy fetch is not configured" },
+        { status: 503 }
+      );
+    }
 
     const target = buildEautomateOutboundPoFileDownloadUrl(fileId, po_number);
     if (!target) {

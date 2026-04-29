@@ -30,7 +30,7 @@ export type VendorListingRow = {
     sku_id: string;
     category: string | null;
     description: string;
-    /** Present when eautomate SKU names cache has a label for this sku_id */
+    /** Present when the SKU names cache has a label for this sku_id */
     eautomate_sku_name?: string | null;
     available_quantity: number;
     bins: {
@@ -93,7 +93,7 @@ export function InboundVendorListingsTable({
           <div className="px-6 py-8">
             <EmptyState
               title="No SKUs"
-              description="This vendor has no vendor_sku rows yet. Sync from eautomate or assign SKUs in the database."
+              description="This vendor has no vendor_sku rows yet. Run listing sync or assign SKUs in the database."
             />
           </div>
         ) : null}
@@ -138,7 +138,7 @@ export function InboundVendorListingsTable({
                         className="text-muted-foreground max-w-md align-top text-sm"
                         title={
                           L?.eautomate_sku_name
-                            ? `eautomate: ${L.eautomate_sku_name}`
+                            ? `Cached name: ${L.eautomate_sku_name}`
                             : undefined
                         }
                       >
