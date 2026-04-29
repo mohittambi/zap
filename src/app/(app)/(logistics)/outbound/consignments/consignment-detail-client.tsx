@@ -2,11 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, PackageIcon, CalendarIcon } from "lucide-react";
+import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Card,
   CardContent,
@@ -75,7 +74,6 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = React.useState(true);
   const [row, setRow] = React.useState<OutboundConsignmentRow | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
-  const [showRaw, setShowRaw] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -201,23 +199,6 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
           <MetaRow label="Synced at" value={fmt(row.synced_at)} />
         </CardContent>
       </Card>
-
-      {/* Raw data collapsed */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setShowRaw((v) => !v)}
-          className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs font-medium"
-        >
-          <PackageIcon className="size-3.5" />
-          {showRaw ? "Hide" : "Show"} raw API payload ({Object.keys(row.raw ?? {}).length} keys)
-        </button>
-        {showRaw ? (
-          <pre className="bg-muted mt-2 max-h-[420px] overflow-auto rounded-md p-3 text-xs">
-            {JSON.stringify(row.raw, null, 2)}
-          </pre>
-        ) : null}
-      </div>
     </div>
   );
 }

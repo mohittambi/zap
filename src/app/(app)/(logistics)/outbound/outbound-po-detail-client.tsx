@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { apiUrl, getStoredToken } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -82,6 +83,71 @@ type ZapAtt = {
   kind: string;
   created_at: string | null;
 };
+
+type PostDispatchKind = "invoice" | "bilty" | "pod" | "return";
+
+/** Classify synced file rows for Post Dispatch vs Original PO (Details tab). */
+function postDispatchCategory(f: EaFile): PostDispatchKind | null {
+  const t = (f.file_type ?? "").toLowerCase();
+  if (!t) return null;
+  if (t.includes("return")) return "return";
+  if (t.includes("pod") || t.includes("proof")) return "pod";
+  if (t.includes("bilty") || t.includes("billty") || t.includes("bilt")) return "bilty";
+  if (t.includes("invoice")) return "invoice";
+  return null;
+}
+
+function originalEaFiles(files: EaFile[]): EaFile[] {
+  return files.filter((f) => postDispatchCategory(f) == null);
+}
+
+function eaFilesForKind(files: EaFile[], kind: PostDispatchKind): EaFile[] {
+  return files.filter((f) => postDispatchCategory(f) === kind);
+}
+
+type ConsignmentRow = {
+  id: number;
+  po_number: string | null;
+  consignment_status: string | null;
+  invoice_number_status: string | null;
+  invoice_number: string | null;
+  invoice_upload_status: string | null;
+  boxes_count: number | null;
+  sku_count: number | null;
+  total_quantity: number | null;
+  transporter_name: string | null;
+  vehicle_number: string | null;
+  docket_number: string | null;
+  created_at: string | null;
+  marked_rtd_at: string | null;
+  marked_rtd_by: string | null;
+  raw?: Record<string, unknown>;
+};
+
+type ConsignmentsListPayload = {
+  total: number;
+  content: ConsignmentRow[];
+};
+
+type PoLogRow = {
+  id: number;
+  po_number: string | null;
+  consignment_id: number | null;
+  foreign_key: number | null;
+  operation: string | null;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string | null;
+};
+
+function pickRaw(r: Record<string, unknown> | undefined, keys: string[]): string | null {
+  if (!r) return null;
+  for (const k of keys) {
+    const v = r[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return null;
+}
 
 type DetailPayload = {
   po: OutboundPoDetail;
@@ -247,6 +313,13 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [editField, setEditField] = React.useState<SaveFieldKey | null>(null);
   const [editLabel, setEditLabel] = React.useState("");
   const [editValue, setEditValue] = React.useState("");
+  const [consignmentsData, setConsignmentsData] =
+    React.useState<ConsignmentsListPayload | null>(null);
+  const [consignmentsLoading, setConsignmentsLoading] = React.useState(false);
+  const [logsPayload, setLogsPayload] = React.useState<PoLogRow[] | null>(null);
+  const [logsLoading, setLogsLoading] = React.useState(false);
+  const [createConsignmentOpen, setCreateConsignmentOpen] = React.useState(false);
+  const [createConsignmentBusy, setCreateConsignmentBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -278,6 +351,54 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  React.useEffect(() => {
+    if (tab !== "consignments") return;
+    let cancelled = false;
+    (async () => {
+      setConsignmentsLoading(true);
+      try {
+        const res = await authFetchRaw(
+          `/api/outbound/purchase-orders/${poId}/consignments?page=1&count=200`
+        );
+        const j = (await res.json()) as ConsignmentsListPayload & { error?: string };
+        if (!cancelled) {
+          if (res.ok) setConsignmentsData(j);
+          else setConsignmentsData(null);
+        }
+      } catch {
+        if (!cancelled) setConsignmentsData(null);
+      } finally {
+        if (!cancelled) setConsignmentsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, poId]);
+
+  React.useEffect(() => {
+    if (tab !== "logs") return;
+    let cancelled = false;
+    (async () => {
+      setLogsLoading(true);
+      try {
+        const res = await authFetchRaw(`/api/outbound/purchase-orders/${poId}/logs`);
+        const j = (await res.json()) as { logs?: PoLogRow[]; error?: string };
+        if (!cancelled) {
+          if (res.ok && Array.isArray(j.logs)) setLogsPayload(j.logs);
+          else setLogsPayload([]);
+        }
+      } catch {
+        if (!cancelled) setLogsPayload([]);
+      } finally {
+        if (!cancelled) setLogsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, poId]);
 
   const po = data?.po;
   const isPartial =
@@ -311,16 +432,10 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         message?: string;
         action?: string;
       };
-      if (res.status === 501) {
-        toast.message(j.message ?? "Not implemented", {
-          description: `Action: ${j.action ?? "save_field"}`,
-        });
-        setEditOpen(false);
-        return;
-      }
       if (!res.ok) throw new Error(j.error ?? res.statusText);
       toast.success("Saved");
       setEditOpen(false);
+      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -339,18 +454,51 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           body: JSON.stringify({ action }),
         }
       );
+      const ct = res.headers.get("content-type") ?? "";
+      if (
+        res.ok &&
+        ct &&
+        !ct.includes("application/json") &&
+        (action === "download_sku_report" || action === "download_pendency_pdf")
+      ) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const pn = (data?.po?.po_number ?? "po").replace(/[/\\?%*:|"<>]/g, "_");
+        a.download =
+          action === "download_sku_report"
+            ? `sku-report-${pn}.csv`
+            : `pendency-${pn}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Download started");
+        return;
+      }
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         message?: string;
         action?: string;
+        detail?: string;
+        hint?: string;
+        upstream_url?: string;
       };
-      if (res.status === 501) {
-        toast.message(j.message ?? "Not implemented", {
-          description: `Action: ${j.action ?? action}`,
-        });
-        return;
+      if (!res.ok) {
+        const parts = [
+          j.error ?? j.detail ?? j.message ?? res.statusText,
+          j.hint,
+          j.upstream_url ? `URL: ${j.upstream_url}` : "",
+        ].filter(Boolean);
+        throw new Error(parts.join(" — "));
       }
-      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      toast.success(
+        action === "acknowledge"
+          ? "Purchase order acknowledged"
+          : action === "cancel"
+            ? "Cancel request sent"
+            : "Done"
+      );
+      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Request failed");
     } finally {
@@ -393,9 +541,16 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         headers,
         body: fd,
       });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        listingsUpdated?: boolean;
+      };
       if (!res.ok) throw new Error(j.error ?? res.statusText);
-      toast.success("File uploaded");
+      toast.success(
+        j.listingsUpdated
+          ? "File uploaded and line items updated from spreadsheet."
+          : "File uploaded"
+      );
       setFile(null);
       await load();
     } catch (e) {
@@ -487,6 +642,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
 
   const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
   const zapReady = data.zapStorageConfigured === true;
+  const originalFiles = originalEaFiles(data.eautomateFiles);
 
   const filesTable = (
     <Card>
@@ -536,14 +692,14 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.eautomateFiles.length === 0 ? (
+              {originalFiles.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="text-muted-foreground px-3 py-4 text-center">
                     No synced files yet — open this page again after sync, or upload a copy to Zap Storage.
                   </td>
                 </tr>
               ) : (
-                data.eautomateFiles.map((f) => (
+                originalFiles.map((f) => (
                   <tr key={f.eautomate_file_id} className="border-b">
                     <td className="px-3 py-2 tabular-nums">{f.eautomate_file_id}</td>
                     <td className="px-3 py-2">{fmtDateTime(f.created_at)}</td>
@@ -987,30 +1143,291 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           </div>
         </TabsContent>
 
-        <TabsContent value="consignments" className="mt-4 space-y-3">
-          <p className="text-muted-foreground text-sm">
-            Consignments are listed on the main consignments page. Open it filtered by this PO
-            number.
-          </p>
+        <TabsContent value="consignments" className="mt-4 space-y-4">
+          {wip === "YES" && canMutate ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                onClick={() => setCreateConsignmentOpen(true)}
+              >
+                Create New Consignment
+              </Button>
+              <p className="text-muted-foreground text-xs">
+                A consignment can only be created once a PO is marked as WIP.
+              </p>
+            </div>
+          ) : wip !== "YES" ? (
+            <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+              Mark this PO as WIP in eCraft/eAutomate before creating consignments.
+            </p>
+          ) : null}
+
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b">
+                  <th className="px-3 py-2 font-semibold">Consignment ID</th>
+                  <th className="px-3 py-2 font-semibold">PO Number</th>
+                  <th className="px-3 py-2 font-semibold">Consignment Status</th>
+                  <th className="px-3 py-2 font-semibold">Invoice Number Status</th>
+                  <th className="px-3 py-2 font-semibold">Invoice Number</th>
+                  <th className="px-3 py-2 font-semibold">Invoice Upload Status</th>
+                  <th className="px-3 py-2 font-semibold">Boxes</th>
+                  <th className="px-3 py-2 font-semibold">SKU Count</th>
+                  <th className="px-3 py-2 font-semibold">Total Qty</th>
+                  <th className="px-3 py-2 font-semibold">Transporter</th>
+                  <th className="px-3 py-2 font-semibold">Vehicle / Docket</th>
+                  <th className="px-3 py-2 font-semibold">Created At</th>
+                  <th className="px-3 py-2 font-semibold">Created By</th>
+                  <th className="px-3 py-2 font-semibold">Marked RTD At</th>
+                  <th className="px-3 py-2 font-semibold">Marked RTD By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consignmentsLoading ? (
+                  <tr>
+                    <td colSpan={15} className="text-muted-foreground px-3 py-6 text-center">
+                      <Loader2 className="inline size-4 animate-spin" /> Loading…
+                    </td>
+                  </tr>
+                ) : !consignmentsData?.content?.length ? (
+                  <tr>
+                    <td colSpan={15} className="text-muted-foreground px-3 py-6 text-center">
+                      No consignments synced for this PO yet.
+                    </td>
+                  </tr>
+                ) : (
+                  consignmentsData.content.map((row) => {
+                    const raw = row.raw ?? {};
+                    const createdBy =
+                      pickRaw(raw as Record<string, unknown>, [
+                        "consignment_created_by",
+                        "created_by",
+                        "consignmentCreatedBy",
+                      ]) ?? "—";
+                    const vehicle =
+                      [row.vehicle_number, row.docket_number]
+                        .filter(Boolean)
+                        .join(" / ") || "—";
+                    return (
+                      <tr key={row.id} className="border-b">
+                        <td className="px-3 py-2">
+                          <Link
+                            className="text-primary font-medium underline-offset-2 hover:underline"
+                            href={`/outbound/consignments/${row.id}`}
+                          >
+                            {row.id}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{row.po_number ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.consignment_status ? (
+                            <Badge variant="outline" className="font-normal">
+                              {row.consignment_status}
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.invoice_number_status ? (
+                            <Badge variant="secondary" className="font-normal">
+                              {row.invoice_number_status}
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="max-w-[140px] truncate px-3 py-2 font-mono text-xs">
+                          {row.invoice_number ?? "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          {row.invoice_upload_status ? (
+                            <Badge variant="outline" className="font-normal">
+                              {row.invoice_upload_status}
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{row.boxes_count ?? "—"}</td>
+                        <td className="px-3 py-2 tabular-nums">{row.sku_count ?? "—"}</td>
+                        <td className="px-3 py-2 tabular-nums">{row.total_quantity ?? "—"}</td>
+                        <td className="max-w-[120px] truncate px-3 py-2">
+                          {row.transporter_name ?? "—"}
+                        </td>
+                        <td className="max-w-[140px] truncate px-3 py-2 font-mono text-xs">
+                          {vehicle}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtDateTime(row.created_at)}
+                        </td>
+                        <td className="max-w-[120px] truncate px-3 py-2 text-xs">
+                          {createdBy}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtDateTime(row.marked_rtd_at)}
+                        </td>
+                        <td className="max-w-[120px] truncate px-3 py-2 text-xs">
+                          {row.marked_rtd_by ?? "—"}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
           <Button variant="outline" asChild>
             <Link
               href={`/outbound/consignments?search=${encodeURIComponent(po.po_number)}`}
             >
-              Open consignments for {po.po_number}
+              Open full consignments list (filtered)
             </Link>
           </Button>
         </TabsContent>
 
-        <TabsContent value="postdispatch" className="mt-4">
+        <TabsContent value="postdispatch" className="mt-4 space-y-6">
           <p className="text-muted-foreground text-sm">
-            Post dispatch documents are not wired in Zap yet. This tab will list uploads and status when the workflow is implemented.
+            Documents synced from eAutomate for this PO (by file type). Configure download paths on the server if needed.
           </p>
+          {(
+            [
+              ["Invoice", "invoice" as PostDispatchKind],
+              ["Bilty", "bilty" as PostDispatchKind],
+              ["Proof of Delivery", "pod" as PostDispatchKind],
+              ["Return Invoice", "return" as PostDispatchKind],
+            ] as const
+          ).map(([label, kind]) => {
+            const sectionFiles = eaFilesForKind(data.eautomateFiles, kind);
+            return (
+              <Card key={kind}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">{label}</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="bg-muted/50 border-b">
+                          <th className="px-3 py-2 font-semibold">File ID</th>
+                          <th className="px-3 py-2 font-semibold">Uploaded at</th>
+                          <th className="px-3 py-2 font-semibold">Uploaded by</th>
+                          <th className="px-3 py-2 font-semibold">File name</th>
+                          <th className="px-3 py-2 font-semibold">Download</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sectionFiles.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="text-muted-foreground px-3 py-8 text-center"
+                            >
+                              No document was found
+                            </td>
+                          </tr>
+                        ) : (
+                          sectionFiles.map((f) => (
+                            <tr key={`${kind}-${f.eautomate_file_id}`} className="border-b">
+                              <td className="px-3 py-2 tabular-nums">{f.eautomate_file_id}</td>
+                              <td className="px-3 py-2">{fmtDateTime(f.created_at)}</td>
+                              <td className="px-3 py-2">{f.file_uploaded_by ?? "—"}</td>
+                              <td className="max-w-[240px] truncate px-3 py-2" title={f.file_name}>
+                                {f.file_name}
+                              </td>
+                              <td className="px-3 py-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-primary h-8 w-8"
+                                  disabled={
+                                    !(f.zap_storage_path || legacyFetch) ||
+                                    dlBusy === `ea-${f.eautomate_file_id}`
+                                  }
+                                  aria-label={`Download ${f.file_name}`}
+                                  onClick={() =>
+                                    void onDownloadEa(f.eautomate_file_id, f.file_name)
+                                  }
+                                >
+                                  {dlBusy === `ea-${f.eautomate_file_id}` ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                  ) : (
+                                    <Download className="size-4" />
+                                  )}
+                                </Button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </TabsContent>
 
-        <TabsContent value="logs" className="mt-4">
-          <p className="text-muted-foreground text-sm">
-            PO activity logs are not wired in Zap yet.
-          </p>
+        <TabsContent value="logs" className="mt-4 space-y-3">
+          {logsLoading ? (
+            <div className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Loader2 className="size-4 animate-spin" />
+              Loading logs…
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="bg-muted/50 border-b">
+                    <th className="px-3 py-2 font-semibold">Log ID</th>
+                    <th className="px-3 py-2 font-semibold">Operation Performed</th>
+                    <th className="px-3 py-2 font-semibold">PO Number</th>
+                    <th className="px-3 py-2 font-semibold">Consignment ID</th>
+                    <th className="px-3 py-2 font-semibold">Foreign Key</th>
+                    <th className="px-3 py-2 font-semibold">Remarks</th>
+                    <th className="px-3 py-2 font-semibold">Created By</th>
+                    <th className="px-3 py-2 font-semibold">Created At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!logsPayload?.length ? (
+                    <tr>
+                      <td colSpan={8} className="text-muted-foreground px-3 py-6 text-center">
+                        No logs loaded. Sync runs when eAutomate is configured; override URL with
+                        EAUTOMATE_PO_LOGS_URL if needed.
+                      </td>
+                    </tr>
+                  ) : (
+                    logsPayload.map((log) => (
+                      <tr key={log.id} className="border-b">
+                        <td className="px-3 py-2 tabular-nums">{log.id}</td>
+                        <td className="max-w-[180px] truncate px-3 py-2 text-xs">
+                          {log.operation ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">{log.po_number ?? "—"}</td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {log.consignment_id ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{log.foreign_key ?? "—"}</td>
+                        <td className="max-w-[280px] px-3 py-2 text-xs whitespace-pre-wrap">
+                          {log.remarks ?? "—"}
+                        </td>
+                        <td className="max-w-[140px] truncate px-3 py-2 text-xs">
+                          {log.created_by ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtDateTime(log.created_at)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -1019,7 +1436,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           <DialogHeader>
             <DialogTitle>Edit {editLabel}</DialogTitle>
             <DialogDescription>
-              Saving calls a Zap stub until the outbound update API is wired.
+              Saves to Zap and refreshes from eAutomate when configured.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -1055,6 +1472,68 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 <Loader2 className="size-4 animate-spin" />
               ) : (
                 "Save"
+              )}
+            </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+      <Dialog open={createConsignmentOpen} onOpenChange={setCreateConsignmentOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Consignment</DialogTitle>
+            <DialogDescription>
+              Calls eAutomate to create a consignment for PO {po.po_number}. A consignment can
+              only be created once a PO is marked as WIP. Override the URL on the server with
+              EAUTOMATE_CREATE_CONSIGNMENT_URL if the default path does not match your build.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateConsignmentOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={createConsignmentBusy}
+              onClick={() => {
+                void (async () => {
+                  setCreateConsignmentBusy(true);
+                  try {
+                    const res = await authFetchRaw(
+                      `/api/outbound/purchase-orders/${poId}/consignments`,
+                      { method: "POST" }
+                    );
+                    const j = (await res.json().catch(() => ({}))) as {
+                      error?: string;
+                      detail?: string;
+                    };
+                    if (!res.ok) {
+                      throw new Error(j.error ?? j.detail ?? "Failed to create consignment");
+                    }
+                    toast.success("Consignment created");
+                    setCreateConsignmentOpen(false);
+                    await load();
+                    const cr = await authFetchRaw(
+                      `/api/outbound/purchase-orders/${poId}/consignments?page=1&count=200`
+                    );
+                    const cj = (await cr.json()) as ConsignmentsListPayload;
+                    if (cr.ok) setConsignmentsData(cj);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  } finally {
+                    setCreateConsignmentBusy(false);
+                  }
+                })();
+              }}
+            >
+              {createConsignmentBusy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                "Confirm"
               )}
             </Button>
           </DialogFooter>

@@ -515,6 +515,63 @@ export async function getOutboundPurchaseOrderById(
   return rowToApi(r.rows[0] as Record<string, unknown>);
 }
 
+export type OutboundPoEditableField =
+  | "po_type"
+  | "delivery_city"
+  | "delivery_address"
+  | "billing_address"
+  | "expiry_date"
+  | "remarks";
+
+/** Patch a single editable PO column (Zap DB); does not call eAutomate. */
+export async function patchOutboundPurchaseOrderField(
+  id: number,
+  field: OutboundPoEditableField,
+  value: string | null
+): Promise<void> {
+  if (!Number.isFinite(id) || id < 1) {
+    throw new AppError("Invalid PO id", 400);
+  }
+  let sqlVal: unknown;
+  if (field === "expiry_date") {
+    if (value == null || !String(value).trim()) {
+      sqlVal = null;
+    } else {
+      const d = new Date(String(value).trim());
+      sqlVal = Number.isNaN(d.getTime()) ? null : d;
+    }
+  } else if (value != null) {
+    const s = String(value).trim();
+    if (field === "remarks") {
+      sqlVal = s;
+    } else if (field === "delivery_address" || field === "billing_address") {
+      sqlVal = s.slice(0, 20_000);
+    } else if (field === "po_type") {
+      sqlVal = s.slice(0, 80);
+    } else if (field === "delivery_city") {
+      sqlVal = s.slice(0, 120);
+    } else {
+      sqlVal = s;
+    }
+  } else {
+    sqlVal = null;
+  }
+
+  const colSql: Record<OutboundPoEditableField, string> = {
+    po_type: "po_type",
+    delivery_city: "delivery_city",
+    delivery_address: "delivery_address",
+    billing_address: "billing_address",
+    expiry_date: "expiry_date",
+    remarks: "remarks",
+  };
+  const column = colSql[field];
+  await query(
+    `UPDATE outbound_purchase_orders SET ${column} = $2, updated_at = NOW() WHERE id = $1`,
+    [id, sqlVal]
+  );
+}
+
 export async function updateOutboundPoListingsSnapshot(
   outboundPoId: number,
   snapshot: unknown
@@ -553,6 +610,55 @@ export function extractListingsRowsFromSnapshot(
     }
   }
   return [];
+}
+
+function csvEscapeCell(cell: string): string {
+  if (/[",\n\r]/.test(cell)) {
+    return `"${cell.replace(/"/g, '""')}"`;
+  }
+  return cell;
+}
+
+function csvCellValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v);
+}
+
+/**
+ * SKU / line listing export from cached `listings_snapshot` (same rows as the PO line-items UI).
+ * UTF-8 BOM prefix helps Excel open UTF-8 CSV correctly on Windows.
+ */
+export function outboundPoListingsSnapshotToCsv(snapshot: unknown): string {
+  const rows = extractListingsRowsFromSnapshot(snapshot);
+  const keySet = new Set<string>();
+  for (const row of rows) {
+    for (const k of Object.keys(row)) {
+      keySet.add(k);
+    }
+  }
+  const headers = [...keySet].sort((a, b) => a.localeCompare(b));
+  const lines: string[] = [];
+
+  if (rows.length === 0) {
+    return `\ufeff${csvEscapeCell("message")}\n${csvEscapeCell(
+      "No line items in listings_snapshot. Sync this PO from eCraft (PO detail) or upload a received PO spreadsheet to populate listings."
+    )}`;
+  }
+
+  lines.push(headers.map((h) => csvEscapeCell(h)).join(","));
+  for (const row of rows) {
+    lines.push(
+      headers.map((h) => csvEscapeCell(csvCellValue(row[h]))).join(",")
+    );
+  }
+  return `\ufeff${lines.join("\n")}`;
 }
 
 function filterListingsRowsBySearch(

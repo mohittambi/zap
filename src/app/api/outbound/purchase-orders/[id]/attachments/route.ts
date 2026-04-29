@@ -5,6 +5,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
+import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -77,7 +78,21 @@ export async function POST(request: Request, context: Ctx) {
       kind,
     });
 
-    return NextResponse.json({ ok: true });
+    let listingsUpdated = false;
+    if (kind === "spreadsheet") {
+      try {
+        const envelope = parseOutboundPoLineItemsSpreadsheet(buf, fname);
+        await outboundPoService.updateOutboundPoListingsSnapshot(
+          poId,
+          envelope
+        );
+        listingsUpdated = envelope.content.length > 0;
+      } catch {
+        listingsUpdated = false;
+      }
+    }
+
+    return NextResponse.json({ ok: true, listingsUpdated });
   } catch (err) {
     return handleApiError(err);
   }
