@@ -116,6 +116,42 @@ export async function listVendorPurchaseOrdersWithFilters(opts) {
   };
 }
 
+/** All PO rows for one vendor (for CSV export), same row shape as list items. */
+export async function listVendorPurchaseOrdersAll(opts) {
+  const vendorId = Number(opts.vendorId);
+  if (!Number.isFinite(vendorId) || vendorId < 1) {
+    throw new AppError("vendor_id is required", 400);
+  }
+
+  const kw = str(opts.searchKeyword);
+  const likeParam = kw ? `%${kw.toLowerCase()}%` : null;
+  const searchClause = kw
+    ? ` AND (
+        CAST(po.po_id AS TEXT) ILIKE $2
+        OR LOWER(COALESCE(po.status, '')) LIKE $2
+        OR LOWER(COALESCE(po.po_remarks, '')) LIKE $2
+      )`
+    : "";
+
+  const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vendorId]);
+  if (vCheck.rows.length === 0) {
+    throw new AppError("Vendor not found", 404);
+  }
+
+  const listParams = kw ? [vendorId, likeParam] : [vendorId];
+  const listSql = `
+    SELECT po.po_id, po.vendor_id, po.vendor_name, po.expected_date, po.created_by, po.modified_by,
+           po.created_at, po.updated_at, po.date_published, po.status, po.po_remarks,
+           po.sku_count, po.total_quantity, po.number_of_grns, po.total_invoice_quantity,
+           po.total_accepted_quantity, po.total_rejected_quantity, po.sku_fill_rate, po.quantity_fill_rate
+    FROM vendor_purchase_orders po
+    WHERE po.vendor_id = $1 ${searchClause}
+    ORDER BY po.created_at DESC NULLS LAST, po.po_id DESC`;
+
+  const listR = await query(listSql, listParams);
+  return listR.rows.map((r) => rowToListItem(r));
+}
+
 /**
  * Paginated list across all vendors (optional vendor_id filter). Same JSON shape as eautomate with_filters.
  */

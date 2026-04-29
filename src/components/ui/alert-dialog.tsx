@@ -51,7 +51,13 @@ const AlertDialogDescription = DialogDescription;
 
 function AlertDialogFooter({ className, children, ...props }: React.ComponentProps<typeof DialogFooter>) {
   return (
-    <DialogFooter className={cn("flex flex-row gap-2 justify-end border-0 bg-transparent p-0 sm:justify-end", className)} {...props}>
+    <DialogFooter
+      className={cn(
+        "gap-3 border-t-0 bg-transparent py-0 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    >
       {children}
     </DialogFooter>
   );

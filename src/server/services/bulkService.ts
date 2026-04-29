@@ -92,7 +92,7 @@ export async function exportMasterSkuCsv() {
             inventory_bypass_on, ops_tag, category, description, meta_fields,
             img_hd, img_white, img_wdim, img_link1, img_link2,
             no_of_constituents, actual_weight, dimension, bulk_price, keyword_pool, material_info,
-            available_quantity, raw_created_at, raw_updated_at, eautomate_bins
+            available_quantity, raw_created_at, raw_updated_at, eautomate_bins AS bins
      FROM listings ORDER BY sku_id`
   );
   const headers = [
@@ -121,7 +121,7 @@ export async function exportMasterSkuCsv() {
     "available_quantity",
     "raw_created_at",
     "raw_updated_at",
-    "eautomate_bins",
+    "bins",
   ];
   return rowsToCsv(
     headers,
@@ -235,11 +235,22 @@ export async function importPacksCombosFromBuffer(buffer) {
       continue;
     }
     try {
-      await query(
-        `INSERT INTO pack_combos (parent_sku_id, component_sku_id, quantity)
-         VALUES ($1, $2, $3)`,
-        [parent_sku_id, component_sku_id, qty]
+      const ex = await query(
+        `SELECT id FROM pack_combos WHERE parent_sku_id = $1 AND component_sku_id = $2`,
+        [parent_sku_id, component_sku_id]
       );
+      if (ex.rows.length) {
+        await query(
+          `UPDATE pack_combos SET quantity = $3 WHERE parent_sku_id = $1 AND component_sku_id = $2`,
+          [parent_sku_id, component_sku_id, qty]
+        );
+      } else {
+        await query(
+          `INSERT INTO pack_combos (parent_sku_id, component_sku_id, quantity)
+           VALUES ($1, $2, $3)`,
+          [parent_sku_id, component_sku_id, qty]
+        );
+      }
       imported++;
     } catch (e) {
       errors.push({

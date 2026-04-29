@@ -376,3 +376,77 @@ export async function getVendorListings(vendorId) {
     };
   });
 }
+
+/** Map a listing SKU to this vendor (vendor_sku). */
+export async function addVendorListing(vendorId, skuId, costPrice, actorEmail) {
+  const vid = Number(vendorId);
+  if (!Number.isFinite(vid) || vid < 1) {
+    throw new AppError('Invalid vendor id', 400);
+  }
+  const sku = str(skuId, 100);
+  if (!sku) {
+    throw new AppError('sku_id is required', 400);
+  }
+
+  const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vid]);
+  if (vCheck.rows.length === 0) {
+    throw new AppError('Vendor not found', 404);
+  }
+
+  const listingCheck = await query(`SELECT sku_id FROM listings WHERE sku_id = $1`, [sku]);
+  if (listingCheck.rows.length === 0) {
+    throw new AppError('Listing not found for SKU', 404);
+  }
+
+  let price = null;
+  if (costPrice !== undefined && costPrice !== null && costPrice !== '') {
+    const n = Number(costPrice);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new AppError('Invalid cost_price', 400);
+    }
+    price = n;
+  }
+
+  const by = str(actorEmail, 100) || null;
+
+  const ex = await query(`SELECT id FROM vendor_sku WHERE vendor_id = $1 AND sku_id = $2`, [vid, sku]);
+  if (ex.rows.length > 0) {
+    if (price != null) {
+      await query(
+        `UPDATE vendor_sku SET cost_price = $3, modified_by = $4, updated_at = NOW() WHERE vendor_id = $1 AND sku_id = $2`,
+        [vid, sku, price, by]
+      );
+    }
+    return { ok: true, duplicate: true };
+  }
+
+  const maxR = await query(`SELECT COALESCE(MAX(id), 0)::bigint AS m FROM vendor_sku`);
+  const nextId = Number(maxR.rows[0].m) + 1;
+
+  await query(
+    `INSERT INTO vendor_sku (
+       id, vendor_id, sku_id, cost_price, modified_by, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+    [nextId, vid, sku, price, by]
+  );
+
+  return { ok: true, duplicate: false };
+}
+
+/** Remove vendor–SKU mapping. */
+export async function removeVendorListing(vendorId, skuId) {
+  const vid = Number(vendorId);
+  if (!Number.isFinite(vid) || vid < 1) {
+    throw new AppError('Invalid vendor id', 400);
+  }
+  const sku = str(skuId, 100);
+  if (!sku) {
+    throw new AppError('sku_id is required', 400);
+  }
+
+  const del = await query(`DELETE FROM vendor_sku WHERE vendor_id = $1 AND sku_id = $2 RETURNING id`, [vid, sku]);
+  if (del.rows.length === 0) {
+    throw new AppError('Mapping not found', 404);
+  }
+  return { ok: true };
+}

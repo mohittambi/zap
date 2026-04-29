@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Download } from "lucide-react";
 import {
   InboundVendorListingsTable,
   type VendorListingRow,
@@ -112,7 +114,8 @@ function InboundVendorHubBody() {
 
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createSubmitting, setCreateSubmitting] = React.useState(false);
-  const [expectedDate, setExpectedDate] = React.useState("");
+  const [expectedDateDraft, setExpectedDateDraft] = React.useState("");
+  const [expectedDateConfirmed, setExpectedDateConfirmed] = React.useState("");
   const [poRemarks, setPoRemarks] = React.useState("");
   const [lineDrafts, setLineDrafts] = React.useState<PoLineDraft[]>(() => [
     { key: crypto.randomUUID(), sku_id: "", quantity: "1" },
@@ -191,7 +194,8 @@ function InboundVendorHubBody() {
   }, [createOpen, loadSkusForDialog]);
 
   const resetCreateForm = () => {
-    setExpectedDate("");
+    setExpectedDateDraft("");
+    setExpectedDateConfirmed("");
     setPoRemarks("");
     setLineDrafts([{ key: crypto.randomUUID(), sku_id: "", quantity: "1" }]);
   };
@@ -209,9 +213,38 @@ function InboundVendorHubBody() {
     setLineDrafts((rows) => rows.filter((r) => r.key !== key));
   }, []);
 
+  const downloadPoCsv = async () => {
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const q = new URLSearchParams({
+        vendor_id: id,
+        search_keyword: poSearchApplied,
+      });
+      const res = await fetch(
+        apiUrl(`/api/inbound/vendor-purchase-orders/export?${q}`),
+        { headers }
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `vendor_${id}_purchase_orders.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success("Downloaded PO list CSV");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    }
+  };
+
   const submitCreatePo = async () => {
-    if (!expectedDate.trim()) {
-      toast.error("Expected date is required");
+    if (!expectedDateConfirmed.trim()) {
+      toast.error("Set the expected delivery date using Set");
       return;
     }
     const lines: { sku_id: string; quantity: number }[] = [];
@@ -236,7 +269,7 @@ function InboundVendorHubBody() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendor_id: Number(id),
-          expected_date: expectedDate.trim(),
+          expected_date: expectedDateConfirmed.trim(),
           po_remarks: poRemarks.trim() || undefined,
           lines,
         }),
@@ -274,9 +307,20 @@ function InboundVendorHubBody() {
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
-      <Button variant="ghost" size="sm" asChild className="-ml-2">
-        <Link href="/inbound">← Inbound</Link>
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
+          <Link href="/inbound">← Inbound</Link>
+        </Button>
+        {canCreatePo ? (
+          <Button
+            type="button"
+            className="w-full shrink-0 sm:w-auto"
+            onClick={() => setCreateOpen(true)}
+          >
+            Create New Purchase Order
+          </Button>
+        ) : null}
+      </div>
 
       <AppPageTitle
         title={data.vendor_name || "Vendor"}
@@ -290,7 +334,7 @@ function InboundVendorHubBody() {
         >
           <TabsTrigger value="listings">Listings</TabsTrigger>
           <TabsTrigger value="purchase-orders">Purchase orders</TabsTrigger>
-          <TabsTrigger value="details">Vendor details</TabsTrigger>
+          <TabsTrigger value="details">Contact details</TabsTrigger>
         </TabsList>
 
         <TabsContent value="listings" className="mt-4">
@@ -330,13 +374,20 @@ function InboundVendorHubBody() {
                   >
                     Apply
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Download PO list CSV"
+                    disabled={
+                      poLoading || !poData || poData.total === 0
+                    }
+                    onClick={() => void downloadPoCsv()}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-              {canCreatePo ? (
-                <Button type="button" onClick={() => setCreateOpen(true)}>
-                  Create purchase order
-                </Button>
-              ) : null}
             </CardHeader>
             <CardContent className="p-0">
               {poLoading ? (
@@ -482,22 +533,49 @@ function InboundVendorHubBody() {
       >
         <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>New purchase order</DialogTitle>
+            <DialogTitle>Create Purchase Order ( Vendor ID : {id} )</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="po-exp">Expected date</Label>
-              <Input
-                id="po-exp"
-                type="date"
-                value={expectedDate}
-                onChange={(e) => setExpectedDate(e.target.value)}
-              />
+            <div className="space-y-2">
+              <Label htmlFor="po-exp">Expected Delivery Date</Label>
+              <div className="flex flex-wrap items-end gap-2">
+                <Input
+                  id="po-exp"
+                  className="min-w-[10rem] flex-1"
+                  type="date"
+                  value={expectedDateDraft}
+                  onChange={(e) => setExpectedDateDraft(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    if (!expectedDateDraft.trim()) {
+                      toast.error("Choose a date first");
+                      return;
+                    }
+                    setExpectedDateConfirmed(expectedDateDraft.trim());
+                  }}
+                >
+                  Set
+                </Button>
+              </div>
+              {expectedDateConfirmed ? (
+                <Badge variant="outline" className="border-green-600/60 text-green-700 dark:text-green-400">
+                  Expected delivery: {expectedDateConfirmed}
+                </Badge>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Pick a date, then click Set to confirm.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="po-rm">Remarks (optional)</Label>
-              <Input
+              <Label htmlFor="po-rm">PO remarks</Label>
+              <textarea
                 id="po-rm"
+                rows={3}
+                className="border-input bg-background ring-offset-background focus-visible:ring-ring flex min-h-[80px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                 value={poRemarks}
                 onChange={(e) => setPoRemarks(e.target.value)}
                 placeholder="Notes for this PO"
@@ -570,7 +648,7 @@ function InboundVendorHubBody() {
               ))}
             </div>
           </div>
-          <DialogFooter className="gap-2 sm:justify-end">
+          <DialogFooter className="flex-row gap-3 sm:justify-end">
             <Button
               type="button"
               variant="outline"
