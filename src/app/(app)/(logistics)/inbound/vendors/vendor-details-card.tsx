@@ -250,17 +250,43 @@ export function VendorDetailsCard({
               </div>
             </div>
           ) : (
-            <div className="grid gap-6 sm:grid-cols-2">
-              <Field label="GSTIN" value={data.vendor_gstin ?? ""} />
-              <Field label="Contact" value={data.vendor_contact_number ?? ""} />
-              <div className="sm:col-span-2">
-                <Field label="Address" value={data.vendor_address_line ?? ""} />
+            <div className="space-y-4">
+              {/* Key identifiers */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data.vendor_gstin ? (
+                  <div className="bg-muted/50 rounded-lg border px-3 py-2.5">
+                    <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">GSTIN</p>
+                    <p className="font-mono text-sm font-semibold">{data.vendor_gstin}</p>
+                  </div>
+                ) : null}
+                {data.vendor_contact_number ? (
+                  <div className="bg-muted/50 rounded-lg border px-3 py-2.5">
+                    <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">Contact</p>
+                    <p className="font-mono text-sm font-semibold">{data.vendor_contact_number}</p>
+                  </div>
+                ) : null}
               </div>
-              <Field label="City" value={data.vendor_city ?? ""} />
-              <Field label="State" value={data.vendor_state ?? ""} />
-              <Field label="Postal code" value={data.vendor_postal_code ?? ""} />
-              <Field label="Created by" value={data.created_by ?? ""} />
-              <Field label="Updated" value={data.updated_at ?? ""} />
+              {/* Address */}
+              {(data.vendor_address_line || data.vendor_city || data.vendor_state) ? (
+                <div className="bg-muted/30 rounded-lg border px-3 py-2.5">
+                  <p className="text-muted-foreground mb-1.5 text-[10px] font-medium uppercase tracking-wide">Address</p>
+                  <p className="text-sm leading-relaxed">
+                    {[
+                      data.vendor_address_line,
+                      data.vendor_city,
+                      data.vendor_state,
+                      data.vendor_postal_code,
+                    ].filter(Boolean).join(", ")}
+                  </p>
+                </div>
+              ) : null}
+              {/* Audit */}
+              {(data.created_by || data.updated_at) ? (
+                <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {data.created_by ? <span>Created by <span className="text-foreground font-medium">{data.created_by}</span></span> : null}
+                  {data.updated_at ? <span>Updated <span className="text-foreground font-medium">{data.updated_at}</span></span> : null}
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>

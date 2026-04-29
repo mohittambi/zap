@@ -129,18 +129,31 @@ export default function PacksCombosPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : (
-            <Table>
+          <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-muted/60 hover:bg-muted/60">
                   <TableHead className="w-12">sr_no.</TableHead>
                   <TableHead>pack_combo_sku</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list?.content?.map((row, i) => (
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-5 w-full" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-full" /></TableCell>
+                      </TableRow>
+                    ))
+                  : !list?.content?.length
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-muted-foreground py-10 text-center text-sm">
+                        No pack/combo SKUs match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : null}
+                {!loading && list?.content?.map((row, i) => (
                   <React.Fragment key={row.pack_combo_sku_id}>
                     <TableRow
                       className="cursor-pointer hover:bg-muted/50"
@@ -210,10 +223,6 @@ export default function PacksCombosPage() {
                 ))}
               </TableBody>
             </Table>
-          )}
-          {!loading && (!list?.content?.length ? (
-            <p className="text-muted-foreground text-sm">No pack/combo rows for this page.</p>
-          ) : null)}
           <div className="mt-4 flex justify-between gap-2">
             <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               Previous

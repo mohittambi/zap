@@ -16,14 +16,20 @@ export async function GET(request: Request, context: RouteContext) {
     assertPermission(user, "purchase_orders", "read");
     const { grnId } = await context.params;
     const id = Number(grnId);
-    if (!Number.isFinite(id) || id < 1) {
+    if (!Number.isFinite(id) || id === 0) {
       return NextResponse.json({ message: "Invalid grn id" }, { status: 400 });
     }
 
     const url = new URL(request.url);
     const refresh = url.searchParams.get("refresh") === "1";
-    const hasSnapshot = await snapshotExists(id);
-    if (refresh || !hasSnapshot) {
+    /** Zap-created drafts use negative grn_ids; eAutomate has no GRN for them yet. */
+    const isDraft = id < 0;
+
+    let hasSnapshot = false;
+    if (!isDraft) {
+      hasSnapshot = await snapshotExists(id);
+    }
+    if (!isDraft && (refresh || !hasSnapshot)) {
       await ingestGrnDetailsByGrnId(id);
     }
 

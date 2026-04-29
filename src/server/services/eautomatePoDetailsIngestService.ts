@@ -142,6 +142,39 @@ function grnIdFromRow(row: Record<string, unknown>): number | null {
   return num(pick(row, ["id"]), null);
 }
 
+/**
+ * When PO detail is re-ingested from eAutomate, merge these keys from the existing
+ * `po_raw` row so in-app actions (cancel, notes) are not overwritten by sync.
+ */
+const INBOUND_PO_RAW_ZAP_MERGE_KEYS = [
+  "zap_status",
+  "zap_cancelled_at",
+  "zap_cancelled_by",
+  "zap_notes",
+  "zap_modified_at",
+  "zap_modified_by",
+] as const;
+
+function mergeZapFieldsIntoIncomingPoRaw(
+  incomingPoJson: unknown,
+  existingPoRaw: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const base =
+    incomingPoJson &&
+    typeof incomingPoJson === "object" &&
+    !Array.isArray(incomingPoJson)
+      ? { ...(incomingPoJson as Record<string, unknown>) }
+      : {};
+  if (!existingPoRaw) return base;
+  for (const k of INBOUND_PO_RAW_ZAP_MERGE_KEYS) {
+    const v = existingPoRaw[k];
+    if (v !== undefined && v !== null && v !== "") {
+      base[k] = v;
+    }
+  }
+  return base;
+}
+
 export async function ingestPoDetailsByVendorAndPo(
   vendorId: number,
   poId: number
@@ -184,6 +217,16 @@ export async function ingestPoDetailsByVendorAndPo(
   try {
     await client.query("BEGIN");
 
+    const existingSnap = await client.query(
+      `SELECT po_raw FROM inbound_po_detail_snapshot WHERE po_id = $1`,
+      [poId]
+    );
+    const existingPoRaw =
+      existingSnap.rows.length > 0
+        ? (existingSnap.rows[0].po_raw as Record<string, unknown>)
+        : null;
+    const mergedPoRaw = mergeZapFieldsIntoIncomingPoRaw(poJson, existingPoRaw);
+
     await client.query(
       `INSERT INTO inbound_po_detail_snapshot (
         po_id, vendor_id, synced_at,
@@ -202,7 +245,7 @@ export async function ingestPoDetailsByVendorAndPo(
         toJsonbString(vendorJson ?? {}),
         toJsonbString(vendorListingsArr),
         toJsonbString(skuNamesArr),
-        toJsonbString(poJson ?? {}),
+        toJsonbString(mergedPoRaw),
       ]
     );
 

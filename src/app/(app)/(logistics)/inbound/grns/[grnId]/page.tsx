@@ -418,7 +418,7 @@ export default function InboundGrnDetailPage() {
 
       <AppPageTitle
         title={loading ? "GRN" : row ? `GRN ${row.grn_id}` : "GRN"}
-        description="Goods receipt note — synced into Zap and cached in the database."
+        description="Receipt details, documents, and activity for this goods receipt note."
       />
 
       {loading ? (
@@ -434,9 +434,7 @@ export default function InboundGrnDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Not found</CardTitle>
             <CardDescription>
-              This GRN is missing or you do not have access. Sync with{" "}
-              <code className="text-xs">npm run sync:grns:all</code>, then open
-              again.
+              This GRN could not be found. Check that the GRN ID is correct or contact your administrator.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -592,28 +590,25 @@ export default function InboundGrnDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">Added items (PO + pendency)</CardTitle>
               <CardDescription>
-                From{" "}
-                <code className="text-xs">
-                  /purchase_orders/addedItems/withListing/withPendency/
-                </code>
+                Purchase order lines with listing and pendency where applicable.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-h-[420px] overflow-auto">
               {bundle.added_items.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No rows ingested.</p>
+                <p className="text-muted-foreground text-sm">No line items to show.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10">#</TableHead>
+                      <TableHead className="w-10">Sr. No</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead className="text-right">Ordered</TableHead>
                       <TableHead className="text-right">Pendency</TableHead>
-                      <TableHead className="text-right">Invoice</TableHead>
-                      <TableHead className="text-right">Accepted</TableHead>
-                      <TableHead className="text-right">Rejected</TableHead>
-                      <TableHead className="text-right">Shortage</TableHead>
+                      <TableHead className="text-right">Invoice Qty</TableHead>
+                      <TableHead className="text-right">Accepted Qty</TableHead>
+                      <TableHead className="text-right">Rejected Qty</TableHead>
+                      <TableHead className="text-right">Shortage Qty</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -658,27 +653,24 @@ export default function InboundGrnDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">GRN line items</CardTitle>
               <CardDescription>
-                From{" "}
-                <code className="text-xs">
-                  /purchase_orders/grn/items/withListing/
-                </code>
+                Line-level quantities per SKU for this receipt.
               </CardDescription>
             </CardHeader>
             <CardContent className="max-h-[420px] overflow-auto">
               {bundle.grn_items.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No rows ingested.</p>
+                <p className="text-muted-foreground text-sm">No line items to show.</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-10">#</TableHead>
+                      <TableHead className="w-10">Sr. No</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead>Product</TableHead>
-                      <TableHead className="text-right">Listed</TableHead>
-                      <TableHead className="text-right">Invoice</TableHead>
-                      <TableHead className="text-right">Accepted</TableHead>
-                      <TableHead className="text-right">Rejected</TableHead>
-                      <TableHead className="text-right">Shortage</TableHead>
+                      <TableHead className="text-right">Listed Qty</TableHead>
+                      <TableHead className="text-right">Invoice Qty</TableHead>
+                      <TableHead className="text-right">Accepted Qty</TableHead>
+                      <TableHead className="text-right">Rejected Qty</TableHead>
+                      <TableHead className="text-right">Shortage Qty</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -718,7 +710,7 @@ export default function InboundGrnDetailPage() {
 
           {snap?.synced_at ? (
             <p className="text-muted-foreground text-center text-xs">
-              Detail snapshot synced at {formatDisplayDateTime(snap.synced_at)}
+              Details last refreshed {formatDisplayDateTime(snap.synced_at)}
             </p>
           ) : null}
             </TabsContent>
@@ -728,7 +720,7 @@ export default function InboundGrnDetailPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">GRN summary</CardTitle>
                   <CardDescription>
-                    Quantities and identifiers (from synced header / live GRN API).
+                    Quantities and identifiers for this receipt.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -763,7 +755,7 @@ export default function InboundGrnDetailPage() {
                       {row.grn_invoice_collection_by ?? "—"}
                     </Field>
                     {pickPoRaw(snap, "status") ? (
-                      <Field label="PO status (cached)">{pickPoRaw(snap, "status")}</Field>
+                      <Field label="PO status">{pickPoRaw(snap, "status")}</Field>
                     ) : null}
                     {pickPoRaw(snap, "sku_fill_rate") ? (
                       <Field label="PO SKU fill rate %">
@@ -778,13 +770,12 @@ export default function InboundGrnDetailPage() {
                 <CardHeader>
                   <CardTitle className="text-base">Vendor Invoice</CardTitle>
                   <CardDescription>
-                    Files from{" "}
-                    <code className="text-xs">/purchase_orders/grn/invoice_files/</code>
+                    Vendor invoice files attached to this GRN.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
                   {bundle.invoice_files.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">No invoice files ingested.</p>
+                    <p className="text-muted-foreground text-sm">No invoice files attached.</p>
                   ) : (
                     <Table>
                       <TableHeader>
@@ -794,8 +785,8 @@ export default function InboundGrnDetailPage() {
                           <TableHead>Uploaded At</TableHead>
                           <TableHead>Uploaded By</TableHead>
                           <TableHead>File Name</TableHead>
-                          <TableHead className="text-center">Invoice file</TableHead>
-                          <TableHead className="text-center">Invoice data</TableHead>
+                          <TableHead className="text-center">Invoice File</TableHead>
+                          <TableHead className="text-center">Invoice Data</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -841,16 +832,13 @@ export default function InboundGrnDetailPage() {
                 <CardHeader>
                   <CardTitle className="text-base">Debit / Credit Notes</CardTitle>
                   <CardDescription>
-                    From{" "}
-                    <code className="text-xs">
-                      /purchase_orders/grn/debit_credit_notes/
-                    </code>
+                    Debit and credit notes linked to this GRN.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {(bundle.debit_credit_notes ?? []).length === 0 ? (
                     <p className="text-muted-foreground text-sm">
-                      No debit/credit notes ingested for this GRN.
+                      No debit or credit notes for this GRN.
                     </p>
                   ) : (
                     <>
@@ -864,19 +852,19 @@ export default function InboundGrnDetailPage() {
                                 <TableHead>PO Number</TableHead>
                                 <TableHead>GRN Status</TableHead>
                                 <TableHead>GRN Audit Status</TableHead>
-                                <TableHead>Vendor Inv. #</TableHead>
-                                <TableHead>Box count (inv.)</TableHead>
-                                <TableHead>Actual boxes</TableHead>
-                                <TableHead>GRN audited by</TableHead>
-                                <TableHead>Credit/Debit Note</TableHead>
-                                <TableHead>Note status</TableHead>
-                                <TableHead>Note number</TableHead>
-                                <TableHead># assignment</TableHead>
-                                <TableHead>Upload status</TableHead>
-                                <TableHead>Uploaded by</TableHead>
-                                <TableHead>Reverse #</TableHead>
-                                <TableHead>Reverse upload</TableHead>
-                                <TableHead>Reverse by</TableHead>
+                                <TableHead>Vendor Invoice #</TableHead>
+                                <TableHead>Box Count (Inv.)</TableHead>
+                                <TableHead>Actual Boxes</TableHead>
+                                <TableHead>GRN Audited By</TableHead>
+                                <TableHead>Credit / Debit Note</TableHead>
+                                <TableHead>Note Status</TableHead>
+                                <TableHead>Note Number</TableHead>
+                                <TableHead>Note # Assignment</TableHead>
+                                <TableHead>Upload Status</TableHead>
+                                <TableHead>Uploaded By</TableHead>
+                                <TableHead>Reverse Note #</TableHead>
+                                <TableHead>Reverse Upload</TableHead>
+                                <TableHead>Reverse By</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1061,7 +1049,7 @@ export default function InboundGrnDetailPage() {
                             );
                             const text = await res.text();
                             if (!res.ok) throw new Error(text.slice(0, 200));
-                            toast.success("File uploaded to Zap Storage");
+                            toast.success("File uploaded");
                             globalThis.location.reload();
                           } catch (err) {
                             toast.error(
@@ -1078,7 +1066,7 @@ export default function InboundGrnDetailPage() {
                       variant="outline"
                       size="sm"
                       disabled={dcUploading || !row?.grn_id}
-                      title="Upload reverse debit/credit note file to Zap Storage"
+                      title="Upload a reverse debit or credit note file"
                       onClick={() => dcUploadRef.current?.click()}
                     >
                       {dcUploading ? "Uploading…" : "Upload Reverse Debit/Credit Note"}
@@ -1088,8 +1076,8 @@ export default function InboundGrnDetailPage() {
                         Prepared downloadables
                       </h4>
                       <p className="text-muted-foreground text-sm">
-                        Debit/Credit note data (.csv) is not included in the ingested API
-                        payloads. Export from the source system if available.
+                        Debit and credit note CSV exports are not stored here. Export from the
+                        source system if you need them.
                       </p>
                     </div>
                     </>
@@ -1104,17 +1092,13 @@ export default function InboundGrnDetailPage() {
                 <CardHeader>
                   <CardTitle className="text-base">GRN Logs</CardTitle>
                   <CardDescription>
-                    From{" "}
-                    <code className="text-xs">/purchase_orders/grn/logs/{row.grn_id}</code> — synced
-                    with GRN detail ingest.
+                    Chronological activity for this GRN.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
                   {(bundle.grn_logs ?? []).length === 0 ? (
                     <p className="text-muted-foreground text-sm">
-                      No log rows ingested. Run{" "}
-                      <code className="text-xs">npm run sync:grn:details -- --grn {row.grn_id}</code>{" "}
-                      or open this page with refresh after migration 032.
+                      No activity log rows found for this GRN.
                     </p>
                   ) : (
                     <Table>
@@ -1125,7 +1109,7 @@ export default function InboundGrnDetailPage() {
                           <TableHead className="whitespace-nowrap">PO Number</TableHead>
                           <TableHead className="whitespace-nowrap">Vendor ID</TableHead>
                           <TableHead className="whitespace-nowrap">Foreign Key</TableHead>
-                          <TableHead className="whitespace-nowrap">SKU Id</TableHead>
+                          <TableHead className="whitespace-nowrap">SKU ID</TableHead>
                           <TableHead className="text-right whitespace-nowrap">
                             Invoice Qty
                           </TableHead>

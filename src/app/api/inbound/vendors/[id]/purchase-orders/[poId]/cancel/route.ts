@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { mergeInboundPoRaw } from "@/server/services/inboundPoZapActionsService";
+import {
+  assertVendorPoSnapshot,
+  mergeInboundPoRaw,
+} from "@/server/services/inboundPoZapActionsService";
 
 type Ctx = { params: Promise<{ id: string; poId: string }> };
 
@@ -15,6 +18,12 @@ export async function PATCH(request: Request, context: Ctx) {
     const poIdNum = Number(poId);
     if (!Number.isFinite(vendorId) || vendorId < 1 || !Number.isFinite(poIdNum) || poIdNum < 1) {
       return NextResponse.json({ message: "Invalid vendor or PO id" }, { status: 400 });
+    }
+
+    const { po_raw } = await assertVendorPoSnapshot(vendorId, poIdNum);
+    const cur = String(po_raw.zap_status ?? "").trim().toUpperCase();
+    if (cur === "CANCELLED") {
+      return NextResponse.json({ ok: true });
     }
 
     await mergeInboundPoRaw(vendorId, poIdNum, {

@@ -2,22 +2,80 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, PackageIcon, CalendarIcon } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import type { OutboundConsignmentRow } from "@/server/services/outboundConsignmentsService";
+
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+function fmt(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  return dateFormatter.format(d);
+}
+
+function StatTile({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+  highlight?: boolean;
+}) {
+  const display = value != null && value !== "" ? String(value) : "—";
+  return (
+    <div className={cn("rounded-lg border p-3", highlight ? "bg-primary/5" : "bg-muted/50")}>
+      <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
+        {label}
+      </p>
+      <p className="font-mono text-lg font-bold">{display}</p>
+    </div>
+  );
+}
+
+function MetaRow({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start justify-between gap-4 py-1.5 text-sm">
+      <span className="text-muted-foreground shrink-0 text-xs font-medium">{label}</span>
+      <span className={cn("text-right break-all", mono && "font-mono text-xs")}>{value}</span>
+    </div>
+  );
+}
+
+function statusVariant(s: string | null): "default" | "secondary" | "destructive" | "outline" {
+  if (!s) return "outline";
+  const l = s.toLowerCase();
+  if (l.includes("cancel") || l.includes("fail")) return "destructive";
+  if (l.includes("deliver") || l.includes("complet") || l.includes("rtd")) return "default";
+  if (l.includes("pending") || l.includes("transit")) return "secondary";
+  return "outline";
+}
 
 export function ConsignmentDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = React.useState(true);
   const [row, setRow] = React.useState<OutboundConsignmentRow | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const [showRaw, setShowRaw] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -38,9 +96,7 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [id]);
 
   if (loading) {
@@ -63,9 +119,6 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
     );
   }
 
-  const entries = Object.entries(row).filter(([k]) => k !== "raw");
-  const rawKeys = Object.keys(row.raw ?? {});
-
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-2 py-4 md:px-4">
       <Button variant="ghost" size="sm" asChild className="gap-1">
@@ -75,42 +128,96 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
         </Link>
       </Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Consignment {row.id}</CardTitle>
-          <CardDescription>
-            Denormalized columns plus full upstream JSON in <code className="text-xs">raw</code>{" "}
-            (full upstream payload).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            {entries.map(([k, v]) => (
-              <div key={k} className="border-b border-dashed pb-2">
-                <dt className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-                  {k.replaceAll("_", " ")}
-                </dt>
-                <dd className="mt-0.5 font-mono text-xs break-all">
-                  {v === null || v === undefined
-                    ? "—"
-                    : typeof v === "object"
-                      ? JSON.stringify(v)
-                      : String(v)}
-                </dd>
-              </div>
-            ))}
-          </dl>
+      {/* Header */}
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold">Consignment #{row.id}</h1>
+          {row.consignment_status ? (
+            <Badge variant={statusVariant(row.consignment_status)}>
+              {row.consignment_status}
+            </Badge>
+          ) : null}
+        </div>
+        <p className="text-muted-foreground mt-1 text-sm">
+          {row.company_name ?? "—"}
+          {row.location ? ` · ${row.location}` : ""}
+        </p>
+      </div>
 
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold">
-              Raw API keys ({rawKeys.length})
-            </h3>
-            <pre className="bg-muted max-h-[420px] overflow-auto rounded-md p-3 text-xs">
-              {JSON.stringify(row.raw, null, 2)}
-            </pre>
-          </div>
+      {/* Key metrics */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Boxes" value={row.boxes_count} highlight />
+        <StatTile label="SKUs" value={row.sku_count} />
+        <StatTile label="Total Qty" value={row.total_quantity} />
+      </div>
+
+      {/* PO & Invoice */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <FileTextIcon className="size-4" />
+            PO &amp; Invoice
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          <MetaRow label="PO Number" value={row.po_number} mono />
+          <MetaRow label="PO Type" value={row.po_type} />
+          <MetaRow label="Sold via" value={row.sold_via} />
+          <MetaRow label="Invoice Number" value={row.invoice_number} mono />
+          <MetaRow label="Invoice status" value={row.invoice_number_status} />
+          <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
         </CardContent>
       </Card>
+
+      {/* Transport */}
+      {(row.transporter_name || row.vehicle_number || row.docket_number) ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <TruckIcon className="size-4" />
+              Transport
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            <MetaRow label="Transporter" value={row.transporter_name} />
+            <MetaRow label="Vehicle" value={row.vehicle_number} mono />
+            <MetaRow label="Docket" value={row.docket_number} mono />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Timeline */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <CalendarIcon className="size-4" />
+            Timeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          <MetaRow label="Created" value={fmt(row.created_at)} />
+          <MetaRow label="Marked RTD" value={fmt(row.marked_rtd_at)} />
+          <MetaRow label="Marked RTD by" value={row.marked_rtd_by} />
+          <MetaRow label="Synced at" value={fmt(row.synced_at)} />
+        </CardContent>
+      </Card>
+
+      {/* Raw data collapsed */}
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowRaw((v) => !v)}
+          className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-xs font-medium"
+        >
+          <PackageIcon className="size-3.5" />
+          {showRaw ? "Hide" : "Show"} raw API payload ({Object.keys(row.raw ?? {}).length} keys)
+        </button>
+        {showRaw ? (
+          <pre className="bg-muted mt-2 max-h-[420px] overflow-auto rounded-md p-3 text-xs">
+            {JSON.stringify(row.raw, null, 2)}
+          </pre>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -136,7 +136,7 @@ export default function InboundGrnsPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="All GRNs"
-        description="Goods receipt notes in Zap. Sync with npm run sync:grns:all after vendors are in the database."
+        description="Goods receipt notes across all vendors. Use the search and filters to find specific GRNs."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -175,7 +175,7 @@ export default function InboundGrnsPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No GRNs"
-                description="Run npm run migrate, sync vendors (npm run sync:vendors:all), then npm run sync:grns:all (sync credentials in .env.local)."
+                description="No GRNs found. Ensure vendors are configured and data has been imported."
               />
             </div>
           ) : null}

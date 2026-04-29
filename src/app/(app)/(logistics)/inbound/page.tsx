@@ -230,7 +230,7 @@ export default function InboundVendorsPage() {
             <div className="px-6 py-8">
               <EmptyState
                 title="No vendors"
-                description="Run vendor sync, seed the database, or add a vendor."
+                description="No vendors have been added yet. Add a vendor to get started."
               />
             </div>
           ) : filtered.length === 0 ? (

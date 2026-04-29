@@ -19,7 +19,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
 import { skuDisplay, hasRealSku } from "@/lib/sku-display";
@@ -762,12 +761,8 @@ export default function ListingsSecondaryPage() {
             ) : null}
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="h-64 w-full" /> : null}
-            {!loading && (data?.content?.length ?? 0) === 0 ? (
-              <EmptyState title="No rows" />
-            ) : null}
-            {!loading && data != null && data.content.length > 0 ? (
-              <>
+            <>
+              {null /* loading skeleton rows are now inside TableBody */}
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -893,17 +888,26 @@ export default function ListingsSecondaryPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {displayRows.length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={7}
-                            className="text-muted-foreground h-16 text-center text-sm"
-                          >
-                            No rows match the column filters.
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        displayRows.map((row, i) => {
+                      {loading
+                        ? Array.from({ length: 6 }).map((_, i) => (
+                            <TableRow key={i}>
+                              {[1, 2, 3, 4, 5, 6, 7].map((j) => (
+                                <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                              ))}
+                            </TableRow>
+                          ))
+                        : displayRows.length === 0
+                        ? (
+                          <TableRow>
+                            <TableCell
+                              colSpan={7}
+                              className="text-muted-foreground h-16 text-center text-sm"
+                            >
+                              No rows match the current filters.
+                            </TableCell>
+                          </TableRow>
+                        )
+                        : displayRows.map((row, i) => {
                           const pageContent = data?.content ?? [];
                           const idxInPage = pageContent.findIndex(
                             (r) => r.id === row.id
@@ -947,8 +951,7 @@ export default function ListingsSecondaryPage() {
                               </TableCell>
                             </TableRow>
                           );
-                        })
-                      )}
+                        })}
                     </TableBody>
                   </Table>
                 </div>
@@ -1002,8 +1005,7 @@ export default function ListingsSecondaryPage() {
                     </Button>
                   </div>
                 </div>
-              </>
-            ) : null}
+            </>
           </CardContent>
         </Card>
 

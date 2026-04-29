@@ -35,7 +35,16 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
-import { Download } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown, Download, Search } from "lucide-react";
 import {
   InboundVendorListingsTable,
   type VendorListingRow,
@@ -76,6 +85,137 @@ type PoListResponse = {
 };
 
 type PoLineDraft = { key: string; sku_id: string; quantity: string };
+
+type SearchableSkuSelectProps = {
+  readonly options: readonly VendorListingRow[];
+  readonly value: string;
+  readonly onChange: (skuId: string) => void;
+  readonly ariaLabel?: string;
+  readonly disabled?: boolean;
+};
+
+function SearchableSkuSelect({
+  options,
+  value,
+  onChange,
+  ariaLabel = "Select SKU",
+  disabled,
+}: SearchableSkuSelectProps) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
+
+  React.useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+
+  const filtered = React.useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return options.slice();
+    return options.filter((vs) => {
+      const id = vs.sku_id.toLowerCase();
+      const desc = (vs.listing?.description ?? "").toLowerCase();
+      return id.includes(needle) || desc.includes(needle);
+    });
+  }, [options, q]);
+
+  const selectedRow = React.useMemo(
+    () => options.find((vs) => vs.sku_id === value),
+    [options, value]
+  );
+
+  const triggerLabel = React.useMemo(() => {
+    if (!value.trim()) return "Select SKU…";
+    if (selectedRow) {
+      const desc = selectedRow.listing?.description ?? "";
+      const short = desc.length > 48 ? `${desc.slice(0, 45)}…` : desc;
+      return short ? `${selectedRow.sku_id} — ${short}` : selectedRow.sku_id;
+    }
+    return value;
+  }, [value, selectedRow]);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={cn(
+          "border-input bg-background hover:bg-accent/50 ring-offset-background focus-visible:ring-ring flex h-9 w-full items-center gap-1.5 rounded-md border px-2 text-left text-sm font-normal focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+          disabled && "pointer-events-none opacity-50"
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        <ChevronDown
+          className="text-muted-foreground size-4 shrink-0"
+          aria-hidden
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        className="max-w-[min(420px,calc(100vw-2rem))] min-w-[200px] p-2"
+      >
+        <div
+          className="relative px-0 pb-2"
+          onPointerDown={(e) => {
+            e.preventDefault();
+          }}
+        >
+          <Search
+            className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2"
+            aria-hidden
+          />
+          <Input
+            aria-label={`${ariaLabel} search`}
+            className="h-9 pl-8 text-sm"
+            placeholder="Search SKU or description…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto pr-1">
+          <DropdownMenuGroup>
+            {filtered.length === 0 ? (
+              <div className="text-muted-foreground px-1.5 py-2 text-xs">
+                No SKUs match
+              </div>
+            ) : (
+              filtered.map((vs) => (
+                <DropdownMenuItem
+                  key={`${vs.id}-${vs.sku_id}`}
+                  className="cursor-pointer flex-col items-start gap-0.5 py-1.5 text-sm"
+                  onClick={() => {
+                    onChange(vs.sku_id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="font-mono text-xs">{vs.sku_id}</span>
+                  <span className="text-muted-foreground line-clamp-1 max-w-full text-xs">
+                    {vs.listing?.description ?? "—"}
+                  </span>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuGroup>
+        </div>
+        {value ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-muted-foreground justify-center text-xs font-normal"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              Clear selection
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function InboundVendorHubBody() {
   const params = useParams();
@@ -609,20 +749,14 @@ function InboundVendorHubBody() {
                 >
                   <div className="space-y-1">
                     <Label className="text-xs">SKU</Label>
-                    <select
-                      className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                    <SearchableSkuSelect
+                      options={vendorSkus}
                       value={row.sku_id}
-                      onChange={(e) =>
-                        updateLineDraft(row.key, { sku_id: e.target.value })
+                      onChange={(skuId) =>
+                        updateLineDraft(row.key, { sku_id: skuId })
                       }
-                    >
-                      <option value="">Select SKU…</option>
-                      {vendorSkus.map((vs) => (
-                        <option key={vs.sku_id} value={vs.sku_id}>
-                          {vs.sku_id}
-                        </option>
-                      ))}
-                    </select>
+                      ariaLabel={`Select SKU for line ${row.key}`}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Qty</Label>

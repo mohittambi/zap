@@ -656,7 +656,7 @@ export async function ingestGrnDetailsByGrnId(grnId: number): Promise<void> {
 }
 
 export async function getGrnDetailsBundle(grnId: number) {
-  if (!Number.isFinite(grnId) || grnId < 1) {
+  if (!Number.isFinite(grnId) || grnId === 0) {
     throw new AppError("Invalid grn id", 400);
   }
   const header = await inboundGrnsService.getGrnById(String(grnId)).catch(() => null);

@@ -174,6 +174,9 @@ function listingImageUrl(L: JsonRecord | null | undefined): string | null {
 function statusPublishedClass(s: string | null | undefined): string {
   if (!s) return "";
   const up = s.trim().toUpperCase();
+  if (up === "CANCELLED") {
+    return "bg-destructive/15 text-destructive border-destructive/30";
+  }
   if (up === "PUBLISHED" || up === "ACTIVE") {
     return "bg-emerald-600/15 text-emerald-700 dark:text-emerald-400 border-emerald-600/30";
   }
@@ -347,7 +350,7 @@ export default function InboundPoDetailPage() {
         `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/cancel`,
         { method: "PATCH" }
       );
-      toast.success("PO marked cancelled in Zap");
+      toast.success("Purchase order marked as cancelled");
       setCancelOpen(false);
       await reloadBundle();
     } catch (e) {
@@ -375,7 +378,11 @@ export default function InboundPoDetailPage() {
     [snap?.vendor_listings_raw]
   );
 
-  const poStatus = pick(poRaw, ["status", "po_status", "Status"]);
+  const isZapCancelled =
+    String(poRaw.zap_status ?? "").trim().toUpperCase() === "CANCELLED";
+  const poStatus = isZapCancelled
+    ? "Cancelled"
+    : pick(poRaw, ["status", "po_status", "Status"]);
   const totalSkus = pick(poRaw, ["sku_count", "skuCount"]);
   const totalReq = pick(poRaw, ["total_quantity", "totalQuantity"]);
   const totalInv = pick(poRaw, [
@@ -435,7 +442,7 @@ export default function InboundPoDetailPage() {
 
       <AppPageTitle
         title={loading ? "Purchase order" : `PO ${poId}`}
-        description="Purchase order detail cached in Zap from the sync pipeline."
+        description="Line items, GRNs, and summary for this purchase order."
       />
 
       {loading ? (
@@ -447,8 +454,7 @@ export default function InboundPoDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Not found</CardTitle>
             <CardDescription>
-              Could not load this PO. Check vendor id and PO id, sync credentials in .env.local,
-              and run npm run sync:po:details with --vendor and --po.
+              Could not load this purchase order. Check that the vendor ID and PO ID are correct.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -535,7 +541,7 @@ export default function InboundPoDetailPage() {
               type="button"
               variant="default"
               className="gap-2"
-              disabled={actionBusy}
+              disabled={actionBusy || isZapCancelled}
               onClick={() => setCancelOpen(true)}
             >
               <XCircle className="size-4" />
@@ -790,26 +796,20 @@ export default function InboundPoDetailPage() {
               </div>
               {bundle.grns.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  No GRNs ingested for this PO.
+                  No GRNs linked to this PO.
                 </p>
               ) : null}
             </div>
           </div>
 
-          {snap.synced_at ? (
-            <p className="text-muted-foreground text-center text-xs">
-              Detail cache synced at {formatDt(snap.synced_at)}
-            </p>
-          ) : null}
-
           <Dialog open={modifyOpen} onOpenChange={setModifyOpen}>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
-                <DialogTitle>Modify PO (Zap notes)</DialogTitle>
+                <DialogTitle>PO internal notes</DialogTitle>
               </DialogHeader>
               <div className="space-y-2 py-2">
                 <p className="text-muted-foreground text-xs">
-                  Internal notes stored on the PO snapshot in Zap (does not change vendor master data).
+                  Notes are stored on this PO record only; they do not change vendor master data.
                 </p>
                 <textarea
                   value={modifyNotes}
@@ -836,9 +836,9 @@ export default function InboundPoDetailPage() {
           <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Cancel this PO in Zap?</AlertDialogTitle>
+                <AlertDialogTitle>Cancel this purchase order?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This marks the PO as cancelled in the Zap snapshot (zap_status). It does not cancel the order in any external system.
+                  This records the PO as cancelled in the app. It does not cancel the order in an external system.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

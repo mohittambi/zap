@@ -156,7 +156,7 @@ export default function InboundPendingDebitCreditPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Debit & Credit Notes"
-        description="Debit/credit note queue (synced import). Vendor allowlist uses /vendors/all during sync. Run npm run sync:grns:pending-debit-credit after migrate (033)."
+        description="GRNs awaiting debit or credit note processing."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -195,7 +195,7 @@ export default function InboundPendingDebitCreditPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No rows in queue"
-                description="Run npm run migrate (033), configure sync credentials in .env.local, then npm run sync:grns:pending-debit-credit. Use --strict-vendors to ingest rows whose vendor_id is not in /vendors/all."
+                description="No records found. Data will appear here once GRNs with pending debit/credit notes are imported."
               />
             </div>
           ) : null}

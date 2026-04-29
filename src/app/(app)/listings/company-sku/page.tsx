@@ -16,8 +16,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type Row = {
   relation_id: number;
   company_id: number;
@@ -105,35 +103,47 @@ export default function CompanySkuRelationPage() {
               Showing {start}–{end} of {data.total}
             </p>
           )}
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : !data?.content?.length ? (
-            <EmptyState title="No relations" />
-          ) : (
-            <>
-              <div className="hidden overflow-x-auto lg:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Company Id</TableHead>
-                      <TableHead>Company Name</TableHead>
-                      <TableHead>Company Code Primary</TableHead>
-                      <TableHead>Secondary SKU</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.content.map((row) => (
-                      <TableRow key={row.relation_id}>
-                        <TableCell className="tabular-nums">{row.company_id}</TableCell>
-                        <TableCell>{row.company_name}</TableCell>
-                        <TableCell className="font-mono text-sm">{row.company_code_primary}</TableCell>
-                        <TableCell className="font-mono text-sm">{row.secondary_sku}</TableCell>
+          <div className="hidden overflow-x-auto lg:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/60 hover:bg-muted/60">
+                  <TableHead>Company Id</TableHead>
+                  <TableHead>Company Name</TableHead>
+                  <TableHead>Company Code Primary</TableHead>
+                  <TableHead>Secondary SKU</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {[1, 2, 3, 4].map((j) => (
+                          <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                        ))}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex flex-col gap-2 lg:hidden">
+                    ))
+                  : !data?.content?.length
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-muted-foreground py-10 text-center text-sm">
+                        No company-SKU relations match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : data.content.map((row) => (
+                    <TableRow key={row.relation_id}>
+                      <TableCell className="tabular-nums">{row.company_id}</TableCell>
+                      <TableCell>{row.company_name}</TableCell>
+                      <TableCell className="font-mono text-sm">{row.company_code_primary}</TableCell>
+                      <TableCell className="font-mono text-sm">{row.secondary_sku}</TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+          {!loading && data?.content?.length ? (
+            <>
+              <div className="flex flex-col gap-2 border-t pt-4 lg:hidden">
                 {data.content.map((row) => (
                   <div key={row.relation_id} className="rounded-lg border p-3 text-sm">
                     <p className="font-semibold">{row.company_name}</p>
@@ -144,12 +154,13 @@ export default function CompanySkuRelationPage() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 flex justify-between gap-2">
-                <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <div className="flex justify-between gap-2 border-t px-4 py-3">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   Previous
                 </Button>
                 <Button
                   variant="outline"
+                  size="sm"
                   disabled={!data || end >= data.total}
                   onClick={() => setPage((p) => p + 1)}
                 >
@@ -157,7 +168,7 @@ export default function CompanySkuRelationPage() {
                 </Button>
               </div>
             </>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     </div>

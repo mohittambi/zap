@@ -17,8 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type Row = {
   id: number;
   secondary_sku: string;
@@ -98,24 +96,35 @@ export default function InventorySecondaryPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : !data?.content?.length ? (
-            <EmptyState title="No secondary listings" />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="font-mono">secondary_sku</TableHead>
-                    <TableHead>master</TableHead>
-                    <TableHead className="font-mono">inventory_sku</TableHead>
-                    <TableHead className="font-mono">pack_combo_sku</TableHead>
-                    <TableHead className="text-right">Available</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.content.map((r) => (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/60 hover:bg-muted/60">
+                  <TableHead className="font-mono">secondary_sku</TableHead>
+                  <TableHead>master</TableHead>
+                  <TableHead className="font-mono">inventory_sku</TableHead>
+                  <TableHead className="font-mono">pack_combo_sku</TableHead>
+                  <TableHead className="text-right">Available</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {[1, 2, 3, 4, 5].map((j) => (
+                          <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : !data?.content?.length
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-muted-foreground py-10 text-center text-sm">
+                        No secondary listings match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : data.content.map((r) => (
                     <TableRow key={r.id}>
                       <TableCell className="font-mono text-sm">
                         <Link
@@ -125,41 +134,25 @@ export default function InventorySecondaryPage() {
                           {r.secondary_sku}
                         </Link>
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {r.master_sku ?? "—"}
-                      </TableCell>
+                      <TableCell className="font-mono text-xs">{r.master_sku ?? "—"}</TableCell>
                       <TableCell className="font-mono text-xs">
                         {r.inventory_sku_id?.trim() ? r.inventory_sku_id : "—"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         {r.pack_combo_sku_id?.trim() ? r.pack_combo_sku_id : "—"}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {r.available_quantity ?? "—"}
-                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{r.available_quantity ?? "—"}</TableCell>
                     </TableRow>
                   ))}
-                </TableBody>
-              </Table>
+              </TableBody>
+            </Table>
+          </div>
+          {!loading && data && data.content.length > 0 ? (
+            <div className="flex justify-between border-t px-4 py-3">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>Next</Button>
             </div>
-          )}
-          {data && data.content.length > 0 && (
-            <div className="mt-4 flex justify-between">
-              <Button
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                Prev
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     </div>

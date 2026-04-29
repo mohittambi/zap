@@ -16,8 +16,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type Row = {
   id: number;
   secondary_sku: string;
@@ -97,46 +95,58 @@ export default function LabelsMasterPage() {
             Search
           </Button>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : !data?.content?.length ? (
-            <EmptyState title="No label rows" />
-          ) : (
-            <>
-              <div className="hidden overflow-x-auto xl:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Secondary SKU</TableHead>
-                      <TableHead>EAN</TableHead>
-                      <TableHead>size</TableHead>
-                      <TableHead>color</TableHead>
-                      <TableHead className="max-w-[240px]">long description</TableHead>
-                      <TableHead>material</TableHead>
-                      <TableHead className="text-right">MRP</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.content.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-mono text-sm">{row.secondary_sku}</TableCell>
-                        <TableCell className="font-mono text-sm">{row.ean_code ?? "—"}</TableCell>
-                        <TableCell>{row.size ?? "—"}</TableCell>
-                        <TableCell>{row.color ?? "—"}</TableCell>
-                        <TableCell className="max-w-[240px] text-xs text-muted-foreground">
-                          {row.one_set_contains ?? "—"}
-                        </TableCell>
-                        <TableCell>{row.material ?? "—"}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {row.mrp != null ? String(row.mrp) : "—"}
-                        </TableCell>
+        <CardContent className="p-0">
+          <div className="hidden overflow-x-auto xl:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/60 hover:bg-muted/60">
+                  <TableHead>Secondary SKU</TableHead>
+                  <TableHead>EAN</TableHead>
+                  <TableHead>size</TableHead>
+                  <TableHead>color</TableHead>
+                  <TableHead className="max-w-[240px]">long description</TableHead>
+                  <TableHead>material</TableHead>
+                  <TableHead className="text-right">MRP</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {[1, 2, 3, 4, 5, 6, 7].map((j) => (
+                          <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                        ))}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="flex flex-col gap-2 xl:hidden">
+                    ))
+                  : !data?.content?.length
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-muted-foreground py-10 text-center text-sm">
+                        No label rows match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : data.content.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-mono text-sm">{row.secondary_sku}</TableCell>
+                      <TableCell className="font-mono text-sm">{row.ean_code ?? "—"}</TableCell>
+                      <TableCell>{row.size ?? "—"}</TableCell>
+                      <TableCell>{row.color ?? "—"}</TableCell>
+                      <TableCell className="max-w-[240px] text-xs text-muted-foreground">
+                        {row.one_set_contains ?? "—"}
+                      </TableCell>
+                      <TableCell>{row.material ?? "—"}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {row.mrp != null ? String(row.mrp) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+          {!loading && data?.content?.length ? (
+            <>
+              <div className="flex flex-col gap-2 border-t pt-4 px-4 xl:hidden">
                 {data.content.map((row) => (
                   <div key={row.id} className="rounded-lg border p-3 text-sm">
                     <p className="font-mono font-semibold">{row.secondary_sku}</p>
@@ -145,12 +155,13 @@ export default function LabelsMasterPage() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 flex justify-between gap-2">
-                <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <div className="flex justify-between gap-2 border-t px-4 py-3">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                   Previous
                 </Button>
                 <Button
                   variant="outline"
+                  size="sm"
                   disabled={!data || data.content.length < data.per_page_count}
                   onClick={() => setPage((p) => p + 1)}
                 >
@@ -158,7 +169,7 @@ export default function LabelsMasterPage() {
                 </Button>
               </div>
             </>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     </div>

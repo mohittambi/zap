@@ -340,7 +340,7 @@ export async function createDraftGrnForPo({ vendorId, poId, createdBy }) {
   if (!Number.isFinite(vid) || vid < 1) throw new AppError("Invalid vendor id", 400);
   if (!Number.isFinite(pid) || pid < 1) throw new AppError("Invalid PO id", 400);
 
-  const v = await query(`SELECT id, name FROM vendors WHERE id = $1`, [vid]);
+  const v = await query(`SELECT id, vendor_name FROM vendors WHERE id = $1`, [vid]);
   if (v.rows.length === 0) throw new AppError("Vendor not found", 404);
 
   const poSnap = await query(
@@ -359,7 +359,8 @@ export async function createDraftGrnForPo({ vendorId, poId, createdBy }) {
   let grnId = Number(negR.rows[0].next_id);
   if (!Number.isFinite(grnId) || grnId > -1) grnId = -1;
 
-  const vendorName = v.rows[0].name != null ? String(v.rows[0].name) : null;
+  const vendorName =
+    v.rows[0].vendor_name != null ? String(v.rows[0].vendor_name) : null;
 
   await query(
     `INSERT INTO inbound_grns (

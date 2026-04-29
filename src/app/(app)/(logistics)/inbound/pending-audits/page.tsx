@@ -170,7 +170,7 @@ export default function InboundPendingAuditsPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Audits"
-        description="GRNs in the pending audit queue. Run npm run sync:grns:pending-audit to refresh."
+        description="GRNs waiting to be audited."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -209,7 +209,7 @@ export default function InboundPendingAuditsPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No grns were found"
-                description="Run npm run migrate (026), sync vendors, then npm run sync:grns:pending-audit (sync credentials in .env.local). The list matches the last pending-audit sync."
+                description="No GRNs are currently in the pending audit queue."
               />
             </div>
           ) : null}

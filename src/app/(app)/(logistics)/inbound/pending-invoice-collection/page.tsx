@@ -161,7 +161,7 @@ export default function InboundPendingInvoiceCollectionPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Invoice Collection"
-        description="GRNs in the pending invoice collection queue. Run npm run sync:grns:pending-invoice-collection to refresh."
+        description="GRNs pending invoice collection."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -200,7 +200,7 @@ export default function InboundPendingInvoiceCollectionPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No invoices in queue"
-                description="Run npm run migrate (027), sync vendors, then npm run sync:grns:pending-invoice-collection (sync credentials in .env.local)."
+                description="No GRNs are currently pending invoice collection."
               />
             </div>
           ) : null}

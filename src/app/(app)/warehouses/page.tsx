@@ -14,8 +14,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type Wh = { id: number; name: string };
 
 export default function WarehousesPage() {
@@ -49,36 +47,46 @@ export default function WarehousesPage() {
         <CardHeader>
           <CardTitle className="text-base">All</CardTitle>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : rows.length === 0 ? (
-            <EmptyState title="No warehouses" />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-24">ID</TableHead>
-                  <TableHead>Name</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((w) => (
-                  <TableRow key={w.id}>
-                    <TableCell className="font-mono text-sm">{w.id}</TableCell>
-                    <TableCell>
-                      <Link
-                        className="text-primary underline-offset-4 hover:underline"
-                        href={`/warehouses/${w.id}`}
-                      >
-                        {w.name}
-                      </Link>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/60 hover:bg-muted/60">
+                <TableHead className="w-24">ID</TableHead>
+                <TableHead>Name</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {[1, 2].map((j) => (
+                        <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                : rows.length === 0
+                ? (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-muted-foreground py-10 text-center text-sm">
+                      No warehouses found.
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+                )
+                : rows.map((w) => (
+                    <TableRow key={w.id}>
+                      <TableCell className="font-mono text-sm">{w.id}</TableCell>
+                      <TableCell>
+                        <Link
+                          className="text-primary underline-offset-4 hover:underline"
+                          href={`/warehouses/${w.id}`}
+                        >
+                          {w.name}
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

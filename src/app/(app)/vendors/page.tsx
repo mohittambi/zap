@@ -14,8 +14,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type Vendor = {
   id: number;
   vendor_name: string;
@@ -55,23 +53,33 @@ export default function VendorsPage() {
         <CardHeader>
           <CardTitle className="text-base">All vendors</CardTitle>
         </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : rows.length === 0 ? (
-            <EmptyState title="No vendors" />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/60 hover:bg-muted/60">
+                <TableHead className="w-24">ID</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>City</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading
+                ? Array.from({ length: 6 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {[1, 2, 3].map((j) => (
+                        <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                : rows.length === 0
+                ? (
                   <TableRow>
-                    <TableHead className="w-24">ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>City</TableHead>
+                    <TableCell colSpan={3} className="text-muted-foreground py-10 text-center text-sm">
+                      No vendors found.
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((v) => (
+                )
+                : rows.map((v) => (
                     <TableRow key={v.id}>
                       <TableCell className="font-mono text-sm">{v.id}</TableCell>
                       <TableCell>
@@ -85,10 +93,8 @@ export default function VendorsPage() {
                       <TableCell>{v.vendor_city ?? "—"}</TableCell>
                     </TableRow>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

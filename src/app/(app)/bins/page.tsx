@@ -16,8 +16,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
-
 type BinRow = {
   id: number;
   warehouse_id: number;
@@ -106,53 +104,53 @@ export default function BinsPage() {
         </CardContent>
       </Card>
       <Card>
-        <CardContent className="pt-6">
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : !data?.data?.length ? (
-            <EmptyState title="No bins" />
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>WH</TableHead>
-                      <TableHead className="font-mono">SKU</TableHead>
-                      <TableHead className="font-mono">Bin</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/60 hover:bg-muted/60">
+                <TableHead>ID</TableHead>
+                <TableHead>WH</TableHead>
+                <TableHead className="font-mono">SKU</TableHead>
+                <TableHead className="font-mono">Bin</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {[1, 2, 3, 4, 5].map((j) => (
+                        <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                      ))}
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.data.map((b) => (
-                      <TableRow key={b.id}>
-                        <TableCell className="font-mono text-xs">{b.id}</TableCell>
-                        <TableCell>{b.warehouse_id}</TableCell>
-                        <TableCell className="font-mono text-sm">{b.sku_id}</TableCell>
-                        <TableCell className="font-mono text-sm">{b.bin_id}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {b.available_quantity}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="mt-4 flex justify-between">
-                <Button
-                  variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  Prev
-                </Button>
-                <Button variant="outline" onClick={() => setPage((p) => p + 1)}>
-                  Next
-                </Button>
-              </div>
-            </>
-          )}
+                  ))
+                : !data?.data?.length
+                ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-muted-foreground py-10 text-center text-sm">
+                      No bins match the current filters.
+                    </TableCell>
+                  </TableRow>
+                )
+                : data.data.map((b) => (
+                    <TableRow key={b.id}>
+                      <TableCell className="font-mono text-xs">{b.id}</TableCell>
+                      <TableCell>{b.warehouse_id}</TableCell>
+                      <TableCell className="font-mono text-sm">{b.sku_id}</TableCell>
+                      <TableCell className="font-mono text-sm">{b.bin_id}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {b.available_quantity}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+            </TableBody>
+          </Table>
+          {!loading && data?.data?.length ? (
+            <div className="flex justify-between border-t px-4 py-3">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>Next</Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

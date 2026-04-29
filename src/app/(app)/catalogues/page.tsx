@@ -34,7 +34,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
 import {
@@ -288,19 +287,7 @@ export default function CataloguesPage() {
                 {summaryLine}
               </p>
 
-              {loading && (
-                <div className="px-4 pb-4">
-                  <Skeleton className="h-64 w-full rounded-lg" />
-                </div>
-              )}
-              {!loading && data && !hasRows && (
-                <div className="px-4 pb-8">
-                  <EmptyState title="No catalogues" />
-                </div>
-              )}
-              {!loading && hasRows && data && (
-                <>
-                  <div className="hidden overflow-x-auto lg:block">
+              <div className="hidden overflow-x-auto lg:block">
                     <Table className="min-w-[880px]">
                       <TableHeader>
                         <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -326,7 +313,23 @@ export default function CataloguesPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {data.content.map((row, i) => (
+                        {loading
+                          ? Array.from({ length: 5 }).map((_, i) => (
+                              <TableRow key={i}>
+                                {[1, 2, 3, 4, 5, 6, 7].map((j) => (
+                                  <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                                ))}
+                              </TableRow>
+                            ))
+                          : !hasRows
+                          ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-muted-foreground py-10 text-center text-sm">
+                                No catalogues match the current search.
+                              </TableCell>
+                            </TableRow>
+                          )
+                          : data?.content.map((row, i) => (
                           <TableRow
                             key={row.id}
                             className={cn(i % 2 === 1 && "bg-muted/20")}
@@ -377,11 +380,12 @@ export default function CataloguesPage() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          ))}
                       </TableBody>
                     </Table>
                   </div>
 
+                  {!loading && hasRows && data ? (
                   <div className="flex flex-col gap-3 px-4 lg:hidden">
                     {data.content.map((row) => (
                       <div
@@ -423,8 +427,7 @@ export default function CataloguesPage() {
                       </div>
                     ))}
                   </div>
-                </>
-              )}
+                  ) : null}
 
               {!loading && data && (
                 <CardFooter className="flex flex-col gap-3 border-t sm:flex-row sm:items-center sm:justify-between">

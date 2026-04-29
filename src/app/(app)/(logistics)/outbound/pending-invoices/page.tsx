@@ -7,7 +7,7 @@ export default function OutboundPendingInvoicesPage() {
     <div className="mx-auto max-w-[1800px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Pending Invoices"
-        description="Outbound consignments that still need an invoice number and/or have a pending invoice status (same data as the full consignments list, filtered). Sync: npm run sync:outbound-consignments."
+        description="Outbound consignments that still need an invoice number or have a pending invoice status."
       />
       <Suspense fallback={<p className="text-muted-foreground text-sm">Loading…</p>}>
         <OutboundConsignmentsTable invoicePending />
