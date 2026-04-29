@@ -38,6 +38,7 @@
     "verify:outbound-companies": "tsx scripts/verify-outbound-companies-directory.ts",
     "sync:grn:details": "tsx scripts/sync-eautomate-grn-details.ts",
     "sync:grn:details:all": "tsx scripts/sync-eautomate-grn-details.ts --all-known-grns",
+    "sync:grn:details:if-needed": "tsx scripts/sync-eautomate-grn-details-if-needed.ts",
     "sync:po:details": "tsx scripts/sync-eautomate-po-details.ts",
     "sync:po:details:from-db": "tsx scripts/sync-eautomate-po-details.ts --from-vendor-pos",
     "sync:eautomate:all": "bash scripts/sync-all-eautomate.sh",

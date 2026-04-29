@@ -101,6 +101,10 @@ export default function InboundPendingInvoiceCollectionPage() {
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [markingId, setMarkingId] = React.useState<number | null>(null);
+  /** Selected GRN IDs on the current result set (page rows). */
+  const [selectedIds, setSelectedIds] = React.useState<number[]>([]);
+  const [bulkMarking, setBulkMarking] = React.useState(false);
+  const selectAllRef = React.useRef<HTMLInputElement>(null);
 
   const perPage = 100;
 
@@ -130,6 +134,50 @@ export default function InboundPendingInvoiceCollectionPage() {
     void load();
   }, [load]);
 
+  const idsOnPage = React.useMemo(
+    () => (data?.content ?? []).map((r) => r.grn_id),
+    [data?.content]
+  );
+
+  React.useEffect(() => {
+    setSelectedIds([]);
+  }, [page, searchApplied]);
+
+  const selectedOnPageCount = React.useMemo(() => {
+    const setSel = new Set(selectedIds);
+    return idsOnPage.filter((id) => setSel.has(id)).length;
+  }, [idsOnPage, selectedIds]);
+
+  React.useEffect(() => {
+    const el = selectAllRef.current;
+    if (!el) return;
+    el.indeterminate =
+      idsOnPage.length > 0 &&
+      selectedOnPageCount > 0 &&
+      selectedOnPageCount < idsOnPage.length;
+  }, [idsOnPage.length, selectedOnPageCount]);
+
+  function toggleRow(grnId: number, checked: boolean) {
+    setSelectedIds((prev) => {
+      if (checked) {
+        if (prev.includes(grnId)) return prev;
+        return [...prev, grnId];
+      }
+      return prev.filter((id) => id !== grnId);
+    });
+  }
+
+  function selectAllOnPage() {
+    const next = new Set(selectedIds);
+    for (const id of idsOnPage) next.add(id);
+    setSelectedIds([...next]);
+  }
+
+  function deselectAllOnPage() {
+    const drop = new Set(idsOnPage);
+    setSelectedIds((prev) => prev.filter((id) => !drop.has(id)));
+  }
+
   const applySearch = () => {
     setPage(1);
     setSearchApplied(searchDraft.trim());
@@ -150,6 +198,37 @@ export default function InboundPendingInvoiceCollectionPage() {
     } finally {
       setMarkingId(null);
     }
+  }
+
+  async function markBulkReceived() {
+    if (selectedIds.length === 0) return;
+    setBulkMarking(true);
+    const ids = [...selectedIds];
+    let ok = 0;
+    let fail = 0;
+    for (const gid of ids) {
+      try {
+        await apiFetch(`/api/inbound/grns/${gid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grn_invoice_collection_status: "COLLECTED" }),
+        });
+        ok += 1;
+      } catch {
+        fail += 1;
+      }
+    }
+    if (ok && !fail) {
+      const countLabel = ok === 1 ? "1 invoice" : `${ok} invoices`;
+      toast.success(`${countLabel} marked as received (collection closed)`);
+    } else if (ok && fail) {
+      toast.warning(`${ok} succeeded, ${fail} failed — review permissions or try again`);
+    } else {
+      toast.error("Could not update invoice collection status");
+    }
+    setBulkMarking(false);
+    setSelectedIds([]);
+    void load();
   }
 
   const totalPages =
@@ -206,14 +285,51 @@ export default function InboundPendingInvoiceCollectionPage() {
           ) : null}
           {!loading && data && data.content.length > 0 ? (
             <>
-              <p className="text-muted-foreground border-b px-4 py-2 text-sm">
-                Showing {data.curr_page_count} of {data.total} Invoice(s).
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
+                <p className="text-muted-foreground text-sm">
+                  Showing {data.curr_page_count} of {data.total} Invoice(s).
+                  {selectedIds.length > 0 ? (
+                    <span className="text-foreground ml-2 font-medium">
+                      · {selectedIds.length} selected
+                    </span>
+                  ) : null}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={selectedIds.length === 0 || bulkMarking || loading}
+                  title="Set invoice collection to Collected for all selected GRNs"
+                  className={cn(
+                    selectedIds.length === 0 && "opacity-50"
+                  )}
+                  onClick={() => void markBulkReceived()}
+                >
+                  {bulkMarking ? "Updating…" : "Mark as received in bulk"}
+                </Button>
+              </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/60 hover:bg-muted/60">
-                      <TableHead className="w-10" />
+                      <TableHead className="w-10 px-3">
+                        <input
+                          ref={selectAllRef}
+                          type="checkbox"
+                          checked={
+                            idsOnPage.length > 0 &&
+                            selectedOnPageCount === idsOnPage.length
+                          }
+                          onChange={(e) =>
+                            e.target.checked
+                              ? selectAllOnPage()
+                              : deselectAllOnPage()
+                          }
+                          disabled={bulkMarking || loading}
+                          aria-label="Select all invoices on this page"
+                          className="border-input accent-primary size-4 cursor-pointer rounded"
+                        />
+                      </TableHead>
                       <TableHead className="whitespace-nowrap">GRN Id</TableHead>
                       <TableHead className="whitespace-nowrap">PO Number</TableHead>
                       <TableHead>GRN status</TableHead>
@@ -266,9 +382,17 @@ export default function InboundPendingInvoiceCollectionPage() {
                         <TableCell className="p-2">
                           <input
                             type="checkbox"
-                            className="border-input size-4 rounded"
-                            disabled
+                            checked={selectedIds.includes(row.grn_id)}
+                            onChange={(e) =>
+                              toggleRow(row.grn_id, e.target.checked)
+                            }
+                            disabled={
+                              bulkMarking ||
+                              markingId === row.grn_id ||
+                              loading
+                            }
                             aria-label={`Select GRN ${row.grn_id}`}
+                            className="border-input accent-primary size-4 cursor-pointer rounded"
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">
@@ -356,10 +480,12 @@ export default function InboundPendingInvoiceCollectionPage() {
                             size="sm"
                             variant="outline"
                             className="h-7 whitespace-nowrap px-2 text-xs"
-                            disabled={markingId === row.grn_id}
+                            disabled={
+                              markingId === row.grn_id || bulkMarking
+                            }
                             onClick={() => void markCollected(row.grn_id)}
                           >
-                            {markingId === row.grn_id ? "Saving…" : "Mark Collected"}
+                            {markingId === row.grn_id ? "Saving…" : "Mark received"}
                           </Button>
                         </TableCell>
                       </TableRow>
