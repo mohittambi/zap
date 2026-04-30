@@ -169,6 +169,32 @@ type SaveFieldKey =
   | "expiry_date"
   | "remarks";
 
+type LabelRow = {
+  po_secondary_sku: string;
+  company_code_primary: string;
+  company_code_secondary: string;
+  ean_code: string;
+  size: string;
+  color: string;
+  one_set_contains: string;
+  material: string;
+  mrp_now: string;
+  mrp_at_po_creation: string;
+  img_url: string;
+  master_sku: string;
+  inventory_sku_id: string;
+  pack_combo_sku_id: string;
+  sku_type: string;
+  title: string;
+  warehouse_quantity: string;
+  demand_quantity: string;
+  dispatched_quantity: string;
+};
+
+const LABEL_CONTACT_OPTIONS = [
+  "ECIPL, Warehouse 1, Jaat Colony, Khasra 1660, Bhakrota, Jaipur, Rajasthan, 302026, Tel. no: 8100418100 & e-Mail: cs@ecraftindia.com",
+];
+
 function fmtDay(d: string | null | undefined): string {
   if (!d) return "—";
   const x = new Date(d.replace(" ", "T"));
@@ -453,6 +479,24 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [logsLoading, setLogsLoading] = React.useState(false);
   const [createConsignmentOpen, setCreateConsignmentOpen] = React.useState(false);
   const [createConsignmentBusy, setCreateConsignmentBusy] = React.useState(false);
+  const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
+  const [labelRows, setLabelRows] = React.useState<LabelRow[]>([]);
+  const [labelStep, setLabelStep] = React.useState<1 | 2 | 3 | 4>(1);
+  const [marketedBy, setMarketedBy] = React.useState(LABEL_CONTACT_OPTIONS[0]);
+  const [manufacturedBy, setManufacturedBy] = React.useState(LABEL_CONTACT_OPTIONS[0]);
+  const [dateOfManufacture, setDateOfManufacture] = React.useState(() =>
+    new Date().toLocaleString("en-US", { month: "short", year: "numeric" })
+  );
+  const [brand, setBrand] = React.useState("eCraftIndia");
+  const [countryOfOrigin, setCountryOfOrigin] = React.useState("India");
+  const [labelCounts, setLabelCounts] = React.useState<Record<string, number>>({});
+  const [labelSize, setLabelSize] = React.useState<"70x40" | "75x38">("70x40");
+  const [labelsGenerating, setLabelsGenerating] = React.useState(false);
+  const [phase1DialogOpen, setPhase1DialogOpen] = React.useState(false);
+  const [phase1StartBox, setPhase1StartBox] = React.useState("");
+  const [phase1EndBox, setPhase1EndBox] = React.useState("");
+  const [phase1LabelSize, setPhase1LabelSize] = React.useState<"70x40" | "75x38">("70x40");
+  const [phase1Generating, setPhase1Generating] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -532,6 +576,17 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       cancelled = true;
     };
   }, [tab, poId]);
+
+  React.useEffect(() => {
+    if (!labelDialogOpen) return;
+    setLabelStep(1);
+    setLabelSize("70x40");
+  }, [labelDialogOpen]);
+
+  React.useEffect(() => {
+    if (!phase1DialogOpen) return;
+    setPhase1LabelSize("70x40");
+  }, [phase1DialogOpen]);
 
   const po = data?.po;
   const isPartial =
@@ -615,6 +670,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         detail?: string;
         hint?: string;
         upstream_url?: string;
+        rows?: LabelRow[];
       };
       if (!res.ok) {
         const parts = [
@@ -623,6 +679,16 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           j.upstream_url ? `URL: ${j.upstream_url}` : "",
         ].filter(Boolean);
         throw new Error(parts.join(" — "));
+      }
+      if (action === "generate_product_labels" && Array.isArray(j.rows)) {
+        const rows = j.rows as LabelRow[];
+        const counts: Record<string, number> = {};
+        for (const row of rows) counts[row.po_secondary_sku] = 0;
+        setLabelRows(rows);
+        setLabelCounts(counts);
+        setLabelStep(1);
+        setLabelDialogOpen(true);
+        return;
       }
       toast.success(
         action === "acknowledge"
@@ -746,6 +812,189 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setEaZapUploading(false);
+    }
+  };
+
+  const onDownloadLabelsCSV = () => {
+    const headers = [
+      "Image URL",
+      "PO Secondary SKU",
+      "Master SKU",
+      "Inventory SKU",
+      "Pack-Combo SKU",
+      "SKU Type",
+      "Company Code Primary",
+      "Company Code Secondary",
+      "EAN Code",
+      "Size",
+      "Color",
+      "Title",
+      "One Set Contains",
+      "Material",
+      "Warehouse Quantity",
+      "Demand Quantity",
+      "Dispatched Quantity",
+      "Pending Quantity",
+      "MRP at the moment",
+      "MRP at the time of PO creation",
+    ];
+    function esc(v: string): string {
+      if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+      return v;
+    }
+    const lines = [
+      headers.map(esc).join(","),
+      ...labelRows.map((r) =>
+        [
+          r.img_url,
+          r.po_secondary_sku,
+          r.master_sku,
+          r.inventory_sku_id,
+          r.pack_combo_sku_id,
+          r.sku_type,
+          r.company_code_primary,
+          r.company_code_secondary,
+          r.ean_code,
+          r.size,
+          r.color,
+          r.title,
+          r.one_set_contains,
+          r.material,
+          r.warehouse_quantity,
+          r.demand_quantity,
+          r.dispatched_quantity,
+          String(
+            Math.max(
+              0,
+              (Number(r.demand_quantity) || 0) - (Number(r.dispatched_quantity) || 0)
+            )
+          ),
+          r.mrp_now,
+          r.mrp_at_po_creation,
+        ]
+          .map(esc)
+          .join(",")
+      ),
+    ];
+    const csv = "\ufeff" + lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const pn = (data?.po?.po_number ?? "po").replace(/[/\\?%*:|"<>]/g, "_");
+    a.download = `product-labels-data-${pn}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const onGenerateLabels = async () => {
+    const payloadRows = labelRows
+      .filter((r) => (labelCounts[r.po_secondary_sku] ?? 0) > 0)
+      .map((r) => ({
+        barcode: r.ean_code,
+        marketedBy: marketedBy,
+        manufacturedBy: manufacturedBy,
+        title: r.title || r.po_secondary_sku,
+        dateOfManufacture: dateOfManufacture,
+        color: r.color,
+        brand: brand,
+        material: r.material,
+        netQuantity: "1",
+        productDimension: r.size,
+        oneSetContains: r.one_set_contains,
+        modelNumber: r.po_secondary_sku,
+        mrp: r.mrp_now || r.mrp_at_po_creation,
+        countryOfOrigin: countryOfOrigin,
+        styleId: r.po_secondary_sku,
+        qrSequence: "",
+        labelCount: String(labelCounts[r.po_secondary_sku] ?? 0),
+      }));
+
+    if (payloadRows.length === 0) {
+      toast.error("Enter label count greater than 0 for at least one SKU");
+      return;
+    }
+
+    setLabelsGenerating(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl("/api/labels/generate"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          rows: payloadRows,
+          labelSize,
+        }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const pn = (data?.po?.po_number ?? "po").replace(/[/\\?%*:|"<>]/g, "_");
+      a.href = url;
+      a.download = `product-labels-${pn}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Label PDF generated");
+      setLabelDialogOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate labels");
+    } finally {
+      setLabelsGenerating(false);
+    }
+  };
+
+  const onGeneratePhase1Labels = async () => {
+    const startBox = Number.parseInt(phase1StartBox, 10);
+    const endBox = Number.parseInt(phase1EndBox, 10);
+    if (!Number.isFinite(startBox) || !Number.isFinite(endBox)) {
+      toast.error("Enter valid start and end box numbers");
+      return;
+    }
+    if (startBox < 1 || endBox < startBox) {
+      toast.error("Ensure box range is valid (start <= end)");
+      return;
+    }
+
+    setPhase1Generating(true);
+    try {
+      const res = await authFetchRaw(
+        `/api/outbound/purchase-orders/${poId}/eautomate-actions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "generate_phase1_box_labels",
+            startBox,
+            endBox,
+            labelSize: phase1LabelSize,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string; hint?: string };
+        throw new Error([j.error ?? res.statusText, j.hint].filter(Boolean).join(" — "));
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const pn = (data?.po?.po_number ?? "po").replace(/[/\\?%*:|"<>]/g, "_");
+      a.href = url;
+      a.download = `phase1-${pn}-${startBox}-${endBox}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Phase 1 box labels generated");
+      setPhase1DialogOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate phase 1 box labels");
+    } finally {
+      setPhase1Generating(false);
     }
   };
 
@@ -999,7 +1248,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         variant="outline"
         className="border-blue-400 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/30 h-auto min-h-11 w-full whitespace-normal py-2"
         disabled={!canMutate || stubBusy !== null}
-        onClick={() => void onStubWorkflow("generate_phase1_box_labels")}
+        onClick={() => setPhase1DialogOpen(true)}
       >
         {stubBusy === "generate_phase1_box_labels" ? (
           <Loader2 className="size-4 animate-spin" />
@@ -1720,6 +1969,340 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               ) : (
                 "Confirm"
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
+        <DialogContent className="flex h-[90vh] max-h-[720px] w-[95vw] max-w-6xl flex-col gap-0 p-0">
+          <div className="shrink-0 border-b px-6 py-4">
+            <DialogTitle className="text-base font-semibold">Generate Product Labels</DialogTitle>
+            <DialogDescription className="mt-1 text-sm">
+              {labelStep === 1
+                ? "Step 1: Data required to generate labels will be fetched here by the system. Verify the data to proceed."
+                : labelStep === 2
+                  ? "Step 2: Modify fixed label settings."
+                  : labelStep === 3
+                    ? "Step 3: Provide the number of labels to print."
+                    : "Step 4: Select label size settings."}
+            </DialogDescription>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            {labelStep === 1 ? (
+              <>
+                <p className="mb-3 text-sm font-medium text-green-600 dark:text-green-400">
+                  No error was found
+                </p>
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="bg-muted/60 border-b text-xs font-semibold uppercase tracking-wide">
+                        <th className="px-3 py-2 whitespace-nowrap">PO Secondary SKU</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Company Code Primary</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Company Code Secondary</th>
+                        <th className="px-3 py-2 whitespace-nowrap">EAN Code</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Size</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Color</th>
+                        <th className="px-3 py-2 whitespace-nowrap">One Set Contains</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Material</th>
+                        <th className="px-3 py-2 whitespace-nowrap">MRP at the moment</th>
+                        <th className="px-3 py-2 whitespace-nowrap">MRP at the time of PO creation</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {labelRows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            className="text-muted-foreground px-3 py-6 text-center text-sm"
+                          >
+                            No rows found.
+                          </td>
+                        </tr>
+                      ) : (
+                        labelRows.map((row, i) => (
+                          <tr key={row.po_secondary_sku || i} className="hover:bg-muted/30 transition-colors">
+                            <td className="px-3 py-2 font-mono text-xs font-medium">
+                              {row.po_secondary_sku || "—"}
+                            </td>
+                            <td className="px-3 py-2 tabular-nums">{row.company_code_primary || "—"}</td>
+                            <td className="px-3 py-2 font-mono text-xs">{row.company_code_secondary || "—"}</td>
+                            <td className="px-3 py-2 font-mono text-xs tabular-nums">{row.ean_code || "—"}</td>
+                            <td className="px-3 py-2 text-xs">{row.size || "—"}</td>
+                            <td className="px-3 py-2">{row.color || "—"}</td>
+                            <td className="max-w-[220px] px-3 py-2 text-xs leading-snug">
+                              {row.one_set_contains || "—"}
+                            </td>
+                            <td className="px-3 py-2">{row.material || "—"}</td>
+                            <td className="px-3 py-2 tabular-nums font-medium">{row.mrp_now || "—"}</td>
+                            <td className="px-3 py-2 tabular-nums">{row.mrp_at_po_creation || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+
+            {labelStep === 2 ? (
+              <div className="max-w-3xl space-y-3">
+                <div className="rounded-md border p-3">
+                  <Label className="text-xs">Select Marketed By:</Label>
+                  <select
+                    className="border-input bg-background mt-2 h-9 w-full rounded-md border px-3 text-sm"
+                    value={marketedBy}
+                    onChange={(e) => setMarketedBy(e.target.value)}
+                  >
+                    {LABEL_CONTACT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rounded-md border p-3">
+                  <Label className="text-xs">Select Manufactured By:</Label>
+                  <select
+                    className="border-input bg-background mt-2 h-9 w-full rounded-md border px-3 text-sm"
+                    value={manufacturedBy}
+                    onChange={(e) => setManufacturedBy(e.target.value)}
+                  >
+                    {LABEL_CONTACT_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="rounded-md border p-3">
+                  <Label className="text-xs">Date of Manufacture</Label>
+                  <Input
+                    className="mt-2"
+                    value={dateOfManufacture}
+                    onChange={(e) => setDateOfManufacture(e.target.value)}
+                  />
+                </div>
+                <div className="rounded-md border p-3">
+                  <Label className="text-xs">Brand</Label>
+                  <Input className="mt-2" value={brand} onChange={(e) => setBrand(e.target.value)} />
+                </div>
+                <div className="rounded-md border p-3">
+                  <Label className="text-xs">Country of Origin</Label>
+                  <Input
+                    className="mt-2"
+                    value={countryOfOrigin}
+                    onChange={(e) => setCountryOfOrigin(e.target.value)}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {labelStep === 3 ? (
+              <>
+                <Button type="button" variant="outline" size="sm" onClick={onDownloadLabelsCSV}>
+                  Download Labels Data
+                </Button>
+                <div className="mt-3 overflow-x-auto rounded-md border">
+                  <table className="w-full min-w-[1800px] border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="bg-muted/60 border-b">
+                        <th className="px-2 py-2">Image</th>
+                        <th className="px-2 py-2">PO Secondary SKU</th>
+                        <th className="px-2 py-2">Master SKU</th>
+                        <th className="px-2 py-2">Inventory SKU</th>
+                        <th className="px-2 py-2">Pack-Combo SKU</th>
+                        <th className="px-2 py-2">SKU Type</th>
+                        <th className="px-2 py-2">Company Code Primary</th>
+                        <th className="px-2 py-2">EAN Code</th>
+                        <th className="px-2 py-2">Size</th>
+                        <th className="px-2 py-2">Color</th>
+                        <th className="px-2 py-2">MRP</th>
+                        <th className="px-2 py-2">Title</th>
+                        <th className="px-2 py-2">One Set Contains</th>
+                        <th className="px-2 py-2">Warehouse Quantity</th>
+                        <th className="px-2 py-2">Demand Quantity</th>
+                        <th className="px-2 py-2">Packed Quantity</th>
+                        <th className="px-2 py-2">Dispatched Quantity</th>
+                        <th className="px-2 py-2">Pending Quantity</th>
+                        <th className="px-2 py-2">Labels Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {labelRows.map((row, i) => {
+                        const demand = Number(row.demand_quantity) || 0;
+                        const dispatched = Number(row.dispatched_quantity) || 0;
+                        const pending = Math.max(0, demand - dispatched);
+                        return (
+                          <tr key={row.po_secondary_sku || i} className="border-b align-top">
+                            <td className="px-2 py-2">
+                              {row.img_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={row.img_url} alt={row.po_secondary_sku} className="h-10 w-10 rounded object-cover" />
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="px-2 py-2 font-mono">{row.po_secondary_sku || "—"}</td>
+                            <td className="px-2 py-2">{row.master_sku || "—"}</td>
+                            <td className="px-2 py-2">{row.inventory_sku_id || "—"}</td>
+                            <td className="px-2 py-2">{row.pack_combo_sku_id || "—"}</td>
+                            <td className="px-2 py-2">{row.sku_type || "—"}</td>
+                            <td className="px-2 py-2">{row.company_code_primary || "—"}</td>
+                            <td className="px-2 py-2">{row.ean_code || "—"}</td>
+                            <td className="px-2 py-2">{row.size || "—"}</td>
+                            <td className="px-2 py-2">{row.color || "—"}</td>
+                            <td className="px-2 py-2 tabular-nums">{row.mrp_now || row.mrp_at_po_creation || "—"}</td>
+                            <td className="max-w-[260px] px-2 py-2">{row.title || "—"}</td>
+                            <td className="max-w-[220px] px-2 py-2">{row.one_set_contains || "—"}</td>
+                            <td className="px-2 py-2 tabular-nums">{row.warehouse_quantity || "0"}</td>
+                            <td className="px-2 py-2 tabular-nums">{row.demand_quantity || "0"}</td>
+                            <td className="px-2 py-2 tabular-nums">0</td>
+                            <td className="px-2 py-2 tabular-nums">{row.dispatched_quantity || "0"}</td>
+                            <td className="px-2 py-2 tabular-nums">{String(pending)}</td>
+                            <td className="px-2 py-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                value={String(labelCounts[row.po_secondary_sku] ?? 0)}
+                                onChange={(e) =>
+                                  setLabelCounts((prev) => ({
+                                    ...prev,
+                                    [row.po_secondary_sku]: Math.max(
+                                      0,
+                                      Number.parseInt(e.target.value || "0", 10) || 0
+                                    ),
+                                  }))
+                                }
+                                className="h-8 w-24"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+
+            {labelStep === 4 ? (
+              <div className="max-w-md rounded-md border p-4">
+                <p className="mb-2 text-sm font-medium">Label Size Settings</p>
+                <label className="mb-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="label-size"
+                    checked={labelSize === "70x40"}
+                    onChange={() => setLabelSize("70x40")}
+                  />
+                  70 x 40 mm
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="label-size"
+                    checked={labelSize === "75x38"}
+                    onChange={() => setLabelSize("75x38")}
+                  />
+                  75 x 38 mm
+                </label>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="shrink-0 flex items-center justify-end gap-2 border-t bg-muted/20 px-6 py-3">
+            <Button type="button" variant="outline" onClick={() => setLabelDialogOpen(false)}>
+              Cancel
+            </Button>
+            {labelStep > 1 ? (
+              <Button type="button" variant="outline" onClick={() => setLabelStep((s) => (s - 1) as 1 | 2 | 3 | 4)}>
+                Back
+              </Button>
+            ) : null}
+            {labelStep < 4 ? (
+              <Button
+                type="button"
+                disabled={labelRows.length === 0}
+                onClick={() => setLabelStep((s) => (s + 1) as 1 | 2 | 3 | 4)}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button type="button" disabled={labelsGenerating} onClick={() => void onGenerateLabels()}>
+                {labelsGenerating ? <Loader2 className="size-4 animate-spin" /> : "Generate Labels"}
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={phase1DialogOpen} onOpenChange={setPhase1DialogOpen}>
+        <DialogContent className="flex h-[86vh] max-h-[620px] w-[95vw] max-w-6xl flex-col gap-0 p-0">
+          <div className="shrink-0 border-b px-6 py-4">
+            <DialogTitle className="text-base font-semibold">Generate Phase 1 Box Labels</DialogTitle>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+            <div className="max-w-md space-y-5">
+              <div className="rounded-md border p-4">
+                <p className="text-sm font-semibold">Label Count Settings</p>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <Label className="text-muted-foreground text-xs">
+                      Enter the starting box number.
+                    </Label>
+                    <Input
+                      className="mt-1"
+                      inputMode="numeric"
+                      value={phase1StartBox}
+                      onChange={(e) => setPhase1StartBox(e.target.value.replace(/[^\d]/g, ""))}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground text-xs">
+                      Enter the ending box number.
+                    </Label>
+                    <Input
+                      className="mt-1"
+                      inputMode="numeric"
+                      value={phase1EndBox}
+                      onChange={(e) => setPhase1EndBox(e.target.value.replace(/[^\d]/g, ""))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border p-4">
+                <p className="mb-3 text-sm font-semibold">Label Size Settings</p>
+                <label className="mb-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="phase1-label-size"
+                    checked={phase1LabelSize === "70x40"}
+                    onChange={() => setPhase1LabelSize("70x40")}
+                  />
+                  70 x 40 mm
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="phase1-label-size"
+                    checked={phase1LabelSize === "75x38"}
+                    onChange={() => setPhase1LabelSize("75x38")}
+                  />
+                  75 x 38 mm
+                </label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="shrink-0 border-t bg-muted/20 px-6 py-3">
+            <Button type="button" variant="outline" onClick={() => setPhase1DialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" disabled={phase1Generating} onClick={() => void onGeneratePhase1Labels()}>
+              {phase1Generating ? <Loader2 className="size-4 animate-spin" /> : "Generate"}
             </Button>
           </DialogFooter>
         </DialogContent>

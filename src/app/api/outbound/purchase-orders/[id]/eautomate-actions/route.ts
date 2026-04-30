@@ -5,10 +5,12 @@ import { handleApiError } from "@/server/errors";
 import { eautomateConfigured } from "@/server/eautomate-proxy";
 import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
 import {
-  getOutboundConsignmentItemsByPoNumber,
   getSkuReportItemsByPoNumber,
+  getProductLabelRowsByPoNumber,
+  getProductLabelRowsFromSnapshot,
   type SkuReportItemRow,
 } from "@/server/services/outboundConsignmentItemsService";
+import { buildPhase1BoxLabelsPdf } from "@/server/services/labelPdfService";
 import {
   acknowledgeOutboundPo,
   cancelOutboundPo,
@@ -176,32 +178,6 @@ function skuReportFromConsignmentItems(
   return `\ufeff${lines.join("\n")}`;
 }
 
-function phase1ItemsToCsv(
-  rows: Awaited<ReturnType<typeof getOutboundConsignmentItemsByPoNumber>>
-): string {
-  const headers = [
-    "consignment_id",
-    "po_secondary_sku",
-    "company_code_primary",
-    "company_code_secondary",
-    "box_number",
-    "box_name",
-    "box_quantity",
-    "mrp",
-    "original_demand",
-    "dispatched_quantity",
-    "consignment_quantity",
-    "overall_fill_rate",
-  ] as const;
-  const lines = [headers.join(",")];
-  for (const row of rows) {
-    lines.push(
-      headers.map((h) => csvEscapeCell(csvCell(row[h]))).join(",")
-    );
-  }
-  return `\ufeff${lines.join("\n")}`;
-}
-
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);
@@ -338,32 +314,56 @@ export async function POST(request: Request, context: Ctx) {
     }
 
     if (action === "generate_product_labels") {
-      const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
-      if (rows.length === 0) {
+      let labelRows = await getProductLabelRowsByPoNumber(po.po_number);
+      if (labelRows.length === 0) {
+        // Fallback: build from listings_snapshot (enriched with labels_master_data where available)
+        const snapshotRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+        labelRows = await getProductLabelRowsFromSnapshot(snapshotRows);
+      }
+      if (labelRows.length === 0) {
         return NextResponse.json(
           {
             error: "No SKU line items found for this purchase order.",
-            hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items.",
+            hint: "Sync the PO detail from eAutomate or upload a received PO spreadsheet to populate line items.",
           },
           { status: 422 }
         );
       }
-      return NextResponse.json({
-        ok: true,
-        action,
-        po,
-        rows,
-      });
+      return NextResponse.json({ ok: true, action, rows: labelRows });
     }
 
     if (action === "generate_phase1_box_labels") {
-      const items = await getOutboundConsignmentItemsByPoNumber(po.po_number);
-      const csv = phase1ItemsToCsv(items);
-      const fname = `phase1-box-labels-${safeFilename(po.po_number)}.csv`;
-      return new NextResponse(csv, {
+      const startBox = Number.parseInt(String(body.startBox ?? ""), 10);
+      const endBox = Number.parseInt(String(body.endBox ?? ""), 10);
+      const labelSize = body.labelSize === "75x38" ? "75x38" : "70x40";
+      if (
+        !Number.isFinite(startBox) ||
+        !Number.isFinite(endBox) ||
+        startBox < 1 ||
+        endBox < startBox
+      ) {
+        return NextResponse.json(
+          {
+            error: "Invalid box-number range.",
+            hint: "Provide valid startBox and endBox values where startBox <= endBox.",
+          },
+          { status: 400 }
+        );
+      }
+      const companyInfo = [po.company_name, po.delivery_city]
+        .filter((v) => String(v ?? "").trim().length > 0)
+        .join(", ");
+      const pdfBytes = await buildPhase1BoxLabelsPdf(
+        startBox,
+        endBox,
+        companyInfo,
+        labelSize
+      );
+      const fname = `phase1-${safeFilename(po.po_number)}-${startBox}-${endBox}.pdf`;
+      return new NextResponse(Buffer.from(pdfBytes), {
         status: 200,
         headers: {
-          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="${fname}"`,
         },
       });

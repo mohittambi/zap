@@ -477,6 +477,235 @@ export type SkuReportItemRow = {
   raw: Record<string, unknown>;
 };
 
+export type ProductLabelRow = {
+  po_secondary_sku: string;
+  company_code_primary: string;
+  company_code_secondary: string;
+  ean_code: string;
+  size: string;
+  color: string;
+  one_set_contains: string;
+  material: string;
+  mrp_now: string;
+  mrp_at_po_creation: string;
+  img_url: string;
+  master_sku: string;
+  inventory_sku_id: string;
+  pack_combo_sku_id: string;
+  sku_type: string;
+  title: string;
+  warehouse_quantity: string;
+  demand_quantity: string;
+  dispatched_quantity: string;
+};
+
+export async function getProductLabelRowsByPoNumber(
+  poNumber: string
+): Promise<ProductLabelRow[]> {
+  const pn = String(poNumber || "").trim();
+  if (!pn) return [];
+  const r = await query(
+    `SELECT DISTINCT ON (ci.po_secondary_sku)
+            ci.po_secondary_sku,
+            ci.company_code_primary,
+            ci.company_code_secondary,
+            ci.mrp AS mrp_at_po_creation,
+            ci.raw,
+            COALESCE(lm.ean_code, '')        AS ean_code,
+            COALESCE(lm.size, '')            AS size,
+            COALESCE(lm.color, '')           AS color,
+            COALESCE(lm.one_set_contains, '') AS one_set_contains,
+            COALESCE(lm.material, '')        AS material,
+            COALESCE(lm.mrp::text, '')       AS mrp_now
+       FROM outbound_consignment_items ci
+       LEFT JOIN labels_master_data lm ON lm.secondary_sku = ci.po_secondary_sku
+      WHERE ci.po_number = $1
+      ORDER BY ci.po_secondary_sku ASC, ci.id ASC`,
+    [pn]
+  );
+  return r.rows.map((row) => {
+    const raw =
+      row.raw && typeof row.raw === "object" && !Array.isArray(row.raw)
+        ? (row.raw as Record<string, unknown>)
+        : {};
+    const rawListing =
+      raw.listing && typeof raw.listing === "object" && !Array.isArray(raw.listing)
+        ? (raw.listing as Record<string, unknown>)
+        : {};
+    return {
+    po_secondary_sku: row.po_secondary_sku != null ? String(row.po_secondary_sku) : "",
+    company_code_primary:
+      row.company_code_primary != null ? String(row.company_code_primary) : "",
+    company_code_secondary:
+      row.company_code_secondary != null ? String(row.company_code_secondary) : "",
+    ean_code: String(row.ean_code ?? ""),
+    size: String(row.size ?? ""),
+    color: String(row.color ?? ""),
+    one_set_contains: String(row.one_set_contains ?? ""),
+    material: String(row.material ?? ""),
+    mrp_now: String(row.mrp_now ?? ""),
+    mrp_at_po_creation:
+      row.mrp_at_po_creation != null ? String(row.mrp_at_po_creation) : "",
+    img_url:
+      rawListing.img_hd != null
+        ? String(rawListing.img_hd)
+        : rawListing.img_wdim != null
+          ? String(rawListing.img_wdim)
+          : rawListing.img_white != null
+            ? String(rawListing.img_white)
+            : "",
+    master_sku:
+      raw.master_sku != null
+        ? String(raw.master_sku)
+        : rawListing.master_sku != null
+          ? String(rawListing.master_sku)
+          : "",
+    inventory_sku_id:
+      raw.inventory_sku_id != null
+        ? String(raw.inventory_sku_id)
+        : rawListing.inventory_sku_id != null
+          ? String(rawListing.inventory_sku_id)
+          : "",
+    pack_combo_sku_id:
+      raw.pack_combo_sku_id != null
+        ? String(raw.pack_combo_sku_id)
+        : rawListing.pack_combo_sku_id != null
+          ? String(rawListing.pack_combo_sku_id)
+          : "",
+    sku_type:
+      raw.sku_type != null
+        ? String(raw.sku_type)
+        : rawListing.sku_type != null
+          ? String(rawListing.sku_type)
+          : "",
+    title: raw.title != null ? String(raw.title) : "",
+    warehouse_quantity:
+      rawListing.available_quantity != null ? String(rawListing.available_quantity) : "",
+    demand_quantity: raw.demand != null ? String(raw.demand) : "",
+    dispatched_quantity:
+      raw.dispatched_quantity != null ? String(raw.dispatched_quantity) : "",
+    };
+  });
+}
+
+/**
+ * Build ProductLabelRow[] from a `listings_snapshot` content array.
+ * Used as fallback when `outbound_consignment_items` has no rows for the PO.
+ * Enriches with `labels_master_data` where available; fills from snapshot fields otherwise.
+ */
+export async function getProductLabelRowsFromSnapshot(
+  snapshotRows: Record<string, unknown>[]
+): Promise<ProductLabelRow[]> {
+  if (snapshotRows.length === 0) return [];
+
+  const skus = snapshotRows
+    .map((r) => (r.po_secondary_sku != null ? String(r.po_secondary_sku) : ""))
+    .filter(Boolean);
+
+  // Batch-fetch labels_master_data for these SKUs
+  const lmResult =
+    skus.length > 0
+      ? await query(
+          `SELECT secondary_sku, ean_code, size, color, one_set_contains, material, mrp
+             FROM labels_master_data
+            WHERE secondary_sku = ANY($1)`,
+          [skus]
+        )
+      : { rows: [] };
+
+  const lmMap = new Map<string, Record<string, unknown>>();
+  for (const row of lmResult.rows) {
+    lmMap.set(String(row.secondary_sku), row as Record<string, unknown>);
+  }
+
+  const seen = new Set<string>();
+  const result: ProductLabelRow[] = [];
+  for (const item of snapshotRows) {
+    const sku = item.po_secondary_sku != null ? String(item.po_secondary_sku) : "";
+    if (!sku || seen.has(sku)) continue;
+    seen.add(sku);
+
+    const lm = lmMap.get(sku);
+    const listing =
+      item.listing && typeof item.listing === "object" && !Array.isArray(item.listing)
+        ? (item.listing as Record<string, unknown>)
+        : {};
+
+    // Size: prefer labels_master_data, then first segment of listing.dimension
+    const dimFull = listing.dimension != null ? String(listing.dimension) : "";
+    const dimShort = dimFull.split(" / ")[0]?.trim() ?? "";
+
+    result.push({
+      po_secondary_sku: sku,
+      company_code_primary:
+        item.company_code_primary != null ? String(item.company_code_primary) : "",
+      company_code_secondary:
+        item.company_code_secondary != null ? String(item.company_code_secondary) : "",
+      ean_code: lm?.ean_code != null ? String(lm.ean_code) : "",
+      size: lm?.size != null ? String(lm.size) : dimShort,
+      color:
+        lm?.color != null
+          ? String(lm.color)
+          : item.color != null
+            ? String(item.color)
+            : "",
+      one_set_contains: lm?.one_set_contains != null ? String(lm.one_set_contains) : "",
+      material:
+        lm?.material != null
+          ? String(lm.material)
+          : listing.material_info != null
+            ? String(listing.material_info)
+            : "",
+      mrp_now:
+        lm?.mrp != null
+          ? String(lm.mrp)
+          : item.mrp != null
+            ? String(item.mrp)
+            : "",
+      mrp_at_po_creation: item.mrp != null ? String(item.mrp) : "",
+      img_url:
+        listing.img_hd != null
+          ? String(listing.img_hd)
+          : listing.img_wdim != null
+            ? String(listing.img_wdim)
+            : listing.img_white != null
+              ? String(listing.img_white)
+              : "",
+      master_sku:
+        item.master_sku != null
+          ? String(item.master_sku)
+          : listing.master_sku != null
+            ? String(listing.master_sku)
+            : "",
+      inventory_sku_id:
+        item.inventory_sku_id != null
+          ? String(item.inventory_sku_id)
+          : listing.inventory_sku_id != null
+            ? String(listing.inventory_sku_id)
+            : "",
+      pack_combo_sku_id:
+        item.pack_combo_sku_id != null
+          ? String(item.pack_combo_sku_id)
+          : listing.pack_combo_sku_id != null
+            ? String(listing.pack_combo_sku_id)
+            : "",
+      sku_type:
+        item.sku_type != null
+          ? String(item.sku_type)
+          : listing.sku_type != null
+            ? String(listing.sku_type)
+            : "",
+      title: item.title != null ? String(item.title) : "",
+      warehouse_quantity:
+        listing.available_quantity != null ? String(listing.available_quantity) : "",
+      demand_quantity: item.demand != null ? String(item.demand) : "",
+      dispatched_quantity:
+        item.dispatched_quantity != null ? String(item.dispatched_quantity) : "",
+    });
+  }
+  return result;
+}
+
 export async function getSkuReportItemsByPoNumber(
   poNumber: string
 ): Promise<SkuReportItemRow[]> {
