@@ -86,10 +86,10 @@ function NavLinksShell({
             href={href}
             onClick={onNavigate}
             className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium md:py-1.5",
+              "rounded-full px-3 py-2 text-sm font-medium md:py-1.5",
               active
-                ? "bg-primary/15 text-primary underline decoration-2 underline-offset-4"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             {label}

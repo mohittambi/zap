@@ -46,6 +46,30 @@ type Paginated = {
   content: OutboundPo[];
 };
 
+type FilterCompanyOption = {
+  id: number;
+  name: string | null;
+};
+
+type FilterDeliveryLocationOption = {
+  id: number;
+  name: string;
+};
+
+type FilterOptionsPayload = {
+  companies: FilterCompanyOption[];
+  deliveryLocations: FilterDeliveryLocationOption[];
+};
+
+const PO_STATUS_FILTER_OPTIONS = [
+  "ACKNOWLEDGEMENT PENDING",
+  "COMPLETED",
+  "EXPIRED",
+  "CANCELLED",
+  "IN PROGRESS",
+  "NOT-SET",
+] as const;
+
 function fmtDay(d: string | null | undefined): string {
   if (!d) return "—";
   const x = new Date(d.replace(" ", "T"));
@@ -89,6 +113,28 @@ export function OutboundPurchaseOrdersTable({
   const [err, setErr] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Paginated | null>(null);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const [companies, setCompanies] = React.useState<FilterCompanyOption[]>([]);
+  const [deliveryLocations, setDeliveryLocations] = React.useState<FilterDeliveryLocationOption[]>([]);
+  const [companyId, setCompanyId] = React.useState("");
+  const [deliveryCity, setDeliveryCity] = React.useState("");
+  const [poStatus, setPoStatus] = React.useState("");
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const opts = await apiFetch<FilterOptionsPayload>(
+          "/api/outbound/purchase-orders/filter-options"
+        );
+        setCompanies(Array.isArray(opts.companies) ? opts.companies : []);
+        setDeliveryLocations(
+          Array.isArray(opts.deliveryLocations) ? opts.deliveryLocations : []
+        );
+      } catch {
+        setCompanies([]);
+        setDeliveryLocations([]);
+      }
+    })();
+  }, []);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -99,6 +145,9 @@ export function OutboundPurchaseOrdersTable({
       q.set("count", "100");
       if (applied.trim()) q.set("search", applied.trim());
       if (wipOnly) q.set("wip", "1");
+      if (companyId) q.set("company_id", companyId);
+      if (deliveryCity) q.set("delivery_city", deliveryCity);
+      if (poStatus) q.set("po_status", poStatus);
       const res = await apiFetch<Paginated>(`/api/outbound/purchase-orders?${q}`);
       setData(res);
     } catch (e) {
@@ -107,7 +156,7 @@ export function OutboundPurchaseOrdersTable({
     } finally {
       setLoading(false);
     }
-  }, [page, applied, wipOnly]);
+  }, [page, applied, wipOnly, companyId, deliveryCity, poStatus]);
 
   React.useEffect(() => {
     void load();
@@ -161,7 +210,7 @@ export function OutboundPurchaseOrdersTable({
   return (
     <Card className="border-primary/10 shadow-sm">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex w-full flex-col gap-2 sm:max-w-sm">
+        <div className="flex w-full flex-col gap-2">
           <label className="text-muted-foreground text-xs font-medium" htmlFor="po-search">
             Search
           </label>
@@ -178,6 +227,62 @@ export function OutboundPurchaseOrdersTable({
             <Button type="button" variant="secondary" onClick={() => setApplied(search)}>
               Apply
             </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="text-muted-foreground text-xs">
+              <span className="mb-1 block font-medium">Company</span>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={companyId}
+                onChange={(e) => {
+                  setPage(1);
+                  setCompanyId(e.target.value);
+                }}
+              >
+                <option value="">All companies</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.name ?? `Company ${c.id}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-muted-foreground text-xs">
+              <span className="mb-1 block font-medium">Delivery Location</span>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={deliveryCity}
+                onChange={(e) => {
+                  setPage(1);
+                  setDeliveryCity(e.target.value);
+                }}
+              >
+                <option value="">All locations</option>
+                {deliveryLocations.map((loc) => (
+                  <option key={loc.id} value={loc.name}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-muted-foreground text-xs">
+              <span className="mb-1 block font-medium">Status</span>
+              <select
+                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                value={poStatus}
+                onChange={(e) => {
+                  setPage(1);
+                  setPoStatus(e.target.value);
+                }}
+              >
+                <option value="">All statuses</option>
+                {PO_STATUS_FILTER_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
         {someSelected ? (

@@ -1371,7 +1371,7 @@ export default function InboundGrnDetailPage() {
             </TabsList>
 
             <TabsContent value="details" className="mt-4 space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Card className="border-primary/10 shadow-sm">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Vendor</CardTitle>
@@ -1427,45 +1427,78 @@ export default function InboundGrnDetailPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-primary/10 shadow-sm">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">GRN</CardTitle>
-                <CardDescription>Receipt summary</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <dl className="grid gap-3">
-                  <Field label="Box count (invoice)">
-                    {snap?.grn_box_count_invoice ?? row.box_count_invoice}
-                  </Field>
-                  <Field label="Actual boxes received">
-                    {snap?.grn_actual_boxes ?? row.actual_box_count_recieved}
-                  </Field>
-                  <Field label="GRN SKU count">{row.grn_sku_count}</Field>
-                  <Field label="Invoice qty">{row.grn_invoice_quantity}</Field>
-                  <Field label="Accepted">{row.grn_accepted_quantity}</Field>
-                  <Field label="Rejected">{row.grn_rejected_quantity}</Field>
-                  <Field label="Shortage">{row.grn_shortage_quantity}</Field>
-                  <Field label="Opened by">
-                    {snap?.grn_opened_by ?? row.created_by ?? "—"}
-                  </Field>
-                  <Field label="Opened at">
-                    {formatDisplayDateTime(
-                      snap?.grn_created_at ?? row.created_at
-                    )}
-                  </Field>
-                  <Field label="Updated">
-                    {formatDisplayDateTime(
-                      snap?.grn_updated_at ?? row.updated_at
-                    )}
-                  </Field>
-                  <Field label="Audited by">{row.grn_audit_by ?? "—"}</Field>
-                  <Field label="Invoice collection by">
-                    {row.grn_invoice_collection_by ?? "—"}
-                  </Field>
-                </dl>
-              </CardContent>
-            </Card>
           </div>
+
+          <Card className="border-primary/10 shadow-sm">
+            <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
+              <CardTitle className="text-base">GRN - Receipt summary</CardTitle>
+              <CardDescription>
+                <span className="font-mono">GRN {row.grn_id}</span>
+                <span className="text-muted-foreground/80 px-1">·</span>
+                <Link
+                  href={`/inbound/vendors/${row.vendor_id}/purchase-orders/${row.po_id}`}
+                  className="text-primary font-medium underline-offset-4 hover:underline"
+                >
+                  PO {row.po_id}
+                </Link>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <DocumentsStatChip
+                  label="Invoice qty"
+                  value={row.grn_invoice_quantity}
+                  className="border-l-[3px] border-violet-500 from-violet-50/95 to-transparent dark:from-violet-950/30"
+                />
+                <DocumentsStatChip
+                  label="Accepted"
+                  value={row.grn_accepted_quantity}
+                  className="border-l-[3px] border-emerald-500 from-emerald-50/95 to-transparent dark:from-emerald-950/30"
+                />
+                <DocumentsStatChip
+                  label="Rejected"
+                  value={row.grn_rejected_quantity}
+                  className="border-l-[3px] border-red-500 from-red-50/95 to-transparent dark:from-red-950/30"
+                />
+                <DocumentsStatChip
+                  label="Shortage"
+                  value={row.grn_shortage_quantity}
+                  className="border-l-[3px] border-amber-500 from-amber-50/95 to-transparent dark:from-amber-950/30"
+                />
+                <DocumentsStatChip
+                  label="SKU count"
+                  value={row.grn_sku_count}
+                  className="border-l-[3px] border-sky-500 from-sky-50/95 to-transparent dark:from-sky-950/30"
+                />
+              </div>
+
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                <Field label="Box count (invoice)">
+                  {snap?.grn_box_count_invoice ?? row.box_count_invoice}
+                </Field>
+                <Field label="Actual boxes received">
+                  {snap?.grn_actual_boxes ?? row.actual_box_count_recieved}
+                </Field>
+                <Field label="Opened by">
+                  {snap?.grn_opened_by ?? row.created_by ?? "—"}
+                </Field>
+                <Field label="Opened at">
+                  {formatDisplayDateTime(
+                    snap?.grn_created_at ?? row.created_at
+                  )}
+                </Field>
+                <Field label="Updated">
+                  {formatDisplayDateTime(
+                    snap?.grn_updated_at ?? row.updated_at
+                  )}
+                </Field>
+                <Field label="Audited by">{row.grn_audit_by ?? "—"}</Field>
+                <Field label="Invoice collection by">
+                  {row.grn_invoice_collection_by ?? "—"}
+                </Field>
+              </dl>
+            </CardContent>
+          </Card>
 
           <Card className="border-primary/10 shadow-sm">
             <CardHeader>

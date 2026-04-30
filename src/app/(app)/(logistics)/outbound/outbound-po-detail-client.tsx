@@ -211,7 +211,7 @@ const SUMMARY_ROWS: { key: string; label: string; format?: "rs" | "pct" }[] = [
   { key: "total_demand", label: "Total Demand Quantity" },
   { key: "total_pending", label: "Total Pending Quantity" },
   { key: "total_packed", label: "Total Packed Quantity" },
-  { key: "boxes_packed", label: "Boxed Packed" },
+  { key: "boxes_packed", label: "Boxes packed" },
   { key: "total_before_tax", label: "Po Value Before Tax", format: "rs" },
   { key: "sku_fill_rate", label: "SKU Fill Rate %", format: "pct" },
   { key: "quantity_fill_rate", label: "Quantity Fill Rate %", format: "pct" },
@@ -220,6 +220,112 @@ const SUMMARY_ROWS: { key: string; label: string; format?: "rs" | "pct" }[] = [
   { key: "boxes_dispatched", label: "Boxes Dispatched" },
   { key: "total_after_tax", label: "Po Value After Tax", format: "rs" },
 ];
+
+const SUMMARY_CHIP_ACCENT: Record<string, string> = {
+  sku_count:
+    "border-l-[3px] border-sky-500 from-sky-50/95 to-transparent dark:from-sky-950/30",
+  total_demand:
+    "border-l-[3px] border-violet-500 from-violet-50/95 to-transparent dark:from-violet-950/30",
+  total_pending:
+    "border-l-[3px] border-amber-500 from-amber-50/95 to-transparent dark:from-amber-950/30",
+  total_packed:
+    "border-l-[3px] border-emerald-500 from-emerald-50/95 to-transparent dark:from-emerald-950/30",
+  sku_fill_rate:
+    "border-l-[3px] border-indigo-500 from-indigo-50/95 to-transparent dark:from-indigo-950/30",
+  quantity_fill_rate:
+    "border-l-[3px] border-fuchsia-500 from-fuchsia-50/95 to-transparent dark:from-fuchsia-950/30",
+  total_dispatched:
+    "border-l-[3px] border-teal-500 from-teal-50/95 to-transparent dark:from-teal-950/30",
+  boxes_packed:
+    "border-l-[3px] border-cyan-600 from-cyan-50/95 to-transparent dark:from-cyan-950/25",
+  boxes_dispatched:
+    "border-l-[3px] border-blue-500 from-blue-50/95 to-transparent dark:from-blue-950/30",
+  total_consignments:
+    "border-l-[3px] border-slate-500 from-slate-50/95 to-transparent dark:from-slate-950/35",
+  total_before_tax:
+    "border-l-[3px] border-orange-500 from-orange-50/95 to-transparent dark:from-orange-950/25",
+  total_after_tax:
+    "border-l-[3px] border-orange-600 from-orange-50/98 to-transparent dark:from-orange-950/30",
+};
+
+const SUMMARY_GROUP_DEFS: { title: string; keys: readonly string[]; gridClassName: string }[] = [
+  {
+    title: "Line fulfilment",
+    keys: [
+      "sku_count",
+      "total_demand",
+      "total_pending",
+      "total_packed",
+      "sku_fill_rate",
+      "quantity_fill_rate",
+    ],
+    gridClassName: "grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6",
+  },
+  {
+    title: "Dispatch and logistics",
+    keys: ["total_dispatched", "boxes_packed", "boxes_dispatched", "total_consignments"],
+    gridClassName: "grid grid-cols-2 gap-3 sm:grid-cols-4",
+  },
+  {
+    title: "Commercial",
+    keys: ["total_before_tax", "total_after_tax"],
+    gridClassName: "grid grid-cols-1 gap-3 sm:grid-cols-2",
+  },
+];
+
+function omitGraphicsReportFromAnalytics(ao: Record<string, unknown>): Record<string, unknown> {
+  const o = { ...ao };
+  delete o.graphics_report;
+  delete o.Graphics_Report;
+  return o;
+}
+
+/** Normalise analytics payload and drop non-KPI blobs (same keys stripped server-side when syncing). */
+function parseOutboundAnalyticsForSummary(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return omitGraphicsReportFromAnalytics(value as Record<string, unknown>);
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return omitGraphicsReportFromAnalytics(parsed as Record<string, unknown>);
+      }
+    } catch {
+      /* not JSON */
+    }
+  }
+  return {};
+}
+
+function isLikelyStructuredJsonString(s: string): boolean {
+  const t = s.trim();
+  if (!t.startsWith("{") && !t.startsWith("[")) return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** KPI cells only — never expose embedded JSON blobs (including mis-mapped upstream fields). */
+function formatSummaryMetric(raw: unknown, format?: "rs" | "pct"): string {
+  if (raw == null) return "—";
+  if (typeof raw === "object") return "—";
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!t) return "—";
+    if (isLikelyStructuredJsonString(t)) return "—";
+  }
+  if (format === "rs") return fmtRs(raw);
+  if (format === "pct") return `${fmtNum(raw)}%`;
+  return fmtNum(raw);
+}
+
+function outboundSummaryMeta(key: string) {
+  return SUMMARY_ROWS.find((r) => r.key === key);
+}
 
 async function authFetchRaw(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -256,6 +362,32 @@ function Field({
     <div className={cn("space-y-1", className)}>
       <p className="text-muted-foreground text-xs font-medium">{label}</p>
       <div className="text-sm font-medium">{children}</div>
+    </div>
+  );
+}
+
+function OutboundAnalyticsStatChip({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border bg-gradient-to-br px-3 py-2.5 shadow-sm backdrop-blur-sm",
+        className
+      )}
+    >
+      <p className="text-muted-foreground mb-1 truncate text-[10px] font-semibold uppercase tracking-wide">
+        {label}
+      </p>
+      <p className="font-mono text-lg leading-tight font-semibold tracking-tight break-words tabular-nums">
+        {value}
+      </p>
     </div>
   );
 }
@@ -305,7 +437,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [uploading, setUploading] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [dlBusy, setDlBusy] = React.useState<number | string | null>(null);
-  const eaZapInputRef = React.useRef<HTMLInputElement>(null);
+  const [eaZapFile, setEaZapFile] = React.useState<File | null>(null);
+  const [eaZapUploadInputKey, setEaZapUploadInputKey] = React.useState(0);
   const [eaZapUploading, setEaZapUploading] = React.useState(false);
   const [stubBusy, setStubBusy] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState("details");
@@ -589,8 +722,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   };
 
   const onUploadEaZap = async () => {
-    const input = eaZapInputRef.current;
-    const f = input?.files?.[0];
+    const f = eaZapFile;
     if (!f || !canWritePo) return;
     setEaZapUploading(true);
     try {
@@ -607,7 +739,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(j.error ?? res.statusText);
       toast.success("File stored in Zap Storage");
-      input.value = "";
+      setEaZapFile(null);
+      setEaZapUploadInputKey((k) => k + 1);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
@@ -636,7 +769,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     );
   }
 
-  const analytics = po.analytics_object ?? {};
+  const analytics = parseOutboundAnalyticsForSummary(po.analytics_object);
   const wip = (po.is_wip ?? "").toUpperCase().trim();
   const listingsEnvelope = (data.listings ?? {}) as OutboundListingsEnvelope;
 
@@ -656,26 +789,35 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       </CardHeader>
       <CardContent className="p-0">
         {canWritePo && zapReady ? (
-          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-            <input ref={eaZapInputRef} type="file" className="hidden" />
+          <div className="flex flex-wrap items-end gap-3 border-b px-3 py-2">
+            <div className="space-y-1">
+              <Label
+                htmlFor="ea-zap-upload"
+                className="text-muted-foreground text-xs"
+              >
+                Upload a copy to Zap Storage
+              </Label>
+              <Input
+                key={eaZapUploadInputKey}
+                id="ea-zap-upload"
+                type="file"
+                className="max-w-xs cursor-pointer"
+                disabled={eaZapUploading}
+                onChange={(e) =>
+                  setEaZapFile(e.target.files?.[0] ?? null)
+                }
+              />
+            </div>
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              onClick={() => eaZapInputRef.current?.click()}
-            >
-              Choose file
-            </Button>
-            <Button
-              type="button"
-              size="sm"
+              disabled={!eaZapFile || eaZapUploading}
               onClick={() => void onUploadEaZap()}
-              disabled={eaZapUploading}
             >
               {eaZapUploading ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
-                "Upload to Zap Storage"
+                "Upload"
               )}
             </Button>
           </div>
@@ -708,24 +850,33 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                       {f.file_name}
                     </td>
                     <td className="px-3 py-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-primary h-8 w-8"
-                        disabled={
-                          !(f.zap_storage_path || legacyFetch) ||
-                          dlBusy === `ea-${f.eautomate_file_id}`
+                      <span
+                        className="inline-flex"
+                        title={
+                          !(f.zap_storage_path || legacyFetch)
+                            ? "File not available for download. Upload a copy to Zap Storage to enable."
+                            : undefined
                         }
-                        aria-label={`Download ${f.file_name}`}
-                        onClick={() => void onDownloadEa(f.eautomate_file_id, f.file_name)}
                       >
-                        {dlBusy === `ea-${f.eautomate_file_id}` ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <Download className="size-4" />
-                        )}
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="text-primary h-8 w-8"
+                          disabled={
+                            !(f.zap_storage_path || legacyFetch) ||
+                            dlBusy === `ea-${f.eautomate_file_id}`
+                          }
+                          aria-label={`Download ${f.file_name}`}
+                          onClick={() => void onDownloadEa(f.eautomate_file_id, f.file_name)}
+                        >
+                          {dlBusy === `ea-${f.eautomate_file_id}` ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Download className="size-4" />
+                          )}
+                        </Button>
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -738,33 +889,40 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   );
 
   const summaryTable = (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Current Purchase Order Summary</CardTitle>
-        <CardDescription>Values from analytics_object</CardDescription>
+    <Card className="border-primary/10 shadow-sm overflow-hidden">
+      <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
+        <CardTitle className="text-base">Current purchase order summary</CardTitle>
+        <CardDescription>
+          Live SKU, dispatch and value KPIs — non-metric payloads (such as embedded form data) stay out of
+          this block.
+        </CardDescription>
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <tbody>
-              {SUMMARY_ROWS.map(({ key, label, format }) => {
-                const raw = analytics[key];
-                let display: string;
-                if (format === "rs") display = fmtRs(raw);
-                else if (format === "pct") display = `${fmtNum(raw)}%`;
-                else display = fmtNum(raw);
+      <CardContent className="space-y-8 p-4 sm:p-6">
+        {SUMMARY_GROUP_DEFS.map(({ title, keys, gridClassName }) => (
+          <section key={title} className="space-y-2">
+            <h3 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              {title}
+            </h3>
+            <div className={gridClassName}>
+              {keys.map((key) => {
+                const meta = outboundSummaryMeta(key);
+                if (!meta) return null;
+                const display = formatSummaryMetric(analytics[key], meta.format);
                 return (
-                  <tr key={key} className="border-b last:border-0">
-                    <th className="text-muted-foreground w-[55%] px-3 py-2 text-left font-medium">
-                      {label}
-                    </th>
-                    <td className="px-3 py-2 text-right font-medium tabular-nums">{display}</td>
-                  </tr>
+                  <OutboundAnalyticsStatChip
+                    key={key}
+                    label={meta.label}
+                    value={display}
+                    className={
+                      SUMMARY_CHIP_ACCENT[key] ??
+                      "border-l-[3px] border-primary/40 from-muted/50 to-transparent"
+                    }
+                  />
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          </section>
+        ))}
       </CardContent>
     </Card>
   );
@@ -893,114 +1051,141 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 </div>
               ) : null}
 
-              <Card>
-                <CardHeader className="pb-2">
+              <Card className="border-primary/10 shadow-sm">
+                <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <CardTitle className="text-lg">Purchase order</CardTitle>
-                  <CardDescription>{po.po_number}</CardDescription>
+                  <CardDescription>
+                    <span className="font-mono font-semibold text-foreground">{po.po_number}</span>
+                    {po.company_name ? (
+                      <span className="text-muted-foreground"> · {po.company_name}</span>
+                    ) : null}
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
-                  <Field label="Marked WIP?">
-                    <span
-                      className={cn(
-                        "font-semibold",
-                        wip === "NO" && "text-red-600 dark:text-red-400",
-                        wip === "YES" && "text-green-600 dark:text-green-500"
-                      )}
-                    >
-                      {po.is_wip ?? "—"}
-                    </span>
-                  </Field>
-                  <Field label="Buyer Company Name">{po.company_name ?? "—"}</Field>
-                  <Field label="PO Number">{po.po_number}</Field>
-                  <EditableRow
-                    label="PO Type"
-                    canEdit={canMutate}
-                    onEdit={() =>
-                      openEdit("po_type", "PO Type", po.po_type ?? "")
-                    }
-                  >
-                    {po.po_type ?? "—"}
-                  </EditableRow>
-                  <Field label="Sold Via">{po.sold_via ?? "—"}</Field>
-                  <EditableRow
-                    label="Reference Location"
-                    canEdit={canMutate}
-                    onEdit={() =>
-                      openEdit("delivery_city", "Reference Location", po.delivery_city ?? "")
-                    }
-                  >
-                    {po.delivery_city ?? "—"}
-                  </EditableRow>
-                  <div className="lg:col-span-2">
+                <CardContent className="space-y-6 p-4 sm:p-6">
+
+                  {/* ── Row 1: Identity — most critical fields first ── */}
+                  <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="WIP status">
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          wip === "NO" && "text-red-600 dark:text-red-400",
+                          wip === "YES" && "text-green-600 dark:text-green-500"
+                        )}
+                      >
+                        {po.is_wip ?? "—"}
+                      </span>
+                    </Field>
+                    <Field label="Sold Via">{po.sold_via ?? "—"}</Field>
                     <EditableRow
-                      label="Delivery Address"
+                      label="PO Type"
+                      canEdit={canMutate}
+                      onEdit={() => openEdit("po_type", "PO Type", po.po_type ?? "")}
+                    >
+                      {po.po_type ?? "—"}
+                    </EditableRow>
+                    <Field label="PO Release Date">{fmtDay(po.po_issue_date)}</Field>
+                    <EditableRow
+                      label="Expiry Date"
                       canEdit={canMutate}
                       onEdit={() =>
                         openEdit(
-                          "delivery_address",
-                          "Delivery Address",
-                          po.delivery_address ?? ""
+                          "expiry_date",
+                          "Expiry Date",
+                          po.expiry_date
+                            ? String(po.expiry_date).replace(" ", "T").slice(0, 10)
+                            : ""
                         )
                       }
                     >
-                      <p className="text-muted-foreground font-normal whitespace-pre-wrap">
-                        {po.delivery_address ?? "—"}
-                      </p>
+                      {fmtDay(po.expiry_date)}
                     </EditableRow>
-                  </div>
-                  <div className="lg:col-span-2">
                     <EditableRow
-                      label="Billing Address"
+                      label="Reference Location"
                       canEdit={canMutate}
                       onEdit={() =>
-                        openEdit(
-                          "billing_address",
-                          "Billing Address",
-                          po.billing_address ?? ""
-                        )
+                        openEdit("delivery_city", "Reference Location", po.delivery_city ?? "")
                       }
                     >
-                      <p className="text-muted-foreground font-normal whitespace-pre-wrap">
-                        {po.billing_address ?? "—"}
-                      </p>
+                      {po.delivery_city ?? "—"}
                     </EditableRow>
                   </div>
-                  <Field label="Buyer GSTIN">
-                    <span className="font-mono text-xs">{po.buyer_gstin ?? "—"}</span>
-                  </Field>
-                  <Field label="PO Release Date">{fmtDay(po.po_issue_date)}</Field>
-                  <EditableRow
-                    label="Expiry Date"
-                    canEdit={canMutate}
-                    onEdit={() =>
-                      openEdit(
-                        "expiry_date",
-                        "Expiry Date",
-                        po.expiry_date
-                          ? String(po.expiry_date).replace(" ", "T").slice(0, 10)
-                          : ""
-                      )
-                    }
-                  >
-                    {fmtDay(po.expiry_date)}
-                  </EditableRow>
-                  <div className="bg-amber-50/80 dark:bg-amber-950/20 lg:col-span-2 rounded-md border border-amber-200/80 p-3 dark:border-amber-900/50">
+
+                  {/* ── Row 2: Operational status ── */}
+                  <div className="grid gap-x-6 gap-y-4 rounded-lg border bg-muted/20 p-3 sm:grid-cols-3">
+                    <Field label="PO creation status">{po.po_creation_status ?? "—"}</Field>
+                    <Field label="Acknowledgement">{po.po_acknowledgement_status ?? "—"}</Field>
+                    <Field label="Fulfillment">{po.po_fulfillment_status ?? "—"}</Field>
+                  </div>
+
+                  {/* ── Row 3: Addresses side-by-side ── */}
+                  <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                    <div className="rounded-md border bg-muted/10 p-3">
+                      <EditableRow
+                        label="Delivery Address"
+                        canEdit={canMutate}
+                        onEdit={() =>
+                          openEdit(
+                            "delivery_address",
+                            "Delivery Address",
+                            po.delivery_address ?? ""
+                          )
+                        }
+                      >
+                        <p className="text-muted-foreground font-normal whitespace-pre-wrap text-xs leading-relaxed">
+                          {po.delivery_address ?? "—"}
+                        </p>
+                      </EditableRow>
+                    </div>
+                    <div className="rounded-md border bg-muted/10 p-3">
+                      <EditableRow
+                        label="Billing Address"
+                        canEdit={canMutate}
+                        onEdit={() =>
+                          openEdit(
+                            "billing_address",
+                            "Billing Address",
+                            po.billing_address ?? ""
+                          )
+                        }
+                      >
+                        <p className="text-muted-foreground font-normal whitespace-pre-wrap text-xs leading-relaxed">
+                          {po.billing_address ?? "—"}
+                        </p>
+                      </EditableRow>
+                    </div>
+                  </div>
+
+                  {/* ── Row 4: Buyer details ── */}
+                  <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <Field label="Buyer Company">{po.company_name ?? "—"}</Field>
+                    <Field label="Buyer GSTIN">
+                      <span className="font-mono text-xs">{po.buyer_gstin ?? "—"}</span>
+                    </Field>
+                    <Field label="PO Number">
+                      <span className="font-mono">{po.po_number}</span>
+                    </Field>
+                  </div>
+
+                  {/* ── Row 5: Remarks ── */}
+                  <div className="rounded-md border border-amber-200/80 bg-amber-50/80 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
                     <EditableRow
                       label="Remarks"
                       canEdit={canMutate}
                       onEdit={() => openEdit("remarks", "Remarks", po.remarks ?? "")}
                     >
-                      <p className="text-muted-foreground font-normal whitespace-pre-wrap">
+                      <p className="text-muted-foreground font-normal whitespace-pre-wrap text-sm">
                         {po.remarks?.trim() ? po.remarks : "—"}
                       </p>
                     </EditableRow>
                   </div>
-                  <Field label="Created by">{po.created_by ?? "—"}</Field>
-                  <Field label="Created At">{fmtDateTime(po.created_at)}</Field>
-                  <Field label="PO creation status">{po.po_creation_status ?? "—"}</Field>
-                  <Field label="Acknowledgement">{po.po_acknowledgement_status ?? "—"}</Field>
-                  <Field label="Fulfillment">{po.po_fulfillment_status ?? "—"}</Field>
-                  <Field label="Updated at">{fmtDateTime(po.updated_at)}</Field>
+
+                  {/* ── Row 6: Audit trail — least important, compact ── */}
+                  <div className="grid gap-x-6 gap-y-3 border-t pt-4 sm:grid-cols-3">
+                    <Field label="Created by">{po.created_by ?? "—"}</Field>
+                    <Field label="Created at">{fmtDateTime(po.created_at)}</Field>
+                    <Field label="Updated at">{fmtDateTime(po.updated_at)}</Field>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1019,7 +1204,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               {data.zapAttachments.length > 0 ? (
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Files uploaded in Zap</CardTitle>
+                    <CardTitle className="text-base">Received PO files</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">

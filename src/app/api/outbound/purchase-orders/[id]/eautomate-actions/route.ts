@@ -260,24 +260,41 @@ export async function POST(request: Request, context: Ctx) {
     if (action === "download_sku_report") {
       const pn = po.po_number;
       const skuItems = await getSkuReportItemsByPoNumber(pn);
-      let csv: string;
       if (skuItems.length > 0) {
-        csv = skuReportFromConsignmentItems(skuItems, po);
-      } else {
-        if (eautomateConfigured()) {
-          await syncOutboundPurchaseOrderDetailFromEautomate(pn).catch(() => undefined);
-        }
-        const fresh = (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
-        csv = outboundPoListingsSnapshotToCsv(fresh.listings_snapshot, fresh);
+        const csv = skuReportFromConsignmentItems(skuItems, po);
+        const fname = `sku-report-${safeFilename(pn)}.csv`;
+        return new NextResponse(csv, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${fname}"`,
+          },
+        });
       }
-      const fname = `sku-report-${safeFilename(pn)}.csv`;
-      return new NextResponse(csv, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${fname}"`,
+      // No consignment items — try syncing listings_snapshot from eAutomate, then check again.
+      if (eautomateConfigured()) {
+        await syncOutboundPurchaseOrderDetailFromEautomate(pn).catch(() => undefined);
+      }
+      const fresh = (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
+      const snapshotRows = extractListingsRowsFromSnapshot(fresh.listings_snapshot);
+      if (snapshotRows.length > 0) {
+        const csv = outboundPoListingsSnapshotToCsv(fresh.listings_snapshot, fresh);
+        const fname = `sku-report-${safeFilename(pn)}.csv`;
+        return new NextResponse(csv, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="${fname}"`,
+          },
+        });
+      }
+      return NextResponse.json(
+        {
+          error: "No SKU line items found for this purchase order.",
+          hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items, or wait for the PO to be synced from eAutomate once SKUs are entered.",
         },
-      });
+        { status: 422 }
+      );
     }
 
     if (action === "acknowledge") {
@@ -294,6 +311,15 @@ export async function POST(request: Request, context: Ctx) {
 
     if (action === "download_pendency_pdf") {
       const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+      if (rows.length === 0) {
+        return NextResponse.json(
+          {
+            error: "No SKU line items found for this purchase order.",
+            hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items.",
+          },
+          { status: 422 }
+        );
+      }
       const pendRows = buildPendencyRowsFromListings(rows);
       const pdfBytes = await createOutboundPoPendencyPdf({
         companyName: po.company_name,
@@ -313,6 +339,15 @@ export async function POST(request: Request, context: Ctx) {
 
     if (action === "generate_product_labels") {
       const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+      if (rows.length === 0) {
+        return NextResponse.json(
+          {
+            error: "No SKU line items found for this purchase order.",
+            hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items.",
+          },
+          { status: 422 }
+        );
+      }
       return NextResponse.json({
         ok: true,
         action,

@@ -32,6 +32,7 @@
     "sync:secondary-listings": "node scripts/sync-eautomate-secondary-listings.mjs",
     "sync:outbound-companies": "node scripts/sync-eautomate-companies.mjs",
     "sync:outbound-partial-pos": "tsx scripts/sync-eautomate-outbound-partial-pos.ts",
+    "sync:outbound-pos:all": "tsx scripts/sync-eautomate-outbound-pos-all.ts",
     "sync:outbound-po-detail": "tsx scripts/sync-eautomate-outbound-po-detail.ts",
     "sync:outbound-consignments": "tsx scripts/sync-eautomate-outbound-consignments.ts",
     "sync:outbound-consignment-items": "tsx scripts/sync-eautomate-outbound-consignment-items.ts",

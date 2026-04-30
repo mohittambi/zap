@@ -67,6 +67,18 @@ export async function GET(request: Request) {
       Number.isFinite(companyIdParsed) && companyIdParsed > 0
         ? companyIdParsed
         : undefined;
+    const deliveryCity =
+      typeof q.delivery_city === "string"
+        ? q.delivery_city.trim() || undefined
+        : typeof q.deliveryCity === "string"
+          ? q.deliveryCity.trim() || undefined
+          : undefined;
+    const poStatus =
+      typeof q.po_status === "string"
+        ? q.po_status.trim() || undefined
+        : typeof q.poStatus === "string"
+          ? q.poStatus.trim() || undefined
+          : undefined;
 
     const data = await outboundPoService.listOutboundPurchaseOrders({
       page,
@@ -75,6 +87,8 @@ export async function GET(request: Request) {
       wipOnly,
       partialOnly,
       companyId,
+      deliveryCity,
+      poStatus,
     });
     return NextResponse.json(data);
   } catch (err) {

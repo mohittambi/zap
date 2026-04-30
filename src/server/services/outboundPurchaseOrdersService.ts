@@ -1,6 +1,23 @@
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 
+/**
+ * Keys eAutomate may merge into `analytics_object` that are NOT numeric PO KPIs — e.g. form payloads
+ * (graphics_report) whose values render as unreadable JSON in UIs meant for SKU/dispatch metrics only.
+ */
+const ANALYTICS_NON_METRIC_KEYS = new Set([
+  "graphics_report",
+  "Graphics_Report",
+]);
+
+function sanitizeAnalyticsObjectForMetrics(
+  ao: Record<string, unknown>
+): Record<string, unknown> {
+  const out = { ...ao };
+  for (const k of ANALYTICS_NON_METRIC_KEYS) delete out[k];
+  return out;
+}
+
 function nonEmptyTrimmed(v: unknown): string | null {
   if (v == null) return null;
   if (typeof v === "object") return null;
@@ -91,7 +108,7 @@ function rowToApi(r: Record<string, unknown>): OutboundPoRow {
     company_name: r.company_name as string | null,
     analytics_object:
       typeof ao === "object" && ao !== null && !Array.isArray(ao)
-        ? (ao as Record<string, unknown>)
+        ? sanitizeAnalyticsObjectForMetrics(ao as Record<string, unknown>)
         : {},
     listings_snapshot:
       typeof ls === "object" && ls !== null && !Array.isArray(ls)
@@ -112,8 +129,12 @@ export async function listOutboundPurchaseOrders(opts: {
   partialOnly?: boolean;
   /** When set, restrict to POs for this marketplace company */
   companyId?: number;
+  /** When set, restrict to an exact delivery city */
+  deliveryCity?: string;
+  /** When set, fuzzy-match calculated PO status */
+  poStatus?: string;
 }) {
-  const { page, limit, search, wipOnly, partialOnly, companyId } = opts;
+  const { page, limit, search, wipOnly, partialOnly, companyId, deliveryCity, poStatus } = opts;
   const offset = (page - 1) * limit;
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -146,6 +167,18 @@ export async function listOutboundPurchaseOrders(opts: {
   if (companyId != null && Number.isFinite(companyId) && companyId > 0) {
     conditions.push(`o.company_id = $${p}`);
     params.push(companyId);
+    p += 1;
+  }
+
+  if (deliveryCity && deliveryCity.trim()) {
+    conditions.push(`LOWER(COALESCE(o.delivery_city, '')) = $${p}`);
+    params.push(deliveryCity.trim().toLowerCase());
+    p += 1;
+  }
+
+  if (poStatus && poStatus.trim()) {
+    conditions.push(`LOWER(COALESCE(o.calculated_po_status, '')) LIKE $${p}`);
+    params.push(`%${poStatus.trim().toLowerCase()}%`);
     p += 1;
   }
 
@@ -192,6 +225,11 @@ export type OutboundCompanyOption = {
   description: string | null;
 };
 
+export type OutboundDeliveryLocationOption = {
+  id: number;
+  name: string;
+};
+
 export async function listOutboundSoldViaOptions(): Promise<OutboundSoldViaOption[]> {
   const r = await query(
     `SELECT code, label FROM outbound_sold_via ORDER BY id ASC`
@@ -224,6 +262,19 @@ export async function listOutboundCompaniesForForm(): Promise<OutboundCompanyOpt
     id: Number(row.id),
     name: row.name != null ? String(row.name) : null,
     description: companyDescriptionFromAttributes(row.attributes),
+  }));
+}
+
+export async function listOutboundDeliveryLocationsForForm(): Promise<OutboundDeliveryLocationOption[]> {
+  const r = await query(
+    `SELECT id, name
+     FROM delivery_locations
+     WHERE TRIM(COALESCE(name, '')) <> ''
+     ORDER BY name ASC, id ASC`
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.name),
   }));
 }
 
@@ -1233,6 +1284,208 @@ WHERE po_number = $1`;
 }
 
 /**
+ * Upsert from POST /public/api/incoming_purchase_orders/all/with_filters list rows.
+ * Unlike partial-list sync, this variant persists analytics_object + calculated_po_status.
+ */
+export async function upsertOutboundPoFromEautomateList(
+  raw: Record<string, unknown>
+): Promise<void> {
+  const id = Number(raw.id);
+  if (!Number.isFinite(id) || id < 1) {
+    throw new Error("eAutomate list PO row missing positive numeric id");
+  }
+  const po_number = String(raw.po_number ?? "")
+    .trim()
+    .slice(0, 80);
+  if (!po_number) throw new Error("eAutomate list PO row missing po_number");
+
+  const sold_via =
+    raw.sold_via != null && String(raw.sold_via).trim() !== ""
+      ? String(raw.sold_via).slice(0, 80)
+      : null;
+  let company_id =
+    raw.company_id != null &&
+    raw.company_id !== "" &&
+    Number.isFinite(Number(raw.company_id))
+      ? Math.trunc(Number(raw.company_id))
+      : null;
+  if (company_id != null) {
+    const chk = await query(`SELECT 1 AS ok FROM companies WHERE id = $1 LIMIT 1`, [
+      company_id,
+    ]);
+    if (chk.rows.length === 0) company_id = null;
+  }
+  const delivery_city =
+    raw.delivery_city != null ? String(raw.delivery_city).slice(0, 120) : null;
+  const delivery_address =
+    raw.delivery_address != null ? String(raw.delivery_address) : null;
+  const billing_address =
+    raw.billing_address != null ? String(raw.billing_address) : null;
+  const buyer_gstin =
+    raw.buyer_gstin != null ? String(raw.buyer_gstin).slice(0, 32) : null;
+  const po_issue_date = parseEautomateTimestamp(raw.po_issue_date);
+  const expiry_date = parseEautomateTimestamp(raw.expiry_date);
+  let po_type =
+    raw.po_type != null && String(raw.po_type).trim() !== ""
+      ? String(raw.po_type).slice(0, 80)
+      : null;
+  if (po_type) po_type = po_type.replace(/\\\//g, "/");
+  const po_creation_status =
+    raw.po_creation_status != null
+      ? String(raw.po_creation_status).slice(0, 80)
+      : null;
+  const po_acknowledgement_status =
+    raw.po_acknowledgement_status != null
+      ? String(raw.po_acknowledgement_status).slice(0, 80)
+      : null;
+  const po_fulfillment_status =
+    raw.po_fulfillment_status != null
+      ? String(raw.po_fulfillment_status).slice(0, 80)
+      : null;
+  const created_by =
+    raw.created_by != null ? String(raw.created_by).slice(0, 120) : null;
+  const created_at = parseEautomateTimestamp(raw.created_at);
+  const updated_at = parseEautomateTimestamp(raw.updated_at);
+  const is_wip =
+    raw.is_wip != null ? String(raw.is_wip).slice(0, 10) : null;
+  const remarks = raw.remarks != null ? String(raw.remarks) : null;
+  const company_name =
+    raw.company_name != null ? String(raw.company_name).slice(0, 220) : null;
+  const analytics_object =
+    raw.analytics_object && typeof raw.analytics_object === "object" && !Array.isArray(raw.analytics_object)
+      ? JSON.stringify(
+          sanitizeAnalyticsObjectForMetrics(raw.analytics_object as Record<string, unknown>)
+        )
+      : "{}";
+  const calculated_po_status =
+    raw.calculated_po_status != null && String(raw.calculated_po_status).trim() !== ""
+      ? String(raw.calculated_po_status).slice(0, 120)
+      : null;
+
+  const eautomate_raw = JSON.stringify(raw ?? {});
+
+  const paramsInsert: unknown[] = [
+    id,
+    sold_via,
+    company_id,
+    po_number,
+    delivery_city,
+    delivery_address,
+    billing_address,
+    buyer_gstin,
+    po_issue_date,
+    expiry_date,
+    po_type,
+    po_creation_status,
+    po_acknowledgement_status,
+    po_fulfillment_status,
+    created_by,
+    created_at,
+    updated_at,
+    is_wip,
+    remarks,
+    company_name,
+    analytics_object,
+    calculated_po_status,
+    eautomate_raw,
+  ];
+
+  const insertSql = `
+INSERT INTO outbound_purchase_orders (
+  id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+  buyer_gstin, po_issue_date, expiry_date, po_type,
+  po_creation_status, po_acknowledgement_status, po_fulfillment_status,
+  created_by, created_at, updated_at, is_wip, remarks, company_name,
+  analytics_object, calculated_po_status, eautomate_raw, eautomate_synced_at
+) VALUES (
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb,$22,$23::jsonb, NOW()
+)
+ON CONFLICT (id) DO UPDATE SET
+  sold_via = EXCLUDED.sold_via,
+  company_id = EXCLUDED.company_id,
+  po_number = EXCLUDED.po_number,
+  delivery_city = EXCLUDED.delivery_city,
+  delivery_address = EXCLUDED.delivery_address,
+  billing_address = EXCLUDED.billing_address,
+  buyer_gstin = EXCLUDED.buyer_gstin,
+  po_issue_date = EXCLUDED.po_issue_date,
+  expiry_date = EXCLUDED.expiry_date,
+  po_type = EXCLUDED.po_type,
+  po_creation_status = EXCLUDED.po_creation_status,
+  po_acknowledgement_status = EXCLUDED.po_acknowledgement_status,
+  po_fulfillment_status = EXCLUDED.po_fulfillment_status,
+  created_by = EXCLUDED.created_by,
+  created_at = EXCLUDED.created_at,
+  updated_at = EXCLUDED.updated_at,
+  is_wip = EXCLUDED.is_wip,
+  remarks = EXCLUDED.remarks,
+  company_name = EXCLUDED.company_name,
+  analytics_object = EXCLUDED.analytics_object,
+  calculated_po_status = EXCLUDED.calculated_po_status,
+  eautomate_raw = EXCLUDED.eautomate_raw,
+  eautomate_synced_at = EXCLUDED.eautomate_synced_at`;
+
+  try {
+    await query(insertSql, paramsInsert);
+  } catch (e: unknown) {
+    const err = e as { code?: string; constraint?: string };
+    if (err.code === "23505" && String(err.constraint || "").includes("po_number")) {
+      const updateSql = `
+UPDATE outbound_purchase_orders SET
+  sold_via = $2,
+  company_id = $3,
+  delivery_city = $4,
+  delivery_address = $5,
+  billing_address = $6,
+  buyer_gstin = $7,
+  po_issue_date = $8,
+  expiry_date = $9,
+  po_type = $10,
+  po_creation_status = $11,
+  po_acknowledgement_status = $12,
+  po_fulfillment_status = $13,
+  created_by = $14,
+  created_at = $15,
+  updated_at = $16,
+  is_wip = $17,
+  remarks = $18,
+  company_name = $19,
+  analytics_object = $20::jsonb,
+  calculated_po_status = $21,
+  eautomate_raw = $22::jsonb,
+  eautomate_synced_at = NOW()
+WHERE po_number = $1`;
+      await query(updateSql, [
+        po_number,
+        sold_via,
+        company_id,
+        delivery_city,
+        delivery_address,
+        billing_address,
+        buyer_gstin,
+        po_issue_date,
+        expiry_date,
+        po_type,
+        po_creation_status,
+        po_acknowledgement_status,
+        po_fulfillment_status,
+        created_by,
+        created_at,
+        updated_at,
+        is_wip,
+        remarks,
+        company_name,
+        analytics_object,
+        calculated_po_status,
+        eautomate_raw,
+      ]);
+      return;
+    }
+    throw e;
+  }
+}
+
+/**
  * Upsert from GET /public/api/incoming_purchase_orders/{po_number} (full detail).
  * Overwrites analytics_object and calculated_po_status from eAutomate.
  */
@@ -1304,7 +1557,7 @@ export async function upsertOutboundPoFromEautomateDetail(
   const ao = raw.analytics_object;
   const analyticsJson =
     ao && typeof ao === "object" && !Array.isArray(ao)
-      ? JSON.stringify(ao)
+      ? JSON.stringify(sanitizeAnalyticsObjectForMetrics(ao as Record<string, unknown>))
       : "{}";
   const calculated_po_status =
     raw.calculated_po_status != null
