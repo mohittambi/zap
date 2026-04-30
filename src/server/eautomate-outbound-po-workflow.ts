@@ -1,8 +1,6 @@
 /**
- * eAutomate outbound PO workflow actions (acknowledge, cancel, labels, reports).
+ * eAutomate outbound PO helpers still used for consignment and PO log sync.
  * Paths are overridable via env; defaults match common `/public/api/incoming_purchase_orders/...` patterns.
- * If an upstream call fails with 404, set the corresponding EAUTOMATE_* env to the path from eCraft Network tab.
- * SKU report download is generated in Zap from `outbound_purchase_orders.listings_snapshot` (not an eAutomate URL).
  */
 
 import { getEautomateBaseUrl } from "@/server/eautomate-proxy";
@@ -27,46 +25,6 @@ export function poWorkflowJsonBody(poId: number, poNumber: string): Record<strin
     po_number: poNumber,
     id: poId,
   };
-}
-
-export function workflowAcknowledgeUrl(poNumber: string): string {
-  return resolveTemplate(
-    "EAUTOMATE_PO_ACK_URL",
-    "/public/api/incoming_purchase_orders/acknowledge",
-    { poNumber }
-  );
-}
-
-export function workflowCancelUrl(poNumber: string): string {
-  return resolveTemplate(
-    "EAUTOMATE_PO_CANCEL_URL",
-    "/public/api/incoming_purchase_orders/cancel",
-    { poNumber }
-  );
-}
-
-export function workflowDownloadPendencyPdfUrl(poNumber: string): string {
-  return resolveTemplate(
-    "EAUTOMATE_PO_DOWNLOAD_PENDENCY_PDF_URL",
-    "/public/api/incoming_purchase_orders/download_pendency_pdf/{poNumber}",
-    { poNumber }
-  );
-}
-
-export function workflowGenerateProductLabelsUrl(poNumber: string): string {
-  return resolveTemplate(
-    "EAUTOMATE_PO_GENERATE_PRODUCT_LABELS_URL",
-    "/public/api/incoming_purchase_orders/generate_product_labels",
-    { poNumber }
-  );
-}
-
-export function workflowGeneratePhase1BoxLabelsUrl(poNumber: string): string {
-  return resolveTemplate(
-    "EAUTOMATE_PO_GENERATE_PHASE1_BOX_LABELS_URL",
-    "/public/api/incoming_purchase_orders/generate_phase1_box_labels",
-    { poNumber }
-  );
 }
 
 /** POST create consignment for a PO (WIP). */

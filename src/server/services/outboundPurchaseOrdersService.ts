@@ -572,6 +572,34 @@ export async function patchOutboundPurchaseOrderField(
   );
 }
 
+/** Mark PO as acknowledged in local DB (reference-system independent). */
+export async function acknowledgeOutboundPo(id: number): Promise<void> {
+  if (!Number.isFinite(id) || id < 1) {
+    throw new AppError("Invalid PO id", 400);
+  }
+  await query(
+    `UPDATE outbound_purchase_orders
+     SET po_acknowledgement_status = 'YES', updated_at = NOW()
+     WHERE id = $1`,
+    [id]
+  );
+}
+
+/** Mark PO as cancelled in local DB (reference-system independent). */
+export async function cancelOutboundPo(id: number): Promise<void> {
+  if (!Number.isFinite(id) || id < 1) {
+    throw new AppError("Invalid PO id", 400);
+  }
+  await query(
+    `UPDATE outbound_purchase_orders
+     SET calculated_po_status = 'CANCELLED',
+         po_fulfillment_status = 'CANCELLED',
+         updated_at = NOW()
+     WHERE id = $1`,
+    [id]
+  );
+}
+
 export async function updateOutboundPoListingsSnapshot(
   outboundPoId: number,
   snapshot: unknown
@@ -635,15 +663,103 @@ function csvCellValue(v: unknown): string {
  * SKU / line listing export from cached `listings_snapshot` (same rows as the PO line-items UI).
  * UTF-8 BOM prefix helps Excel open UTF-8 CSV correctly on Windows.
  */
-export function outboundPoListingsSnapshotToCsv(snapshot: unknown): string {
-  const rows = extractListingsRowsFromSnapshot(snapshot);
-  const keySet = new Set<string>();
-  for (const row of rows) {
-    for (const k of Object.keys(row)) {
-      keySet.add(k);
-    }
+type SkuReportColumn =
+  | "buyer_name"
+  | "po_number"
+  | "po_release_date"
+  | "po_expiry_date"
+  | "po_addition_date"
+  | "po_type"
+  | "delivery_location"
+  | "po_secondary_sku"
+  | "master_sku"
+  | "inventory_sku_id"
+  | "pack_combo_sku_id"
+  | "sku_type"
+  | "company_code_primary"
+  | "company_code_secondary"
+  | "title"
+  | "mrp"
+  | "rate_without_tax"
+  | "tax_rate"
+  | "hsn"
+  | "size"
+  | "color"
+  | "ops_tag"
+  | "warehouse_quantity"
+  | "demand"
+  | "packed"
+  | "dispatched"
+  | "pending"
+  | "fill_rate_percent";
+
+const SKU_REPORT_COLUMNS: SkuReportColumn[] = [
+  "buyer_name",
+  "po_number",
+  "po_release_date",
+  "po_expiry_date",
+  "po_addition_date",
+  "po_type",
+  "delivery_location",
+  "po_secondary_sku",
+  "master_sku",
+  "inventory_sku_id",
+  "pack_combo_sku_id",
+  "sku_type",
+  "company_code_primary",
+  "company_code_secondary",
+  "title",
+  "mrp",
+  "rate_without_tax",
+  "tax_rate",
+  "hsn",
+  "size",
+  "color",
+  "ops_tag",
+  "warehouse_quantity",
+  "demand",
+  "packed",
+  "dispatched",
+  "pending",
+  "fill_rate_percent",
+];
+
+function numberFromUnknown(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function reportCellFromRow(
+  row: Record<string, unknown>,
+  po: OutboundPoRow,
+  col: SkuReportColumn
+): string {
+  if (col === "buyer_name") return csvCellValue(po.company_name ?? row.buyer_name);
+  if (col === "po_number") return csvCellValue(po.po_number);
+  if (col === "po_release_date") return csvCellValue(po.po_issue_date);
+  if (col === "po_expiry_date") return csvCellValue(po.expiry_date);
+  if (col === "po_addition_date") return csvCellValue(row.po_addition_date ?? po.created_at);
+  if (col === "po_type") return csvCellValue(po.po_type);
+  if (col === "delivery_location") {
+    return csvCellValue(row.delivery_location ?? po.delivery_city);
   }
-  const headers = [...keySet].sort((a, b) => a.localeCompare(b));
+  if (col === "pending") {
+    const explicit = numberFromUnknown(row.pending);
+    if (explicit != null) return String(explicit);
+    const demand = numberFromUnknown(row.demand) ?? 0;
+    const packed = numberFromUnknown(row.packed) ?? 0;
+    const dispatched = numberFromUnknown(row.dispatched) ?? 0;
+    return String(demand - (packed + dispatched));
+  }
+  return csvCellValue(row[col]);
+}
+
+export function outboundPoListingsSnapshotToCsv(
+  snapshot: unknown,
+  po: OutboundPoRow
+): string {
+  const rows = extractListingsRowsFromSnapshot(snapshot);
   const lines: string[] = [];
 
   if (rows.length === 0) {
@@ -652,10 +768,13 @@ export function outboundPoListingsSnapshotToCsv(snapshot: unknown): string {
     )}`;
   }
 
-  lines.push(headers.map((h) => csvEscapeCell(h)).join(","));
+  lines.push(SKU_REPORT_COLUMNS.map((h) => csvEscapeCell(h)).join(","));
   for (const row of rows) {
+    const obj = row as Record<string, unknown>;
     lines.push(
-      headers.map((h) => csvEscapeCell(csvCellValue(row[h]))).join(",")
+      SKU_REPORT_COLUMNS.map((h) =>
+        csvEscapeCell(reportCellFromRow(obj, po, h))
+      ).join(",")
     );
   }
   return `\ufeff${lines.join("\n")}`;

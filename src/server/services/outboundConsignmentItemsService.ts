@@ -406,3 +406,111 @@ export async function listOutboundConsignmentIdsForSync(): Promise<
         : null,
   }));
 }
+
+export type OutboundConsignmentItemRow = {
+  consignment_id: number;
+  po_secondary_sku: string | null;
+  company_code_primary: string | null;
+  company_code_secondary: string | null;
+  box_number: number | null;
+  box_name: string | null;
+  box_quantity: number | null;
+  mrp: number | null;
+  original_demand: number | null;
+  dispatched_quantity: number | null;
+  consignment_quantity: number | null;
+  overall_fill_rate: number | null;
+};
+
+/** Line items by PO number for local Phase-1 box-label CSV generation. */
+export async function getOutboundConsignmentItemsByPoNumber(
+  poNumber: string
+): Promise<OutboundConsignmentItemRow[]> {
+  const pn = String(poNumber || "").trim();
+  if (!pn) return [];
+  const r = await query(
+    `SELECT consignment_id, po_secondary_sku, company_code_primary, company_code_secondary,
+            box_number, box_name, box_quantity, mrp, original_demand,
+            dispatched_quantity, consignment_quantity, overall_fill_rate
+       FROM outbound_consignment_items
+      WHERE po_number = $1
+      ORDER BY consignment_id ASC, box_number ASC NULLS LAST, id ASC`,
+    [pn]
+  );
+  return r.rows.map((row) => ({
+    consignment_id: Number(row.consignment_id),
+    po_secondary_sku:
+      row.po_secondary_sku != null ? String(row.po_secondary_sku) : null,
+    company_code_primary:
+      row.company_code_primary != null ? String(row.company_code_primary) : null,
+    company_code_secondary:
+      row.company_code_secondary != null ? String(row.company_code_secondary) : null,
+    box_number: row.box_number != null ? Number(row.box_number) : null,
+    box_name: row.box_name != null ? String(row.box_name) : null,
+    box_quantity: row.box_quantity != null ? Number(row.box_quantity) : null,
+    mrp: row.mrp != null ? Number(row.mrp) : null,
+    original_demand:
+      row.original_demand != null ? Number(row.original_demand) : null,
+    dispatched_quantity:
+      row.dispatched_quantity != null ? Number(row.dispatched_quantity) : null,
+    consignment_quantity:
+      row.consignment_quantity != null ? Number(row.consignment_quantity) : null,
+    overall_fill_rate:
+      row.overall_fill_rate != null ? Number(row.overall_fill_rate) : null,
+  }));
+}
+
+/**
+ * SKU-level rows for the SKU report CSV, deduped by `po_secondary_sku`.
+ * Reads columns + `raw` JSONB so the report can include demand, rates, HSN, listing fields, etc.
+ * The `raw` field mirrors the eAutomate `/listings/paginated` row shape — richest available source.
+ */
+export type SkuReportItemRow = {
+  po_secondary_sku: string | null;
+  company_code_primary: string | null;
+  company_code_secondary: string | null;
+  mrp: number | null;
+  original_demand: number | null;
+  dispatched_quantity: number | null;
+  consignment_quantity: number | null;
+  overall_fill_rate: number | null;
+  raw: Record<string, unknown>;
+};
+
+export async function getSkuReportItemsByPoNumber(
+  poNumber: string
+): Promise<SkuReportItemRow[]> {
+  const pn = String(poNumber || "").trim();
+  if (!pn) return [];
+  const r = await query(
+    `SELECT DISTINCT ON (po_secondary_sku)
+            po_secondary_sku, company_code_primary, company_code_secondary,
+            mrp, original_demand, dispatched_quantity, consignment_quantity,
+            overall_fill_rate, raw
+       FROM outbound_consignment_items
+      WHERE po_number = $1
+      ORDER BY po_secondary_sku ASC, id ASC`,
+    [pn]
+  );
+  return r.rows.map((row) => ({
+    po_secondary_sku:
+      row.po_secondary_sku != null ? String(row.po_secondary_sku) : null,
+    company_code_primary:
+      row.company_code_primary != null ? String(row.company_code_primary) : null,
+    company_code_secondary:
+      row.company_code_secondary != null ? String(row.company_code_secondary) : null,
+    mrp: row.mrp != null ? Number(row.mrp) : null,
+    original_demand:
+      row.original_demand != null ? Number(row.original_demand) : null,
+    dispatched_quantity:
+      row.dispatched_quantity != null ? Number(row.dispatched_quantity) : null,
+    consignment_quantity:
+      row.consignment_quantity != null ? Number(row.consignment_quantity) : null,
+    overall_fill_rate:
+      row.overall_fill_rate != null ? Number(row.overall_fill_rate) : null,
+    raw:
+      row.raw && typeof row.raw === "object" && !Array.isArray(row.raw)
+        ? (row.raw as Record<string, unknown>)
+        : {},
+  }));
+}

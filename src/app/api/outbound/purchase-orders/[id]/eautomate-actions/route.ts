@@ -2,24 +2,26 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import {
-  eautomateConfigured,
-  fetchEautomate,
-} from "@/server/eautomate-proxy";
-import {
-  poWorkflowJsonBody,
-  workflowAcknowledgeUrl,
-  workflowCancelUrl,
-  workflowDownloadPendencyPdfUrl,
-  workflowGeneratePhase1BoxLabelsUrl,
-  workflowGenerateProductLabelsUrl,
-} from "@/server/eautomate-outbound-po-workflow";
+import { eautomateConfigured } from "@/server/eautomate-proxy";
 import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
-import { upsertOutboundConsignmentFromEautomate } from "@/server/services/outboundConsignmentsService";
 import {
+  getOutboundConsignmentItemsByPoNumber,
+  getSkuReportItemsByPoNumber,
+  type SkuReportItemRow,
+} from "@/server/services/outboundConsignmentItemsService";
+import {
+  acknowledgeOutboundPo,
+  cancelOutboundPo,
+  extractListingsRowsFromSnapshot,
+  outboundPoListingsSnapshotToCsv,
   patchOutboundPurchaseOrderField,
+  type OutboundPoRow,
   type OutboundPoEditableField,
 } from "@/server/services/outboundPurchaseOrdersService";
+import {
+  buildPendencyRowsFromListings,
+  createOutboundPoPendencyPdf,
+} from "@/server/utils/outboundPoPendencyPdf";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -47,45 +49,157 @@ function safeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
-function upstreamFailurePayload(
-  upstream: Response,
-  detail: string,
-  action: string,
-  upstreamUrl: string,
-  extraHint?: string
-): Record<string, unknown> {
-  const st = upstream.status;
-  const hint404 =
-    "Confirm the path in eCraft Network tab and set the matching EAUTOMATE_PO_*_URL env (see eautomate-outbound-po-workflow.ts).";
-  const hint401 =
-    "Upstream rejected auth. Set EAUTOMATE_COOKIE or EAUTOMATE_BEARER_TOKEN (or EAUTOMATE_LOGIN_USER_ID + EAUTOMATE_LOGIN_PASSWORD for refresh).";
-  let hint = extraHint;
-  if (!hint) {
-    if (st === 404) hint = hint404;
-    else if (st === 401 || st === 403) hint = hint401;
+function csvEscapeCell(cell: string): string {
+  if (/[",\n\r]/.test(cell)) {
+    return `"${cell.replace(/"/g, '""')}"`;
   }
-  return {
-    error: `Upstream ${st}`,
-    upstream_status: st,
-    upstream_url: upstreamUrl,
-    detail: detail.slice(0, 800),
-    action,
-    ...(hint ? { hint } : {}),
-  };
+  return cell;
 }
 
-function unwrapConsignmentPayload(
-  json: unknown
-): Record<string, unknown> | null {
-  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-  const o = json as Record<string, unknown>;
-  for (const k of ["consignment", "data", "payload", "result"]) {
-    const v = o[k];
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      return v as Record<string, unknown>;
-    }
+function csvCell(v: unknown): string {
+  if (v == null) return "";
+  return String(v);
+}
+
+const SKU_REPORT_COLS = [
+  "buyer_name",
+  "po_number",
+  "po_release_date",
+  "po_expiry_date",
+  "po_addition_date",
+  "po_type",
+  "delivery_location",
+  "po_secondary_sku",
+  "master_sku",
+  "inventory_sku_id",
+  "pack_combo_sku_id",
+  "sku_type",
+  "company_code_primary",
+  "company_code_secondary",
+  "title",
+  "mrp",
+  "rate_without_tax",
+  "tax_rate",
+  "hsn",
+  "size",
+  "color",
+  "ops_tag",
+  "warehouse_quantity",
+  "demand",
+  "packed",
+  "dispatched",
+  "pending",
+  "fill_rate_percent",
+] as const;
+
+function rawStr(raw: Record<string, unknown>, key: string): string {
+  const v = raw[key];
+  if (v == null) return "";
+  return String(v);
+}
+
+function rawNum(raw: Record<string, unknown>, key: string): number | null {
+  const v = raw[key];
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Build SKU report CSV from `outbound_consignment_items` rows (deduped by SKU).
+ * PO-header fields (buyer_name, po_number, dates, type, delivery) come from the PO row.
+ * Per-SKU fields come from the denormalized columns + the rich `raw` JSONB.
+ */
+function skuReportFromConsignmentItems(
+  items: SkuReportItemRow[],
+  po: OutboundPoRow
+): string {
+  const header = SKU_REPORT_COLS.join(",");
+  if (items.length === 0) {
+    return `\ufeff${header}\n`;
   }
-  return o;
+  const lines: string[] = [header];
+  for (const item of items) {
+    const raw = item.raw;
+    const listing = raw.listing;
+    const listObj =
+      listing && typeof listing === "object" && !Array.isArray(listing)
+        ? (listing as Record<string, unknown>)
+        : {};
+
+    const demand = rawNum(raw, "demand") ?? item.original_demand ?? 0;
+    const dispatched =
+      rawNum(raw, "dispatched_quantity") ?? item.dispatched_quantity ?? 0;
+    const packed = item.consignment_quantity ?? 0;
+    const pending = demand - (packed + dispatched);
+
+    const warehouseQty =
+      rawNum(listObj, "available_quantity") ??
+      (rawStr(listObj, "available_quantity") !== ""
+        ? Number(listObj.available_quantity) || null
+        : null);
+
+    const cells: string[] = [
+      csvEscapeCell(csvCell(po.company_name ?? rawStr(raw, "buyer_name"))),
+      csvEscapeCell(csvCell(po.po_number)),
+      csvEscapeCell(csvCell(po.po_issue_date)),
+      csvEscapeCell(csvCell(po.expiry_date)),
+      csvEscapeCell(csvCell(rawStr(raw, "created_at") || po.created_at)),
+      csvEscapeCell(csvCell(po.po_type ?? rawStr(raw, "po_type"))),
+      csvEscapeCell(csvCell(po.delivery_city)),
+      csvEscapeCell(csvCell(item.po_secondary_sku ?? rawStr(raw, "po_secondary_sku"))),
+      csvEscapeCell(csvCell(rawStr(raw, "master_sku") || rawStr(listObj, "master_sku"))),
+      csvEscapeCell(csvCell(rawStr(raw, "inventory_sku_id") || rawStr(listObj, "inventory_sku_id"))),
+      csvEscapeCell(csvCell(rawStr(raw, "pack_combo_sku_id") || rawStr(listObj, "pack_combo_sku_id"))),
+      csvEscapeCell(csvCell(rawStr(raw, "sku_type") || rawStr(listObj, "sku_type"))),
+      csvEscapeCell(csvCell(item.company_code_primary ?? rawStr(raw, "company_code_primary"))),
+      csvEscapeCell(csvCell(item.company_code_secondary ?? rawStr(raw, "company_code_secondary"))),
+      csvEscapeCell(csvCell(rawStr(raw, "title"))),
+      csvEscapeCell(csvCell(item.mrp ?? rawStr(raw, "mrp"))),
+      csvEscapeCell(csvCell(rawStr(raw, "rate_without_tax"))),
+      csvEscapeCell(csvCell(rawStr(raw, "tax_rate"))),
+      csvEscapeCell(csvCell(rawStr(raw, "hsn_code") || rawStr(raw, "hsn"))),
+      csvEscapeCell(csvCell(rawStr(raw, "size") || rawStr(listObj, "size"))),
+      csvEscapeCell(csvCell(rawStr(raw, "color") || rawStr(listObj, "color"))),
+      csvEscapeCell(csvCell(rawStr(raw, "ops_tag") || rawStr(listObj, "ops_tag"))),
+      csvEscapeCell(csvCell(warehouseQty)),
+      csvEscapeCell(csvCell(demand)),
+      csvEscapeCell(csvCell(packed)),
+      csvEscapeCell(csvCell(dispatched)),
+      csvEscapeCell(csvCell(pending)),
+      csvEscapeCell(
+        csvCell(item.overall_fill_rate ?? (rawStr(raw, "fill_rate_percent") || rawStr(raw, "fill_rate")))
+      ),
+    ];
+    lines.push(cells.join(","));
+  }
+  return `\ufeff${lines.join("\n")}`;
+}
+
+function phase1ItemsToCsv(
+  rows: Awaited<ReturnType<typeof getOutboundConsignmentItemsByPoNumber>>
+): string {
+  const headers = [
+    "consignment_id",
+    "po_secondary_sku",
+    "company_code_primary",
+    "company_code_secondary",
+    "box_number",
+    "box_name",
+    "box_quantity",
+    "mrp",
+    "original_demand",
+    "dispatched_quantity",
+    "consignment_quantity",
+    "overall_fill_rate",
+  ] as const;
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(
+      headers.map((h) => csvEscapeCell(csvCell(row[h]))).join(",")
+    );
+  }
+  return `\ufeff${lines.join("\n")}`;
 }
 
 export async function POST(request: Request, context: Ctx) {
@@ -142,17 +256,20 @@ export async function POST(request: Request, context: Ctx) {
       return NextResponse.json({ ok: true });
     }
 
-    /** SKU report = CSV from `outbound_purchase_orders.listings_snapshot` (no eAutomate download URL). */
+    /** SKU report: primary source = outbound_consignment_items (raw JSONB), fallback = listings_snapshot. */
     if (action === "download_sku_report") {
       const pn = po.po_number;
-      if (eautomateConfigured()) {
-        await syncOutboundPurchaseOrderDetailFromEautomate(pn).catch(() => undefined);
+      const skuItems = await getSkuReportItemsByPoNumber(pn);
+      let csv: string;
+      if (skuItems.length > 0) {
+        csv = skuReportFromConsignmentItems(skuItems, po);
+      } else {
+        if (eautomateConfigured()) {
+          await syncOutboundPurchaseOrderDetailFromEautomate(pn).catch(() => undefined);
+        }
+        const fresh = (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
+        csv = outboundPoListingsSnapshotToCsv(fresh.listings_snapshot, fresh);
       }
-      const fresh =
-        (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
-      const csv = outboundPoService.outboundPoListingsSnapshotToCsv(
-        fresh.listings_snapshot
-      );
       const fname = `sku-report-${safeFilename(pn)}.csv`;
       return new NextResponse(csv, {
         status: 200,
@@ -163,117 +280,61 @@ export async function POST(request: Request, context: Ctx) {
       });
     }
 
-    if (!eautomateConfigured()) {
-      return NextResponse.json(
-        {
-          error: "eAutomate is not configured",
-          message: "Set EAUTOMATE_COOKIE or EAUTOMATE_BEARER_TOKEN on the server.",
-        },
-        { status: 503 }
-      );
+    if (action === "acknowledge") {
+      await acknowledgeOutboundPo(id);
+      const updated = await outboundPoService.getOutboundPurchaseOrderById(id);
+      return NextResponse.json({ ok: true, action, po: updated ?? po });
     }
 
-    const pn = po.po_number;
-    const jsonBody = JSON.stringify(poWorkflowJsonBody(po.id, pn));
-    const optJson = {
-      method: "POST" as const,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: jsonBody,
-      cache: "no-store" as const,
-      signal: AbortSignal.timeout(120_000),
-    };
+    if (action === "cancel") {
+      await cancelOutboundPo(id);
+      const updated = await outboundPoService.getOutboundPurchaseOrderById(id);
+      return NextResponse.json({ ok: true, action, po: updated ?? po });
+    }
 
     if (action === "download_pendency_pdf") {
-      const url = workflowDownloadPendencyPdfUrl(pn);
-      const upstream = await fetchEautomate(url, {
-        method: "GET",
-        headers: { Accept: "*/*" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(120_000),
+      const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+      const pendRows = buildPendencyRowsFromListings(rows);
+      const pdfBytes = await createOutboundPoPendencyPdf({
+        companyName: po.company_name,
+        poNumber: po.po_number,
+        deliveryLocation: po.delivery_city,
+        rows: pendRows,
       });
-      if (!upstream.ok) {
-        const t = await upstream.text().catch(() => "");
-        console.warn(
-          "[eautomate-actions] download upstream failed",
-          action,
-          upstream.status,
-          url
-        );
-        return NextResponse.json(
-          upstreamFailurePayload(
-            upstream,
-            t,
-            action,
-            url,
-            "Set EAUTOMATE_PO_DOWNLOAD_PENDENCY_PDF_URL if the path differs."
-          ),
-          { status: 502 }
-        );
-      }
-      const buf = Buffer.from(await upstream.arrayBuffer());
-      const ct =
-        upstream.headers.get("content-type") ?? "application/octet-stream";
-      const ext = ct.includes("pdf") ? "pdf" : "bin";
-      const fname = `pendency-${safeFilename(pn)}.${ext}`;
-      return new NextResponse(buf, {
+      const fname = `pendency-${safeFilename(po.po_number)}.pdf`;
+      return new NextResponse(Buffer.from(pdfBytes), {
         status: 200,
         headers: {
-          "Content-Type": ct.split(";")[0]?.trim() ?? ct,
+          "Content-Type": "application/pdf",
           "Content-Disposition": `attachment; filename="${fname}"`,
         },
       });
     }
 
-    let url = "";
-    if (action === "acknowledge") url = workflowAcknowledgeUrl(pn);
-    else if (action === "cancel") url = workflowCancelUrl(pn);
-    else if (action === "generate_product_labels") {
-      url = workflowGenerateProductLabelsUrl(pn);
-    } else if (action === "generate_phase1_box_labels") {
-      url = workflowGeneratePhase1BoxLabelsUrl(pn);
-    }
-
-    const upstream = await fetchEautomate(url, optJson);
-    const text = await upstream.text().catch(() => "");
-    if (!upstream.ok) {
-      console.warn(
-        "[eautomate-actions] POST upstream failed",
+    if (action === "generate_product_labels") {
+      const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+      return NextResponse.json({
+        ok: true,
         action,
-        upstream.status,
-        url
-      );
-      return NextResponse.json(
-        upstreamFailurePayload(upstream, text, action, url),
-        { status: 502 }
-      );
+        po,
+        rows,
+      });
     }
 
-    let parsed: unknown = null;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      parsed = null;
+    if (action === "generate_phase1_box_labels") {
+      const items = await getOutboundConsignmentItemsByPoNumber(po.po_number);
+      const csv = phase1ItemsToCsv(items);
+      const fname = `phase1-box-labels-${safeFilename(po.po_number)}.csv`;
+      return new NextResponse(csv, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${fname}"`,
+        },
+      });
     }
 
-    const cons = unwrapConsignmentPayload(parsed);
-    if (cons) {
-      await upsertOutboundConsignmentFromEautomate(cons).catch(() => undefined);
-    }
-
-    try {
-      await syncOutboundPurchaseOrderDetailFromEautomate(pn);
-    } catch (syncErr) {
-      console.error("[eautomate-actions] sync after action failed", syncErr);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      action,
-      upstream_preview: typeof parsed === "object" ? parsed : undefined,
-    });
+    return NextResponse.json({ error: "Unhandled action" }, { status: 400 });
   } catch (err) {
     return handleApiError(err);
   }
