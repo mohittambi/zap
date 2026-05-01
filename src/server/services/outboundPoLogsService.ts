@@ -159,3 +159,19 @@ export async function listOutboundPoLogs(
   );
   return r.rows.map((row) => rowToApi(row as Record<string, unknown>));
 }
+
+/** Logs whose `consignment_id` matches (for mobile consignment detail / logs). */
+export async function listOutboundPoLogsByConsignmentId(
+  consignmentId: number
+): Promise<OutboundPoLogRow[]> {
+  if (!Number.isFinite(consignmentId) || consignmentId < 1) return [];
+  const r = await query(
+    `SELECT id, outbound_po_id, po_number, consignment_id, foreign_key, operation,
+            remarks, created_by, created_at, synced_at
+     FROM outbound_po_logs
+     WHERE consignment_id = $1
+     ORDER BY created_at DESC NULLS LAST, id DESC`,
+    [consignmentId]
+  );
+  return r.rows.map((row) => rowToApi(row as Record<string, unknown>));
+}

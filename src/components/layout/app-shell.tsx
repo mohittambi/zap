@@ -71,9 +71,11 @@ const moreLinks = [
 function NavLinksShell({
   pathname,
   onNavigate,
+  isAdmin,
 }: {
   pathname: string | null;
   onNavigate?: () => void;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   return (
@@ -118,6 +120,20 @@ function NavLinksShell({
                 {label}
               </DropdownMenuItem>
             ))}
+            {isAdmin ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Admin</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => {
+                    router.push("/settings/users");
+                    onNavigate?.();
+                  }}
+                >
+                  User management
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -127,6 +143,7 @@ function NavLinksShell({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout, isAdmin } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
@@ -166,7 +183,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SheetTitle>eCraft Zap</SheetTitle>
               </SheetHeader>
               <ScrollArea className="h-[calc(100dvh-5rem)] px-4 py-4">
-                <NavLinksShell pathname={pathname} onNavigate={() => setOpen(false)} />
+                <NavLinksShell
+                  pathname={pathname}
+                  onNavigate={() => setOpen(false)}
+                  isAdmin={isAdmin}
+                />
               </ScrollArea>
             </SheetContent>
           </Sheet>
@@ -213,6 +234,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {isAdmin && (
                     <DropdownMenuItem onClick={() => void refreshApiKey()}>
                       Regenerate API key
+                    </DropdownMenuItem>
+                  )}
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => router.push("/settings/users")}>
+                      User management
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem onClick={() => logout()}>Sign out</DropdownMenuItem>

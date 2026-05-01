@@ -2,7 +2,7 @@
 
 eautomate API mirror — listings, inventory, analytics. Data from PostgreSQL. RBAC-protected **Next.js Route Handlers** under `/api`.
 
-**Project document (features, modules, roadmap-style gaps):** [docs/project-features-modules.md](docs/project-features-modules.md)
+**Documentation index:** [docs/README.md](docs/README.md) (architecture, services, deployment, enhancements)
 
 ## Setup
 

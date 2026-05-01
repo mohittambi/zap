@@ -1,0 +1,1580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zap Platform — Business Guide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #111827;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Cover page */
+  .cover {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 72px;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+    color: white;
+    page-break-after: always;
+  }
+  .cover-logo {
+    font-size: 13pt;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #a5b4fc;
+    margin-bottom: 40px;
+  }
+  .cover h1 {
+    font-size: 42pt;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #fff;
+    border: none;
+    margin-bottom: 16px;
+  }
+  .cover-sub {
+    font-size: 18pt;
+    font-weight: 300;
+    color: #c7d2fe;
+    margin-bottom: 48px;
+  }
+  .cover-divider {
+    width: 64px;
+    height: 4px;
+    background: #4f46e5;
+    border-radius: 2px;
+    margin-bottom: 40px;
+  }
+  .cover-desc {
+    font-size: 11pt;
+    color: #a5b4fc;
+    line-height: 1.6;
+    max-width: 520px;
+  }
+  .cover-meta {
+    margin-top: 60px;
+    font-size: 9.5pt;
+    color: #6366f1;
+    letter-spacing: 0.5px;
+  }
+
+  /* TOC page */
+  .toc-page {
+    padding: 52px 72px;
+    page-break-after: always;
+  }
+  .toc-page h2 {
+    font-size: 20pt;
+    color: #1a1a2e;
+    border-bottom: 3px solid #4f46e5;
+    padding-bottom: 10px;
+    margin-bottom: 28px;
+  }
+  .toc-list {
+    list-style: none;
+    counter-reset: toc-counter;
+  }
+  .toc-list li {
+    counter-increment: toc-counter;
+    display: flex;
+    align-items: baseline;
+    padding: 7px 0;
+    border-bottom: 1px dotted #e5e7eb;
+    font-size: 11pt;
+  }
+  .toc-list li::before {
+    content: counter(toc-counter, decimal-leading-zero);
+    font-size: 9pt;
+    font-weight: 600;
+    color: #4f46e5;
+    min-width: 32px;
+  }
+  .toc-list .toc-dots {
+    flex: 1;
+    border-bottom: 1px dotted #d1d5db;
+    margin: 0 8px;
+    position: relative;
+    top: -4px;
+  }
+
+  /* Content pages */
+  .content {
+    padding: 48px 72px;
+  }
+
+  /* Section break - full-page section header */
+  .section-break {
+    page-break-before: always;
+  }
+
+  h1 {
+    font-size: 24pt;
+    font-weight: 700;
+    color: #1a1a2e;
+    border-bottom: 3px solid #4f46e5;
+    padding-bottom: 10px;
+    margin-top: 0;
+    margin-bottom: 18px;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 14pt;
+    font-weight: 600;
+    color: #1e3a8a;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1.5px solid #e5e7eb;
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #4f46e5;
+    margin-top: 20px;
+    margin-bottom: 7px;
+    page-break-after: avoid;
+  }
+
+  h4 {
+    font-size: 10.5pt;
+    font-weight: 600;
+    color: #374151;
+    margin-top: 14px;
+    margin-bottom: 5px;
+  }
+
+  p { margin-bottom: 10px; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 18px;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  thead tr {
+    background-color: #1a1a2e;
+    color: #fff;
+  }
+  thead th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.2pt;
+  }
+  tbody tr { border-bottom: 1px solid #e5e7eb; }
+  tbody tr:nth-child(even) { background: #f9fafb; }
+  tbody td { padding: 7px 12px; vertical-align: top; }
+
+  /* Code / flow diagrams */
+  pre {
+    font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 8.5pt;
+    background: #f1f5f9;
+    border-left: 4px solid #4f46e5;
+    border-radius: 0 5px 5px 0;
+    padding: 12px 16px;
+    margin: 12px 0 16px;
+    white-space: pre;
+    page-break-inside: avoid;
+    line-height: 1.6;
+    color: #1e293b;
+    overflow: hidden;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 8.5pt;
+    background: #ede9fe;
+    color: #4338ca;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* Blockquotes — real-world examples */
+  blockquote {
+    margin: 14px 0;
+    padding: 12px 18px;
+    background: #fffbeb;
+    border-left: 5px solid #f59e0b;
+    border-radius: 0 5px 5px 0;
+    color: #78350f;
+    font-style: italic;
+    page-break-inside: avoid;
+  }
+  blockquote p { margin: 0; }
+  blockquote strong { color: #92400e; }
+
+  /* Lists */
+  ul, ol {
+    margin: 7px 0 12px 22px;
+    padding: 0;
+  }
+  li { margin-bottom: 5px; }
+
+  hr {
+    border: none;
+    border-top: 2px solid #e5e7eb;
+    margin: 22px 0;
+  }
+
+  strong { font-weight: 600; color: #1a1a2e; }
+
+  /* Print rules */
+  @media print {
+    h1 { page-break-before: always; }
+    .cover { page-break-before: avoid; }
+    .cover h1 { page-break-before: avoid; }
+  }
+
+  /* Footer strip */
+  .page-footer {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="cover-logo">
+ZAP PLATFORM
+</div>
+<h1>
+Business Guide
+</h1>
+<div class="cover-sub">
+Operations, Logistics &amp; Product Management
+</div>
+<div class="cover-divider">
+
+</div>
+<div class="cover-desc">
+<pre><code>A plain-English guide to everything the Zap platform does — who uses it,
+how each module works, and how the key workflows run from start to finish.</code></pre>
+</div>
+<div class="cover-meta">
+Prepared for Leadership, Operations, Sales, Finance &amp; Warehouse
+Teams  ·  May 2026
+</div>
+</div>
+<div class="toc-page">
+<h2>
+Contents
+</h2>
+<ol class="toc-list">
+<li>
+<span>What is Zap?</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Who Uses Zap?</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Getting Started</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Roles and Access</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Inbound Operations</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Outbound Operations</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Listings and Inventory</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Catalogues and Exports</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Label Generation</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Vendors</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Warehouses and Storage</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Forms and Checklists</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Focus Lists</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>Bulk Operations</span><span class="toc-dots"></span>
+</li>
+<li>
+<span>End-to-End Workflows</span><span class="toc-dots"></span>
+</li>
+</ol>
+</div>
+<div class="content">
+<h1 id="what-is-zap">What is Zap?</h1>
+<p>Zap is the company’s <strong>central operations platform</strong> —
+one place where every team can see what is happening with products,
+stock, purchase orders, vendors, and warehouses, in real time.</p>
+<p>Before Zap, teams relied on spreadsheets, manual downloads from the
+ERP system, and back-and-forth emails to stay in sync. Zap replaces all
+of that with a single, fast, access-controlled web application — and a
+companion mobile app (Zap Ops) for warehouse and field teams.</p>
+<h2 id="the-problems-zap-solves">The problems Zap solves</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 66%" />
+</colgroup>
+<thead>
+<tr>
+<th>Challenge</th>
+<th>How Zap addresses it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orders from multiple channels arriving in different formats</td>
+<td>One unified view of all purchase orders, searchable and
+filterable</td>
+</tr>
+<tr>
+<td>No team visibility into goods receipt status</td>
+<td>GRN status, invoices, and documents visible to all authorised team
+members</td>
+</tr>
+<tr>
+<td>Label printing required a separate external tool</td>
+<td>Print-ready barcode labels generated instantly inside Zap</td>
+</tr>
+<tr>
+<td>Product catalogues assembled manually in Excel</td>
+<td>Structured catalogue builder with one-click PDF or Excel export</td>
+</tr>
+<tr>
+<td>New staff overwhelmed by the ERP system</td>
+<td>Zap shows each role only what they need, in plain language</td>
+</tr>
+<tr>
+<td>Operations dependent on ERP availability</td>
+<td>Critical workflows work locally even when the ERP is offline</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-zap-connects-to-eautomate">How Zap connects to
+eAutomate</h2>
+<p>Zap works alongside the company’s ERP system (called
+<strong>eAutomate</strong>). The relationship is simple:</p>
+<pre><code>eAutomate (ERP reference system)
+         ↓  sync overnight or on demand
+        Zap (operations platform)
+         ↓  display + action
+ Teams (web browser or mobile app)</code></pre>
+<p>eAutomate remains the system of record for vendor and order data. Zap
+copies and enriches that data into a fast, team-friendly interface.
+Critical actions such as acknowledging an order or generating labels run
+entirely in Zap and do not depend on eAutomate being available —
+reducing operational downtime.</p>
+<h2 id="the-mobile-app-zap-ops">The mobile app — Zap Ops</h2>
+<p>Zap has a companion <strong>mobile app</strong> for warehouse and
+field teams. It connects to the same data and enforces the same access
+controls as the web application, making it easy to check stock, GRNs, or
+orders from the warehouse floor.</p>
+<hr />
+<h1 id="who-uses-zap">Who Uses Zap?</h1>
+<p>Zap is built for multiple teams working together across a single
+shared data platform.</p>
+<table>
+<colgroup>
+<col style="width: 21%" />
+<col style="width: 78%" />
+</colgroup>
+<thead>
+<tr>
+<th>Team</th>
+<th>What they do in Zap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Operations / Logistics</strong></td>
+<td>Manage inbound goods receipts, track outbound orders, handle
+consignments and labels</td>
+</tr>
+<tr>
+<td><strong>Merchandising / Category</strong></td>
+<td>Browse the product catalogue, manage SKU details, build and export
+catalogues</td>
+</tr>
+<tr>
+<td><strong>Warehouse team</strong></td>
+<td>View bin placements, check stock levels, use the Zap Ops mobile
+app</td>
+</tr>
+<tr>
+<td><strong>Vendor relations</strong></td>
+<td>Keep the vendor directory up to date, view PO history</td>
+</tr>
+<tr>
+<td><strong>Finance / Compliance</strong></td>
+<td>Download invoices, manage debit and credit notes</td>
+</tr>
+<tr>
+<td><strong>Sales / Key Accounts</strong></td>
+<td>Monitor order status, build buyer catalogues</td>
+</tr>
+<tr>
+<td><strong>Management / Leadership</strong></td>
+<td>View KPIs, download reports, monitor overall order status</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="getting-started">Getting Started</h1>
+<h2 id="accessing-zap">Accessing Zap</h2>
+<table>
+<colgroup>
+<col style="width: 61%" />
+<col style="width: 38%" />
+</colgroup>
+<thead>
+<tr>
+<th>Method</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web application</td>
+<td>Open your browser and go to the Zap URL provided by your IT
+team</td>
+</tr>
+<tr>
+<td>Mobile app (Zap Ops)</td>
+<td>Download from the internal app link or company app store</td>
+</tr>
+</tbody>
+</table>
+<p>Log in with your company email address and the password set when your
+account was created. If you have forgotten your password, use the
+<strong>Reset Password</strong> link on the login screen.</p>
+<h2 id="finding-your-way-around">Finding your way around</h2>
+<p>The main navigation is on the left sidebar. The items you see depend
+on your role — not every team member sees every module.</p>
+<table>
+<colgroup>
+<col style="width: 54%" />
+<col style="width: 45%" />
+</colgroup>
+<thead>
+<tr>
+<th>Sidebar item</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Inbound</strong></td>
+<td>Vendor purchase orders, goods receipt notes, delivery documents</td>
+</tr>
+<tr>
+<td><strong>Outbound</strong></td>
+<td>Channel purchase orders, consignments, labels, and reports</td>
+</tr>
+<tr>
+<td><strong>Listings</strong></td>
+<td>Product catalogue, SKU search, inventory levels</td>
+</tr>
+<tr>
+<td><strong>Catalogues</strong></td>
+<td>Catalogue builder and branded exports</td>
+</tr>
+<tr>
+<td><strong>Labels</strong></td>
+<td>Label generation tools</td>
+</tr>
+<tr>
+<td><strong>Vendors</strong></td>
+<td>Supplier directory</td>
+</tr>
+<tr>
+<td><strong>Warehouses</strong></td>
+<td>Storage locations and bin management</td>
+</tr>
+<tr>
+<td><strong>Forms</strong></td>
+<td>Operational checklists</td>
+</tr>
+<tr>
+<td><strong>Focus Lists</strong></td>
+<td>Your saved product shortlists</td>
+</tr>
+<tr>
+<td><strong>Bulk Ops</strong></td>
+<td>Mass import and export tools</td>
+</tr>
+</tbody>
+</table>
+<h2 id="quick-start-by-role">Quick-start by role</h2>
+<p><strong>Operations / Logistics:</strong> Go to Outbound → Purchase
+Orders and filter by <em>Status: Open</em> to see everything awaiting
+your attention.</p>
+<p><strong>Merchandising / Category:</strong> Search for a SKU you know
+well in the Listings module to see how product data is organised.</p>
+<p><strong>Warehouse team:</strong> Download the Zap Ops mobile app — it
+makes warehouse tasks much faster than a desktop browser.</p>
+<p><strong>Finance:</strong> Go to Inbound → GRNs and filter by
+<em>Invoiced but not settled</em> to see what needs attention first.</p>
+<p><strong>Sales / Key Accounts:</strong> Create a Focus List with the
+core SKUs for your most important buyer — it saves time every day.</p>
+<hr />
+<h1 id="roles-and-access">Roles and Access</h1>
+<p>Zap uses a <strong>role-based access system</strong>. Every user is
+assigned a role, and each role grants access only to the features and
+data that person’s job requires. This protects business data, prevents
+accidental changes, and ensures accountability — every action in Zap is
+tied to a specific named user.</p>
+<p>Think of it like a key-card system in an office building. A warehouse
+worker’s card opens the warehouse and loading bay, but not the finance
+department. A finance manager can access accounting records, but not the
+warehouse management console.</p>
+<h2 id="role-descriptions">Role descriptions</h2>
+<p><strong>Administrator</strong> — Full access to all modules, data,
+and settings. Can create, edit, and deactivate user accounts, assign
+roles, and trigger data syncs.</p>
+<p><strong>Operations Manager</strong> — Full access to inbound and
+outbound purchase orders, labels, consignments, reports, and vendor
+data.</p>
+<p><strong>Warehouse Staff</strong> — Can raise GRNs, view inbound and
+outbound purchase orders, look up bin locations, and use the mobile
+app.</p>
+<p><strong>Finance / Accounts</strong> — Can view GRNs, linked invoices,
+and debit / credit notes. Can download financial reports.</p>
+<p><strong>Merchandising / Category</strong> — Can view and edit product
+listings, build catalogues, export product data, and use bulk
+import.</p>
+<p><strong>Sales / Key Accounts</strong> — Can view listings, stock
+levels, and outbound PO status. Can build catalogues and manage personal
+focus lists.</p>
+<p><strong>Read-Only Viewer</strong> — Can view (but not edit) any
+module they are granted access to. Useful for auditors or senior
+stakeholders.</p>
+<h2 id="access-at-a-glance">Access at a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th style="text-align: center;">Admin</th>
+<th style="text-align: center;">Ops Mgr</th>
+<th style="text-align: center;">Warehouse</th>
+<th style="text-align: center;">Finance</th>
+<th style="text-align: center;">Merch</th>
+<th style="text-align: center;">Sales</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>View inbound POs</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Raise GRN</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Raise debit / credit note</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>View outbound POs</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+</tr>
+<tr>
+<td>Acknowledge / cancel PO</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Generate labels</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Download reports</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+</tr>
+<tr>
+<td>Edit product listings</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Build catalogues</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+</tr>
+<tr>
+<td>Manage vendors</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Bulk import / export</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+</tr>
+<tr>
+<td>Manage users and roles</td>
+<td style="text-align: center;">✓</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="audit-trail">Audit trail</h2>
+<p>Every action in Zap — raising a GRN, acknowledging an order, editing
+a product — is logged with the user’s name, date, and time. This log is
+immutable and available to administrators for compliance and audit
+review.</p>
+<hr />
+<h1 id="inbound-operations">Inbound Operations</h1>
+<h2 id="what-is-inbound">What is “inbound”?</h2>
+<p><strong>Inbound</strong> refers to everything that comes
+<em>into</em> your business from a vendor or supplier — physical goods,
+invoices, and associated paperwork. Zap’s inbound module covers the full
+journey from the moment a Purchase Order is sent to a vendor, until the
+goods are received, verified, invoiced, and settled.</p>
+<h2 id="the-inbound-journey">The inbound journey</h2>
+<pre><code>Step 1 ── Purchase Order raised and sent to vendor
+
+Step 2 ── Vendor ships goods
+
+Step 3 ── Goods arrive at warehouse
+          Warehouse team creates a GRN in Zap
+          Quantities and SKUs are checked and entered
+          Short or damaged items are flagged
+
+Step 4 ── Vendor invoice received
+          Uploaded and linked to the GRN in Zap
+
+Step 5 ── Finance reviews
+          Checks invoice amounts against GRN quantities
+          Raises a Debit Note if goods are short or damaged
+
+Step 6 ── Records closed
+          All documents visible to authorised team members at any time</code></pre>
+<h2 id="key-terms">Key terms</h2>
+<table>
+<colgroup>
+<col style="width: 20%" />
+<col style="width: 79%" />
+</colgroup>
+<thead>
+<tr>
+<th>Term</th>
+<th>Plain-English meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Purchase Order (PO)</strong></td>
+<td>A formal order your company sends to a supplier asking for specific
+products</td>
+</tr>
+<tr>
+<td><strong>GRN (Goods Receipt Note)</strong></td>
+<td>A document that confirms what was received, in what quantity, and in
+what condition</td>
+</tr>
+<tr>
+<td><strong>Line item</strong></td>
+<td>A single product/SKU entry within the PO or GRN</td>
+</tr>
+<tr>
+<td><strong>Invoice</strong></td>
+<td>The vendor’s bill for the goods supplied</td>
+</tr>
+<tr>
+<td><strong>Debit Note</strong></td>
+<td>Raised against a vendor when goods are short, damaged, or
+returned</td>
+</tr>
+<tr>
+<td><strong>Credit Note</strong></td>
+<td>Raised by the vendor in your favour, reducing the amount owed</td>
+</tr>
+</tbody>
+</table>
+<h2 id="real-example-receiving-a-vendor-shipment">Real example —
+receiving a vendor shipment</h2>
+<blockquote>
+<p>You ordered 1,000 units from Vendor A across 5 SKUs. The truck
+arrives on Thursday.</p>
+</blockquote>
+<ol type="1">
+<li>The warehouse team opens Zap and finds the inbound PO for Vendor
+A.</li>
+<li>They create a GRN, entering actual quantities received for each
+SKU.</li>
+<li>While unloading, they notice 50 units are damaged — recorded in the
+GRN as a short receipt.</li>
+<li>The vendor’s invoice arrives by email and is uploaded into the
+GRN.</li>
+<li>Finance reviews, and because of the 50 damaged units, raises a
+<strong>Debit Note</strong> for their value.</li>
+<li>The GRN is marked settled. All records are visible and searchable at
+any time.</li>
+</ol>
+<h2 id="status-flow">Status flow</h2>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Open</td>
+<td>PO sent to vendor; awaiting delivery</td>
+</tr>
+<tr>
+<td>Partially Received</td>
+<td>Some goods have arrived; GRN not yet complete</td>
+</tr>
+<tr>
+<td>Received</td>
+<td>All goods received; GRN complete</td>
+</tr>
+<tr>
+<td>Invoiced</td>
+<td>Vendor invoice received and linked</td>
+</tr>
+<tr>
+<td>Settled</td>
+<td>Invoice matched, notes resolved, records closed</td>
+</tr>
+<tr>
+<td>Cancelled</td>
+<td>PO was cancelled before delivery</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="outbound-operations">Outbound Operations</h1>
+<h2 id="what-is-outbound">What is “outbound”?</h2>
+<p><strong>Outbound</strong> covers everything that leaves your
+warehouse to a sales channel or buyer — from receiving the channel’s
+purchase order, through packing, labelling, and dispatching the goods.
+Your sales channels (e.g. Swiggy Instamart, Blinkit, Zepto) place orders
+for products they want to stock. Zap helps your team receive those
+orders, fulfil them, and track what has been sent.</p>
+<h2 id="the-outbound-journey">The outbound journey</h2>
+<pre><code>Step 1 ── Channel places a Purchase Order
+          PO syncs into Zap automatically
+
+Step 2 ── Ops team reviews PO in Zap
+          Clicks &quot;Acknowledge&quot; — order confirmed as accepted
+          Status changes to In Progress
+
+Step 3 ── Warehouse picks and packs goods
+          Team uses the PO detail page in Zap as a picking guide
+
+Step 4 ── Consignment created
+          All boxes going to one destination grouped together
+
+Step 5 ── Box labels generated from Zap
+          Enter box range → download PDF → print, one label per box
+
+Step 6 ── Product labels generated if required
+          Select SKUs → enter quantities → choose label size → download PDF
+
+Step 7 ── Goods dispatched
+          Transport arrives; boxes handed over
+          Consignment marked as Dispatched in Zap
+
+Step 8 ── Reports downloaded for records
+          SKU Pendency Report filed; any shortfall noted</code></pre>
+<h2 id="key-terms-1">Key terms</h2>
+<table>
+<colgroup>
+<col style="width: 40%" />
+<col style="width: 60%" />
+</colgroup>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Outbound PO</strong></td>
+<td>A purchase order received <em>from</em> a sales channel — the
+channel is buying from you</td>
+</tr>
+<tr>
+<td><strong>Acknowledgement</strong></td>
+<td>Confirming to the channel that you accept their order and will
+fulfil it</td>
+</tr>
+<tr>
+<td><strong>Consignment</strong></td>
+<td>A group of boxes all going to the same destination in one
+shipment</td>
+</tr>
+<tr>
+<td><strong>Box label (Phase 1)</strong></td>
+<td>A barcode label on each shipping carton identifying the consignment
+and box number</td>
+</tr>
+<tr>
+<td><strong>Product label</strong></td>
+<td>A sticker on individual units showing MRP, barcode, brand, and
+manufacturer details</td>
+</tr>
+<tr>
+<td><strong>SKU pendency</strong></td>
+<td>Items in a PO that have not yet been dispatched</td>
+</tr>
+</tbody>
+</table>
+<h2 id="real-example-fulfilling-a-blinkit-order">Real example —
+fulfilling a Blinkit order</h2>
+<blockquote>
+<p>Blinkit places PO #MBEPO16587 for 2,400 units across 36 SKUs, to be
+delivered to their Gurgaon warehouse.</p>
+</blockquote>
+<p><strong>Day 1 — Order received:</strong> The PO syncs into Zap
+overnight. The ops manager finds it, clicks
+<strong>Acknowledge</strong>, and the status changes to In Progress.</p>
+<p><strong>Day 2–3 — Warehouse packs:</strong> The team uses the PO
+detail page to pick all 36 SKUs and packs goods into 45 boxes. The ops
+manager enters box range 1–45 in the <strong>Phase 1 Box Labels</strong>
+tool and downloads a 45-page PDF — one page per box — printed and
+attached.</p>
+<p><strong>Day 4 — Product labelling:</strong> For 8 SKUs requiring unit
+stickers, the ops manager opens <strong>Generate Product
+Labels</strong>, selects those SKUs, enters the quantities needed, and
+downloads the label PDF. Labels are printed and affixed.</p>
+<p><strong>Day 4 — Dispatch:</strong> The truck arrives, boxes are
+handed over, and the consignment is marked Dispatched. A <strong>SKU
+Pendency Report</strong> is downloaded for the records.</p>
+<h2 id="po-status-flow">PO status flow</h2>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Open</td>
+<td>PO received from channel; awaiting acknowledgement</td>
+</tr>
+<tr>
+<td>Acknowledged</td>
+<td>Ops team confirmed the order is accepted</td>
+</tr>
+<tr>
+<td>In Progress</td>
+<td>Warehouse is picking and packing</td>
+</tr>
+<tr>
+<td>Ready to Dispatch</td>
+<td>All boxes packed and labelled; awaiting pickup</td>
+</tr>
+<tr>
+<td>Dispatched</td>
+<td>Goods handed to courier or transport</td>
+</tr>
+<tr>
+<td>Cancelled</td>
+<td>PO cancelled before dispatch</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="listings-and-inventory">Listings and Inventory</h1>
+<h2 id="what-is-listings-and-inventory">What is “listings and
+inventory”?</h2>
+<p>A <strong>listing</strong> is Zap’s record for a single product
+variant — everything the business needs to know about that product in
+one place: name, barcode, dimensions, pricing, images, warehouse
+location, and current stock level.</p>
+<p><strong>Inventory</strong> refers to the physical stock count — how
+many units of each product are held in which warehouse or bin.</p>
+<p>Together, they give every team a single, reliable answer to:
+<em>“What do we have, where is it, and what does it look like?”</em></p>
+<h2 id="what-is-stored-on-each-product-listing">What is stored on each
+product listing?</h2>
+<table>
+<colgroup>
+<col style="width: 29%" />
+<col style="width: 70%" />
+</colgroup>
+<thead>
+<tr>
+<th>Field</th>
+<th>What it contains</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SKU / Article code</td>
+<td>Unique identifier for this product variant</td>
+</tr>
+<tr>
+<td>Product name</td>
+<td>Full descriptive name including variant</td>
+</tr>
+<tr>
+<td>Brand</td>
+<td>The selling brand</td>
+</tr>
+<tr>
+<td>Category</td>
+<td>Where the product fits in the hierarchy</td>
+</tr>
+<tr>
+<td>EAN / Barcode</td>
+<td>13-digit global barcode for scanning and labelling</td>
+</tr>
+<tr>
+<td>MRP</td>
+<td>Maximum Retail Price — used on product labels</td>
+</tr>
+<tr>
+<td>Dimensions and weight</td>
+<td>Used for logistics costing and box planning</td>
+</tr>
+<tr>
+<td>Images</td>
+<td>Product photographs linked to the listing</td>
+</tr>
+<tr>
+<td>Country of origin</td>
+<td>Required for legal product labelling</td>
+</tr>
+<tr>
+<td>Manufacturer details</td>
+<td>Name and address for the product label</td>
+</tr>
+<tr>
+<td>Bin location</td>
+<td>Which aisle, shelf, and bin in the warehouse holds this SKU</td>
+</tr>
+<tr>
+<td>Stock level</td>
+<td>Quantity on hand, broken down by warehouse</td>
+</tr>
+</tbody>
+</table>
+<h2 id="understanding-stock-levels">Understanding stock levels</h2>
+<p>Zap tracks inventory across multiple warehouses. For each SKU you can
+see:</p>
+<ul>
+<li><strong>Quantity on hand</strong> — units physically present in your
+warehouses</li>
+<li><strong>Inbound pending</strong> — units ordered from vendors, not
+yet received</li>
+<li><strong>Outbound pending</strong> — units committed to channel
+orders, not yet dispatched</li>
+<li><strong>Net available</strong> — on hand minus outbound pending</li>
+</ul>
+<blockquote>
+<p><strong>Example:</strong> SKU A has 500 units on hand, 200 committed
+to a Blinkit PO, and 100 more arriving from a vendor. Net available =
+300 units.</p>
+</blockquote>
+<h2 id="real-example-looking-up-a-product">Real example — looking up a
+product</h2>
+<blockquote>
+<p>A Key Account Manager on a call with a buyer needs the current stock
+level and dimensions of a kitchen storage set (SKU: KSS-001).</p>
+</blockquote>
+<p>The KAM searches “KSS-001” in the Listings module. Within seconds,
+the listing shows the product name, images, dimensions, weight, MRP, and
+current stock per warehouse — all shared with the buyer in under 60
+seconds, with no emails or waiting.</p>
+<hr />
+<h1 id="catalogues-and-exports">Catalogues and Exports</h1>
+<h2 id="what-is-the-catalogue-module">What is the Catalogue module?</h2>
+<p>The <strong>Catalogue module</strong> allows the team to build
+structured product catalogues — collections of products organised for a
+specific purpose, such as a buyer presentation, a seasonal range, or a
+channel assortment — and export them as a branded PDF or Excel file.</p>
+<h2 id="how-catalogue-creation-works">How catalogue creation works</h2>
+<pre><code>Step 1 ── Create a new catalogue
+          Name it; choose a layout template
+
+Step 2 ── Add products
+          Search listings, select SKUs
+          Images and pricing are auto-filled from product records
+
+Step 3 ── Review and arrange
+          Reorder items; make any final edits
+
+Step 4 ── Export as PDF or Excel
+          File downloads immediately
+
+Step 5 ── Share with the buyer
+          Email, present in meeting, or share digitally</code></pre>
+<h2 id="real-example-preparing-a-buyer-catalogue">Real example —
+preparing a buyer catalogue</h2>
+<blockquote>
+<p>The sales team needs 80 home décor products presented to a retail
+chain buyer. Normally this takes hours of manual work in Excel or a
+design tool.</p>
+</blockquote>
+<p>With Zap: the merchandiser creates a new catalogue, adds 80 SKUs
+(images and prices filled automatically), and clicks <strong>Export to
+PDF</strong>. A formatted, brand-ready document is ready in seconds.</p>
+<hr />
+<h1 id="label-generation">Label Generation</h1>
+<h2 id="product-labels">Product Labels</h2>
+<p><strong>Product labels</strong> are the stickers placed on individual
+product units before dispatch. They carry legally required information
+and a scannable barcode that channels use for their inventory systems.
+Zap generates print-ready label PDFs directly from product listing
+data.</p>
+<h3 id="what-appears-on-a-product-label">What appears on a product
+label?</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Product name</td>
+<td>Listing</td>
+</tr>
+<tr>
+<td>Brand</td>
+<td>Listing</td>
+</tr>
+<tr>
+<td>MRP</td>
+<td>Listing</td>
+</tr>
+<tr>
+<td>EAN-13 barcode</td>
+<td>Listing (auto-rendered as a scannable image)</td>
+</tr>
+<tr>
+<td>Manufacturer name and address</td>
+<td>Fixed settings or listing</td>
+</tr>
+<tr>
+<td>Country of origin</td>
+<td>Listing</td>
+</tr>
+<tr>
+<td>Net weight / quantity</td>
+<td>Listing</td>
+</tr>
+</tbody>
+</table>
+<h3 id="generating-product-labels-the-4-step-wizard">Generating product
+labels — the 4-step wizard</h3>
+<p><strong>Step 1 — SKU list:</strong> Zap auto-fetches all SKUs for the
+selected purchase order.</p>
+<p><strong>Step 2 — Fixed settings:</strong> Confirm or edit the
+manufacturer name and address — fields that are identical across all
+SKUs.</p>
+<p><strong>Step 3 — Quantities:</strong> Enter the number of labels
+needed for each SKU.</p>
+<p><strong>Step 4 — Label size:</strong> Choose 70×40mm or 75×38mm based
+on your printing stock.</p>
+<p>Click <strong>Generate</strong> — a multi-page PDF downloads, one
+label per page, ready for the printer.</p>
+<hr />
+<h2 id="box-labels-phase-1">Box Labels (Phase 1)</h2>
+<p><strong>Box labels</strong> are applied to the outside of each
+shipping carton. They identify the consignment, box number (e.g. “Box 15
+of 60”), destination, and date of packing, with a scannable Code-128
+barcode.</p>
+<h3 id="generating-box-labels">Generating box labels</h3>
+<ol type="1">
+<li>Open the outbound PO in Zap.</li>
+<li>Click <strong>Generate Phase 1 Box Labels</strong>.</li>
+<li>Enter the box range (e.g. 1 to 60).</li>
+<li>Select the label size.</li>
+<li>Click <strong>Generate</strong> — a PDF downloads with one label per
+page. Print and attach one to each box.</li>
+</ol>
+<h3 id="label-size-options">Label size options</h3>
+<table>
+<thead>
+<tr>
+<th>Size</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>70 × 40 mm</td>
+<td>Standard product and box labels</td>
+</tr>
+<tr>
+<td>75 × 38 mm</td>
+<td>Slightly wider labels for certain product categories</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="vendors">Vendors</h1>
+<h2 id="what-is-the-vendor-module">What is the Vendor module?</h2>
+<p>The <strong>Vendor module</strong> is Zap’s directory of all
+suppliers, manufacturers, and trade partners. Every company that sells
+goods to your business has a live profile here, connecting contact
+details, purchase history, linked SKUs, and financial notes in one
+place.</p>
+<h2 id="what-is-stored-per-vendor">What is stored per vendor?</h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Company name</td>
+<td>Vendor’s trading name</td>
+</tr>
+<tr>
+<td>Contact person</td>
+<td>Primary point of contact</td>
+</tr>
+<tr>
+<td>Phone and email</td>
+<td>Communication details</td>
+</tr>
+<tr>
+<td>Address</td>
+<td>Billing and shipping address</td>
+</tr>
+<tr>
+<td>GST / Tax ID</td>
+<td>For invoicing and compliance</td>
+</tr>
+<tr>
+<td>Linked SKUs</td>
+<td>Products this vendor supplies</td>
+</tr>
+<tr>
+<td>PO history</td>
+<td>All inbound POs placed with this vendor</td>
+</tr>
+<tr>
+<td>Payment terms</td>
+<td>Net-30, Net-60, etc.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="real-example">Real example</h2>
+<blockquote>
+<p>Finance needs the GST number and address of Vendor X to raise a debit
+note.</p>
+</blockquote>
+<p>Open the Vendors module, search the vendor by name — the record
+appears instantly with GST number, full address, and contact details. No
+chasing emails. No outdated spreadsheets.</p>
+<hr />
+<h1 id="warehouses-and-storage">Warehouses and Storage</h1>
+<h2 id="what-is-the-warehouse-module">What is the Warehouse module?</h2>
+<p>The <strong>Warehouse module</strong> provides a structured map of
+all physical storage locations — down to the individual
+<strong>bin</strong> level. A bin is the smallest identifiable unit of
+storage inside a warehouse (e.g. “Aisle B, Shelf 3, Right position =
+B-03-R”).</p>
+<h2 id="why-it-matters">Why it matters</h2>
+<table>
+<colgroup>
+<col style="width: 57%" />
+<col style="width: 42%" />
+</colgroup>
+<thead>
+<tr>
+<th>Without structured bin locations</th>
+<th>With Zap warehouse bins</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>“It’s somewhere in the back”</td>
+<td>“SKU XYZ is in Bin B-03-R, Warehouse Pune”</td>
+</tr>
+<tr>
+<td>New staff take weeks to learn the floor</td>
+<td>Search by SKU → bin location shown instantly</td>
+</tr>
+<tr>
+<td>Stock counts require walking the entire floor</td>
+<td>Count one specific bin to reconcile one SKU</td>
+</tr>
+<tr>
+<td>Mis-picks causing wrong-item shipments</td>
+<td>Confirm bin before picking every time</td>
+</tr>
+</tbody>
+</table>
+<h2 id="real-example-1">Real example</h2>
+<blockquote>
+<p>A warehouse worker needs to pick 50 units of a cleaning product for
+an urgent outbound order.</p>
+</blockquote>
+<p>The supervisor searches the SKU in Zap and sees: “Bin C-07-L,
+Warehouse Mumbai — 280 units available.” The worker walks directly
+there. No searching. No delay.</p>
+<hr />
+<h1 id="forms-and-checklists">Forms and Checklists</h1>
+<h2 id="what-are-forms">What are Forms?</h2>
+<p><strong>Forms</strong> are digital checklists that teams fill in as
+part of regular operational tasks. They replace paper and spreadsheet
+checklists with tracked, searchable digital records — including who
+completed the form and when.</p>
+<p>Common uses: daily warehouse opening checklists, pre-dispatch quality
+checks, incoming goods inspection reports, and cold-chain compliance
+sign-offs.</p>
+<h2 id="real-example-2">Real example</h2>
+<blockquote>
+<p>Before 60 boxes leave the warehouse, a supervisor must complete a
+pre-dispatch quality check.</p>
+</blockquote>
+<p>The supervisor opens the “Pre-Dispatch QC” form in Zap, ticks each
+checkpoint (box sealing, label presence, etc.), and flags any issues. On
+submission, the form is saved against the consignment with the
+supervisor’s name and timestamp. If an issue was flagged, the dispatch
+is held until it is resolved.</p>
+<hr />
+<h1 id="focus-lists">Focus Lists</h1>
+<h2 id="what-is-a-focus-list">What is a Focus List?</h2>
+<p>A <strong>Focus List</strong> is a personally curated shortlist of
+products that a team member wants to track closely — similar to a
+favourites or watchlist. Add the SKUs you care about most, and they are
+always one click away.</p>
+<p>Useful for category managers tracking a specific range, account
+managers watching a buyer’s assortment, or operations teams monitoring
+SKUs with recurring stock issues.</p>
+<h2 id="real-example-3">Real example</h2>
+<blockquote>
+<p>An account manager handles the Zepto account. Zepto stocks 120 SKUs
+but 15 are high-velocity and need daily attention.</p>
+</blockquote>
+<p>The account manager creates a Focus List called “Zepto — Core 15” and
+adds those 15 SKUs. Each morning, they open this list instead of
+searching the full catalogue and see stock levels, pending inbound, and
+any flags for all 15 products at a glance.</p>
+<hr />
+<h1 id="bulk-operations">Bulk Operations</h1>
+<h2 id="what-are-bulk-operations">What are Bulk Operations?</h2>
+<p><strong>Bulk Operations</strong> allow team members to create,
+update, or export many records at once — rather than editing them one by
+one.</p>
+<h2 id="common-uses">Common uses</h2>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 76%" />
+</colgroup>
+<thead>
+<tr>
+<th>Task</th>
+<th>How Bulk Ops helps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Onboarding new products</td>
+<td>Upload hundreds of new SKUs via spreadsheet</td>
+</tr>
+<tr>
+<td>Price updates</td>
+<td>Update MRP or cost price for many SKUs in one step</td>
+</tr>
+<tr>
+<td>Bin location changes</td>
+<td>Reassign multiple SKUs after warehouse reorganisation</td>
+</tr>
+<tr>
+<td>Export for reporting</td>
+<td>Download a full filtered product set for analysis</td>
+</tr>
+<tr>
+<td>Stock count upload</td>
+<td>Upload physical count results to reconcile stock levels</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-bulk-import-works">How bulk import works</h2>
+<pre><code>Step 1 ── Download the official Zap template
+          Ensures your file has the correct column structure
+
+Step 2 ── Fill in the template
+          One row per SKU or record
+
+Step 3 ── Upload the file
+          Zap validates every row before saving anything
+
+Step 4 ── Review errors
+          Fix any flagged rows; re-upload if needed
+
+Step 5 ── Confirm import
+          All valid rows processed in one step
+
+Step 6 ── Download the import summary
+          Shows rows succeeded, skipped, or failed</code></pre>
+<p><strong>Important:</strong> Always use the official Zap template. Zap
+validates every row before committing — if an import fails, existing
+data is untouched. All imports are logged with the user’s name and
+timestamp.</p>
+<hr />
+<h1 id="end-to-end-workflows">End-to-End Workflows</h1>
+<p>This section describes the five most important processes that Zap
+supports from start to finish.</p>
+<hr />
+<h2 id="workflow-1-vendor-order-to-stock-receipt">Workflow 1 — Vendor
+Order to Stock Receipt</h2>
+<p><em>When your company orders products from a supplier and receives
+them at the warehouse.</em></p>
+<p><strong>Teams involved:</strong> Procurement → Vendor → Warehouse →
+Finance</p>
+<pre><code>1. Procurement raises a Purchase Order
+   Sent to vendor; PO record synced in Zap
+
+2. Vendor ships the goods
+
+3. Goods arrive at your warehouse
+   Warehouse team raises a GRN in Zap
+   Quantities entered per SKU; short or damaged items flagged
+
+4. Vendor invoice received
+   Uploaded to the GRN and linked to the PO record
+
+5. Finance reviews
+   Checks invoice amounts against GRN quantities
+   Raises a Debit Note if goods are short or damaged
+
+6. Stock levels updated in Zap
+   Bin location recorded for each received SKU
+
+7. PO marked settled
+   All records closed and fully searchable for audit</code></pre>
+<hr />
+<h2 id="workflow-2-channel-order-fulfilment">Workflow 2 — Channel Order
+Fulfilment</h2>
+<p><em>When a sales channel places an order and you pick, pack, label,
+and dispatch it.</em></p>
+<p><strong>Teams involved:</strong> Channel → Ops team → Warehouse →
+Dispatch</p>
+<pre><code>1. Channel places Purchase Order
+   PO syncs into Zap; appears in Outbound POs list
+
+2. Ops team acknowledges the order
+   Status changes to In Progress
+
+3. Warehouse picks and packs goods
+   Team uses PO line items in Zap as a picking guide
+   Goods packed into numbered boxes
+
+4. Box labels generated from Zap
+   Enter box range → download PDF → print one label per box
+
+5. Product labels generated if required
+   Select SKUs → enter label quantities → choose size → print
+
+6. Goods dispatched
+   Transport arrives; boxes handed over
+   Ops team marks consignment as Dispatched in Zap
+
+7. SKU Pendency Report downloaded
+   Filed for records; any shortfall noted for follow-up</code></pre>
+<hr />
+<h2 id="workflow-3-catalogue-creation-and-sharing">Workflow 3 —
+Catalogue Creation and Sharing</h2>
+<p><em>When the sales team needs a formatted product catalogue for a
+buyer meeting.</em></p>
+<p><strong>Teams involved:</strong> Merchandising / Sales → Catalogue
+module → Buyer</p>
+<pre><code>1. Merchandiser creates a new catalogue in Zap
+   Names it; selects a layout template
+
+2. Adds products
+   Searches listings; images and pricing auto-filled
+
+3. Reviews content
+   Reorders items; makes final edits
+
+4. Exports as PDF or Excel
+   Downloads immediately
+
+5. Shares with buyer
+   Email, printed copy, or digital</code></pre>
+<hr />
+<h2 id="workflow-4-new-vendor-onboarding">Workflow 4 — New Vendor
+Onboarding</h2>
+<p><em>When the company starts working with a new supplier for the first
+time.</em></p>
+<p><strong>Teams involved:</strong> Procurement → Vendors module →
+Merchandising</p>
+<pre><code>1. Procurement agrees terms with the new vendor
+
+2. Vendor record created in Zap
+   Company name, address, GST number, contact, payment terms
+
+3. New SKUs linked to the vendor
+   Listings created with manufacturer and origin details
+
+4. First Purchase Order raised
+   GRN will be raised on delivery
+
+5. Labels and catalogue pages immediately available
+   Because the listing is complete from day one</code></pre>
+<hr />
+<h2 id="workflow-5-stock-reconciliation">Workflow 5 — Stock
+Reconciliation</h2>
+<p><em>When the team needs to verify that physical stock matches system
+records.</em></p>
+<p><strong>Teams involved:</strong> Warehouse → Operations → Finance</p>
+<pre><code>1. Warehouse team conducts physical count
+   Counts units in each bin, SKU by SKU
+
+2. Count results entered into Zap bulk import template
+   One row per SKU
+
+3. File uploaded via Bulk Operations
+   Zap compares physical count vs system quantity
+   Discrepancies flagged automatically
+
+4. Discrepancies reviewed
+   Each flagged SKU investigated
+   Cause identified (unlisted dispatch, damage, counting error, etc.)
+
+5. Adjustments recorded in Zap
+   Each correction logged with reason and user&#39;s name
+
+6. Reconciliation report downloaded
+   Filed for audit; complete record of the count and all adjustments</code></pre>
+<hr />
+<h2 id="how-all-modules-connect">How all modules connect</h2>
+<pre><code>Vendor records ──────→ Inbound POs ──────→ GRN (goods received)
+                                                ↓
+Product Listings ←────────────── Stock levels updated
+      ↓
+Catalogue builder ─────→ Buyer catalogue exports
+      ↓
+Outbound POs ──────────→ Label generation ───→ Dispatch
+      ↓
+Bulk Operations ───────→ Mass updates, stock reconciliation</code></pre>
+<p>No module is isolated — they all share the same underlying product
+and stock data, ensuring that every team is always working from the same
+source of truth.</p>
+<hr />
+<h2 id="contact-and-support">Contact and Support</h2>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>Who to contact</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Account or login issue</td>
+<td>IT / System administrator</td>
+</tr>
+<tr>
+<td>Training on a specific module</td>
+<td>Operations manager or team lead</td>
+</tr>
+<tr>
+<td>Reporting a system error</td>
+<td>IT helpdesk or the Zap support channel</td>
+</tr>
+<tr>
+<td>Requesting a new feature</td>
+<td>Product owner or operations manager</td>
+</tr>
+<tr>
+<td>API access or integrations</td>
+<td>IT / System administrator</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Zap Platform — Business Guide — May 2026</em></p>
+</div>
+</body>
+</html>

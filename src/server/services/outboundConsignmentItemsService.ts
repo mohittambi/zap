@@ -743,3 +743,257 @@ export async function getSkuReportItemsByPoNumber(
         : {},
   }));
 }
+
+function numOr0(v: unknown): number {
+  if (v == null || v === "") return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Image URL from stored `raw` JSON (listing blob or top-level). */
+export function extractListingImageUrl(raw: unknown): string | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const listing =
+    o.listing != null &&
+    typeof o.listing === "object" &&
+    !Array.isArray(o.listing)
+      ? (o.listing as Record<string, unknown>)
+      : o;
+  const pick =
+    listing.img_hd ??
+    listing.img_wdim ??
+    listing.img_white ??
+    listing.image_url ??
+    o.image_url;
+  if (pick == null || pick === "") return null;
+  const s = String(pick).trim();
+  return s.length ? s : null;
+}
+
+/** One aggregated SKU row per `po_secondary_sku` for a consignment (mobile packing UI). */
+export function mapGroupedConsignmentItemRow(row: Record<string, unknown>): Record<string, unknown> {
+  const sku =
+    row.po_secondary_sku != null ? String(row.po_secondary_sku) : "";
+  const raw =
+    row.raw != null &&
+    typeof row.raw === "object" &&
+    !Array.isArray(row.raw)
+      ? (row.raw as Record<string, unknown>)
+      : {};
+  const demand = numOr0(row.original_demand);
+  const packed = numOr0(row.consignment_quantity);
+  const dispatched = numOr0(row.dispatched_quantity);
+  const pending = Math.max(0, demand - packed - dispatched);
+  const fill = row.overall_fill_rate;
+  let fillNum = 0;
+  if (fill != null && fill !== "") {
+    const fn = Number(fill);
+    fillNum = Number.isFinite(fn) ? fn : 0;
+  } else if (demand > 0) {
+    fillNum = (packed / demand) * 100;
+  }
+  return {
+    id: row.id != null ? String(row.id) : sku,
+    consignment_id: row.consignment_id,
+    po_number: row.po_number,
+    po_secondary_sku: sku,
+    company_code_primary: row.company_code_primary,
+    company_code_secondary: row.company_code_secondary,
+    sku_id: sku,
+    sku_name: sku,
+    ccp: row.company_code_primary,
+    ccs: row.company_code_secondary,
+    image_url: extractListingImageUrl(raw),
+    sku_type: raw.sku_type != null ? String(raw.sku_type) : null,
+    warehouse_inventory: raw.available_quantity != null ? Number(raw.available_quantity) : null,
+    demand,
+    pending,
+    packed,
+    dispatched,
+    fill_rate: Number.isFinite(fillNum) ? Math.round(fillNum * 100) / 100 : 0,
+    fill_rate_percentage: Number.isFinite(fillNum) ? Math.round(fillNum * 100) / 100 : 0,
+    overall_fill_rate: fill,
+    raw,
+  };
+}
+
+export async function listOutboundConsignmentItemsPaginated(opts: {
+  consignmentId: number;
+  page: number;
+  limit: number;
+  search?: string;
+}): Promise<{
+  total: number;
+  current_page: number;
+  per_page_count: number;
+  curr_page_count: number;
+  content: Record<string, unknown>[];
+}> {
+  const { consignmentId, page, limit } = opts;
+  const search =
+    typeof opts.search === "string" ? opts.search.trim().toLowerCase() : "";
+  const offset = (page - 1) * limit;
+
+  const listR = await query(
+    `WITH grouped AS (
+       SELECT
+         MIN(ci.id)::bigint AS id,
+         ci.consignment_id,
+         MAX(ci.po_number)::varchar AS po_number,
+         ci.po_secondary_sku,
+         MAX(ci.company_code_primary)::varchar AS company_code_primary,
+         MAX(ci.company_code_secondary)::varchar AS company_code_secondary,
+         SUM(COALESCE(ci.box_quantity, 0))::integer AS box_quantity,
+         MAX(ci.original_demand)::integer AS original_demand,
+         SUM(COALESCE(ci.dispatched_quantity, 0))::integer AS dispatched_quantity,
+         SUM(COALESCE(ci.consignment_quantity, 0))::integer AS consignment_quantity,
+         MAX(ci.overall_fill_rate)::numeric AS overall_fill_rate,
+         (array_agg(ci.raw ORDER BY ci.id DESC))[1] AS raw
+       FROM outbound_consignment_items ci
+       WHERE ci.consignment_id = $1
+         AND ci.po_secondary_sku IS NOT NULL
+         AND TRIM(ci.po_secondary_sku) <> ''
+       GROUP BY ci.consignment_id, ci.po_secondary_sku
+     )
+     SELECT * FROM grouped g
+     WHERE $4::text = ''
+        OR LOWER(g.po_secondary_sku) LIKE '%' || $4 || '%'
+        OR LOWER(COALESCE(g.company_code_primary, '')) LIKE '%' || $4 || '%'
+        OR LOWER(COALESCE(g.company_code_secondary, '')) LIKE '%' || $4 || '%'
+     ORDER BY g.po_secondary_sku ASC
+     LIMIT $2 OFFSET $3`,
+    [consignmentId, limit, offset, search]
+  );
+
+  const countR = await query(
+    `WITH grouped AS (
+       SELECT
+         ci.consignment_id,
+         ci.po_secondary_sku,
+         MAX(ci.company_code_primary)::varchar AS company_code_primary,
+         MAX(ci.company_code_secondary)::varchar AS company_code_secondary
+       FROM outbound_consignment_items ci
+       WHERE ci.consignment_id = $1
+         AND ci.po_secondary_sku IS NOT NULL
+         AND TRIM(ci.po_secondary_sku) <> ''
+       GROUP BY ci.consignment_id, ci.po_secondary_sku
+     )
+     SELECT COUNT(*)::int AS total FROM grouped g
+     WHERE $2::text = ''
+        OR LOWER(g.po_secondary_sku) LIKE '%' || $2 || '%'
+        OR LOWER(COALESCE(g.company_code_primary, '')) LIKE '%' || $2 || '%'
+        OR LOWER(COALESCE(g.company_code_secondary, '')) LIKE '%' || $2 || '%'`,
+    [consignmentId, search]
+  );
+  const total = countR.rows[0]?.total as number;
+
+  const content = listR.rows.map((row) =>
+    mapGroupedConsignmentItemRow(row as Record<string, unknown>)
+  );
+
+  return {
+    total,
+    current_page: page,
+    per_page_count: limit,
+    curr_page_count: content.length,
+    content,
+  };
+}
+
+export type ValidBoxNameRow = { id: number; name: string };
+
+export async function listOutboundValidBoxNames(): Promise<ValidBoxNameRow[]> {
+  const r = await query(
+    `SELECT id, name FROM outbound_valid_box_names ORDER BY name ASC`,
+    []
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.name),
+  }));
+}
+
+export async function insertOutboundConsignmentBoxLines(opts: {
+  consignmentId: number;
+  poNumber: string;
+  boxNumber: number;
+  boxName: string;
+  items: { po_secondary_sku: string; quantity: number }[];
+  createdBy: string | null;
+}): Promise<number> {
+  const {
+    consignmentId,
+    poNumber,
+    boxNumber,
+    boxName,
+    items,
+    createdBy,
+  } = opts;
+  let n = 0;
+  for (const it of items) {
+    const sku = String(it.po_secondary_sku || "").trim();
+    const qty = Math.trunc(Number(it.quantity));
+    if (!sku || qty < 1) continue;
+
+    const prev = await query(
+      `SELECT MAX(company_code_primary) AS company_code_primary,
+              MAX(company_code_secondary) AS company_code_secondary,
+              MAX(original_demand)::integer AS max_original_demand
+         FROM outbound_consignment_items
+        WHERE consignment_id = $1 AND po_secondary_sku = $2`,
+      [consignmentId, sku]
+    );
+    const p = prev.rows[0] as
+      | {
+          company_code_primary: unknown;
+          company_code_secondary: unknown;
+          max_original_demand: unknown;
+        }
+      | undefined;
+    const demandHint =
+      p?.max_original_demand != null && Number(p.max_original_demand) > 0
+        ? Number(p.max_original_demand)
+        : qty;
+
+    await query(
+      `INSERT INTO outbound_consignment_items (
+         consignment_id, po_number, po_secondary_sku,
+         company_code_primary, company_code_secondary,
+         box_number, box_quantity, box_name,
+         original_demand, dispatched_quantity, consignment_quantity,
+         created_by, raw, synced_at
+       ) VALUES (
+         $1, $2, $3, $4, $5,
+         $6, $7, $8,
+         $9, $10, $11,
+         $12, $13::jsonb, NOW()
+       )`,
+      [
+        consignmentId,
+        poNumber.slice(0, 80),
+        sku.slice(0, 120),
+        p?.company_code_primary != null
+          ? String(p.company_code_primary).slice(0, 120)
+          : null,
+        p?.company_code_secondary != null
+          ? String(p.company_code_secondary).slice(0, 120)
+          : null,
+        boxNumber,
+        qty,
+        boxName.slice(0, 120),
+        demandHint,
+        0,
+        qty,
+        createdBy != null ? createdBy.slice(0, 120) : null,
+        JSON.stringify({
+          source: "zap_mobile",
+          box_number: boxNumber,
+          box_name: boxName,
+        }),
+      ]
+    );
+    n += 1;
+  }
+  return n;
+}

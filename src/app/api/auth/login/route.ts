@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     }
 
     const result = await query(
-      `SELECT id, email, password_hash FROM users WHERE email = $1`,
+      `SELECT id, email, password_hash FROM users WHERE email = $1 AND COALESCE(is_active, true) = true`,
       [email.trim().toLowerCase()]
     );
     if (result.rows.length === 0) {

@@ -74,7 +74,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/041_company_secondary_sku_code_primary.sql \
          migrations/042_zap_file_storage_paths.sql \
          migrations/043_outbound_consignment_details.sql \
-         migrations/044_outbound_po_logs.sql; do
+         migrations/044_outbound_po_logs.sql \
+         migrations/045_business_roles_and_permissions.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"
