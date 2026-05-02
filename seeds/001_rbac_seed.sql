@@ -86,3 +86,18 @@ INSERT INTO user_roles (user_id, role_id)
 SELECT u.id, r.id FROM users u, roles r
 WHERE u.email = 'viewer@example.com' AND r.name = 'viewer'
 ON CONFLICT (user_id, role_id) DO NOTHING;
+
+-- Warehouse / packing user (warehouse@example.com / warehouse123)
+INSERT INTO users (email, password_hash, created_at, updated_at)
+VALUES (
+  'warehouse@example.com',
+  crypt('warehouse123', gen_salt('bf')),
+  NOW(),
+  NOW()
+)
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO user_roles (user_id, role_id)
+SELECT u.id, r.id FROM users u, roles r
+WHERE u.email = 'warehouse@example.com' AND r.name = 'warehouse_manager'
+ON CONFLICT (user_id, role_id) DO NOTHING;

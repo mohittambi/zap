@@ -50,11 +50,11 @@ function formatPct(n: number | null | undefined): string {
 
 function collectGalleryUrls(l: ListingDetail): { url: string; label: string }[] {
   const pairs: { key: keyof ListingDetail; label: string }[] = [
-    { key: "img_hd", label: "img_hd" },
-    { key: "img_white", label: "img_white" },
-    { key: "img_wdim", label: "img_wdim" },
-    { key: "img_link1", label: "img_link1" },
-    { key: "img_link2", label: "img_link2" },
+    { key: "img_hd", label: "HD" },
+    { key: "img_white", label: "White BG" },
+    { key: "img_wdim", label: "With Dimensions" },
+    { key: "img_link1", label: "Alt 1" },
+    { key: "img_link2", label: "Alt 2" },
   ];
   const out: { url: string; label: string }[] = [];
   const seen = new Set<string>();
@@ -238,9 +238,11 @@ export default function ListingDetailPage() {
                   <button
                     key={`${g.url}-${i}`}
                     type="button"
+                    title={g.label}
                     onClick={() => setThumbIndex(i)}
                     className={cn(
-                      "relative size-16 shrink-0 overflow-hidden rounded border-2 bg-muted sm:size-20",
+                      "group relative shrink-0 overflow-hidden rounded border-2 bg-muted",
+                      "size-16 sm:size-20",
                       thumbIndex === i
                         ? "border-primary"
                         : "border-transparent opacity-80 hover:opacity-100"
@@ -248,11 +250,14 @@ export default function ListingDetailPage() {
                   >
                     <Image
                       src={g.url}
-                      alt=""
+                      alt={g.label}
                       fill
                       className="object-cover"
                       unoptimized
                     />
+                    <span className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-1 py-0.5 text-center text-[9px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      {g.label}
+                    </span>
                   </button>
                 ))}
                 {gallery.length === 0 && (
