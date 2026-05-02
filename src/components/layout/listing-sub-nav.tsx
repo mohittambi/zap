@@ -17,8 +17,11 @@ const tabs = [
 export function ListingSubNav() {
   const pathname = usePathname();
   return (
-    <div className="border-b bg-primary text-primary-foreground">
-      <div className="mx-auto flex max-w-[1600px] gap-0 overflow-x-auto px-2 py-0 md:px-4">
+    <div className="border-b border-border/60 bg-card/60 backdrop-blur supports-[backdrop-filter]:bg-card/40">
+      <nav
+        aria-label="Listings sections"
+        className="mx-auto flex max-w-[1600px] items-center gap-1 overflow-x-auto px-2 py-1.5 md:px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {tabs.map(({ href, label }) => {
           const active =
             pathname === href ||
@@ -28,18 +31,29 @@ export function ListingSubNav() {
             <Link
               key={href}
               href={href}
+              aria-current={active ? "page" : undefined}
               className={cn(
-                "shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-sm font-medium transition-colors md:px-4",
+                "relative shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium outline-none transition-colors duration-200 md:px-4",
+                "focus-visible:ring-2 focus-visible:ring-ring/60",
                 active
-                  ? "border-white bg-white text-primary"
-                  : "text-primary-foreground/90 hover:bg-white/10"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
               )}
             >
               {label}
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute inset-x-3 -bottom-[7px] h-0.5 rounded-full transition-all duration-200 md:inset-x-4",
+                  active
+                    ? "bg-primary opacity-100"
+                    : "bg-transparent opacity-0"
+                )}
+              />
             </Link>
           );
         })}
-      </div>
+      </nav>
     </div>
   );
 }

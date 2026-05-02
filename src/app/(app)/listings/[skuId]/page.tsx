@@ -207,7 +207,7 @@ export default function ListingDetailPage() {
       </Button>
 
       <Tabs defaultValue="details" className="w-full">
-        <TabsList className="bg-primary text-primary-foreground flex h-auto w-full flex-wrap justify-start gap-0 rounded-none border-0 p-0">
+        <TabsList className="flex h-auto w-full items-center gap-1 overflow-x-auto rounded-xl border border-border/60 bg-card/60 p-1.5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/40 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(
             [
               ["details", "Listing Details"],
@@ -220,8 +220,10 @@ export default function ListingDetailPage() {
               key={value}
               value={value}
               className={cn(
-                "shrink-0 rounded-none border-b-2 border-transparent px-3 py-3 text-sm font-medium data-[state=active]:border-white data-[state=active]:bg-white data-[state=active]:text-primary md:px-4",
-                "text-primary-foreground/90 hover:bg-white/10 data-[state=active]:hover:bg-white"
+                "flex-1 shrink-0 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium outline-none transition-all duration-200",
+                "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                "focus-visible:ring-2 focus-visible:ring-ring/60",
+                "data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm data-[state=active]:hover:bg-primary"
               )}
             >
               {label}
