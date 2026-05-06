@@ -1,5 +1,5 @@
+import type { PoolClient } from 'pg';
 import { query } from '@/server/db';
-import getPool from '@/server/db';
 
 export type MovementType =
   | 'SALE'
@@ -198,7 +198,7 @@ export async function upsertReorderConfig(
  * Called from binsService after every inventory change.
  */
 export async function recordMovement(opts: {
-  client: Awaited<ReturnType<ReturnType<typeof getPool>['connect']>>;
+  client: PoolClient;
   warehouse_id: number;
   sku_id: string;
   bin_id: string;

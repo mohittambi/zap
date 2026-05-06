@@ -319,6 +319,24 @@ export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
   return getGrnById(grnId);
 }
 
+export async function closeGrn(grnIdRaw, closedBy: string) {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId) || grnId === 0) throw new AppError("Invalid grn id", 400);
+
+  const existing = await query(`SELECT grn_status FROM inbound_grns WHERE grn_id = $1`, [grnId]);
+  if (existing.rows.length === 0) throw new AppError("GRN not found", 404);
+  const currentStatus = String(existing.rows[0].grn_status ?? "");
+  if (currentStatus !== "OPEN") {
+    throw new AppError(`GRN cannot be closed (current status: ${currentStatus || "unknown"})`, 409);
+  }
+
+  await query(
+    `UPDATE inbound_grns SET grn_status = 'CLOSED', closed_by = $1, closed_at = NOW(), updated_at = NOW() WHERE grn_id = $2`,
+    [closedBy, grnId]
+  );
+  return getGrnById(grnId);
+}
+
 export async function getGrnById(grnIdRaw) {
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId) || grnId === 0) {

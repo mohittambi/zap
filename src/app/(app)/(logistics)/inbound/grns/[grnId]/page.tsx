@@ -213,10 +213,16 @@ type ZapDebitNote = {
   po_id: number | null;
   total_debit_amount: number;
   line_count: number;
-  status: "DRAFT" | "ISSUED" | "EXPORTED";
+  status: "DRAFT" | "ISSUED" | "EXPORTED" | "CLOSED";
   generated_by: string | null;
   generated_at: string;
   exported_at: string | null;
+  dn_number: string | null;
+  dn_number_assigned_by: string | null;
+  dn_number_assigned_at: string | null;
+  cn_copy_file_name: string | null;
+  cn_copy_uploaded_at: string | null;
+  cn_copy_uploaded_by: string | null;
   lines: DebitNoteLine[];
 };
 
@@ -1335,6 +1341,10 @@ export default function InboundGrnDetailPage() {
   const [debitNote, setDebitNote] = React.useState<ZapDebitNote | null>(null);
   const [debitNoteLoading, setDebitNoteLoading] = React.useState(false);
   const [generatingNote, setGeneratingNote] = React.useState(false);
+  const [dnNumberInput, setDnNumberInput] = React.useState("");
+  const [assigningDnNumber, setAssigningDnNumber] = React.useState(false);
+  const cnCopyRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingCnCopy, setUploadingCnCopy] = React.useState(false);
 
   function loadAuditPreview(grnId: number) {
     if (auditLoading) return;
@@ -1364,6 +1374,30 @@ export default function InboundGrnDetailPage() {
       .finally(() => setGeneratingNote(false));
   }
 
+  function handleAssignDnNumber(grnId: number) {
+    if (!dnNumberInput.trim()) { toast.error("Enter a DN number"); return; }
+    setAssigningDnNumber(true);
+    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`, {
+      method: "PATCH",
+      body: JSON.stringify({ dn_number: dnNumberInput.trim() }),
+    })
+      .then((note) => { setDebitNote(note); toast.success("DN number assigned"); })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to assign DN number"))
+      .finally(() => setAssigningDnNumber(false));
+  }
+
+  function handleUploadCnCopy(grnId: number) {
+    const file = cnCopyRef.current?.files?.[0];
+    if (!file) { toast.error("Select a file first"); return; }
+    setUploadingCnCopy(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note/cn-copy`, { method: "POST", body: fd })
+      .then((note) => { setDebitNote(note); toast.success("CN copy uploaded"); if (cnCopyRef.current) cnCopyRef.current.value = ""; })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Upload failed"))
+      .finally(() => setUploadingCnCopy(false));
+  }
+
   function handleExportTally(grnId: number) {
     const token = getStoredToken();
     const url = apiUrl(`/api/inbound/grns/${grnId}/debit-note/export`);
@@ -1378,6 +1412,20 @@ export default function InboundGrnDetailPage() {
   function openGrnSkuSheet(line: LineRow) {
     setGrnSkuSelectedLine(line);
     setGrnSkuSheetOpen(true);
+  }
+
+  // Close GRN
+  const [closingGrn, setClosingGrn] = React.useState(false);
+
+  function handleCloseGrn(grnId: number) {
+    setClosingGrn(true);
+    apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}/close`, { method: "POST" })
+      .then((updated) => {
+        if (bundle) setBundle({ ...bundle, header: updated });
+        toast.success("GRN closed");
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to close GRN"))
+      .finally(() => setClosingGrn(false));
   }
 
   // Accounts + Inventory receipt tab state
@@ -1505,6 +1553,17 @@ export default function InboundGrnDetailPage() {
               >
                 Inv. collection: {row.grn_invoice_collection_status}
               </Badge>
+            ) : null}
+            {row.grn_status === "OPEN" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto"
+                disabled={closingGrn}
+                onClick={() => row && handleCloseGrn(row.grn_id)}
+              >
+                {closingGrn ? "Closing…" : "Close GRN"}
+              </Button>
             ) : null}
           </div>
 
@@ -2629,6 +2688,63 @@ export default function InboundGrnDetailPage() {
                         Last exported {formatDisplayDateTime(debitNote.exported_at)} by {debitNote.generated_by ?? "unknown"}
                       </p>
                     ) : null}
+
+                    {/* DN Number assignment */}
+                    <div className="border-t pt-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">DN Number</p>
+                      {debitNote.dn_number ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-mono text-sm font-semibold">{debitNote.dn_number}</span>
+                          <span className="text-muted-foreground text-xs">
+                            Assigned by {debitNote.dn_number_assigned_by ?? "—"}{debitNote.dn_number_assigned_at ? ` · ${formatDisplayDateTime(debitNote.dn_number_assigned_at)}` : ""}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="e.g. DN-2026-001"
+                            value={dnNumberInput}
+                            onChange={(e) => setDnNumberInput(e.target.value)}
+                            className="h-8 w-48 rounded-md border border-input bg-background px-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={assigningDnNumber || !row}
+                            onClick={() => row && handleAssignDnNumber(row.grn_id)}
+                          >
+                            {assigningDnNumber ? "Saving…" : "Assign"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* CN Copy upload */}
+                    <div className="border-t pt-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Vendor CN Copy</p>
+                      {debitNote.cn_copy_file_name ? (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Badge variant="outline" className="font-mono text-xs">{debitNote.cn_copy_file_name}</Badge>
+                          <span className="text-muted-foreground text-xs">
+                            {debitNote.cn_copy_uploaded_by ?? "—"}{debitNote.cn_copy_uploaded_at ? ` · ${formatDisplayDateTime(debitNote.cn_copy_uploaded_at)}` : ""}
+                          </span>
+                          <Badge variant="outline" className="border-violet-400 text-violet-600 dark:text-violet-400 text-xs font-semibold">CLOSED</Badge>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <input ref={cnCopyRef} type="file" accept=".pdf,.jpg,.jpeg" className="text-sm" />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={uploadingCnCopy || !row}
+                            onClick={() => row && handleUploadCnCopy(row.grn_id)}
+                          >
+                            {uploadingCnCopy ? "Uploading…" : "Upload CN Copy"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 ) : (
                   <CardContent className="py-8 text-center">
@@ -2707,6 +2823,26 @@ export default function InboundGrnDetailPage() {
                         : "GRN was rejected by accounts."}
                     </p>
                   )}
+
+                  {row?.grn_invoice_collection_status === "COLLECTED" ? (
+                    <div className="border-t pt-4">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const token = getStoredToken();
+                          const url = apiUrl(`/api/inbound/grns/${row.grn_id}/invoice-export`);
+                          const a = document.createElement("a");
+                          a.href = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+                          a.download = "";
+                          a.click();
+                        }}
+                      >
+                        <Download className="size-4 mr-1" />
+                        Download Invoice Excel
+                      </Button>
+                    </div>
+                  ) : null}
                 </CardContent>
               </Card>
             </TabsContent>

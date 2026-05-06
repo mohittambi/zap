@@ -268,7 +268,7 @@ export default function TagsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <AppPageTitle>SKU Tags</AppPageTitle>
+        <AppPageTitle title="SKU Tags" />
         <Button variant="outline" onClick={downloadSheet}>
           <Download className="mr-2 h-4 w-4" />
           Share master sheet

@@ -8,11 +8,12 @@ import { upsertReorderConfig } from "@/server/services/reorderService";
 // Body: { lead_time_days: number; use_advanced: boolean }
 export async function PUT(
   request: Request,
-  { params }: { params: { skuId: string } }
+  context: { params: Promise<{ skuId: string }> }
 ) {
   try {
     const user = await requireAuth(request);
     assertPermission(user, "bins", "write");
+    const { skuId } = await context.params;
 
     const body = (await request.json()) as Record<string, unknown>;
     const leadTime = Number(body.lead_time_days);
@@ -21,7 +22,7 @@ export async function PUT(
     }
     const useAdvanced = Boolean(body.use_advanced);
 
-    const config = await upsertReorderConfig(params.skuId, {
+    const config = await upsertReorderConfig(skuId, {
       lead_time_days: leadTime,
       use_advanced: useAdvanced,
     });

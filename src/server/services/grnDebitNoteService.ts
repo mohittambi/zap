@@ -1,3 +1,4 @@
+import * as XLSX from "xlsx";
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 
@@ -26,11 +27,18 @@ export type DebitNote = {
   po_id: number | null;
   total_debit_amount: number;
   line_count: number;
-  status: "DRAFT" | "ISSUED" | "EXPORTED";
+  status: "DRAFT" | "ISSUED" | "EXPORTED" | "CLOSED";
   generated_by: string | null;
   generated_at: string;
   exported_at: string | null;
   notes: string | null;
+  dn_number: string | null;
+  dn_number_assigned_by: string | null;
+  dn_number_assigned_at: string | null;
+  cn_copy_file_path: string | null;
+  cn_copy_file_name: string | null;
+  cn_copy_uploaded_at: string | null;
+  cn_copy_uploaded_by: string | null;
   lines: DebitNoteLine[];
 };
 
@@ -108,7 +116,9 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
     query(
       `SELECT id, grn_id, note_reference, vendor_id, vendor_name, po_id,
               total_debit_amount, line_count, status, generated_by,
-              generated_at, exported_at, notes
+              generated_at, exported_at, notes,
+              dn_number, dn_number_assigned_by, dn_number_assigned_at,
+              cn_copy_file_path, cn_copy_file_name, cn_copy_uploaded_at, cn_copy_uploaded_by
        FROM inbound_zap_debit_notes WHERE id = $1`,
       [noteId]
     ),
@@ -136,6 +146,13 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
     generated_at: String(note.generated_at ?? ""),
     exported_at: note.exported_at ? String(note.exported_at) : null,
     notes: note.notes ?? null,
+    dn_number: note.dn_number ?? null,
+    dn_number_assigned_by: note.dn_number_assigned_by ?? null,
+    dn_number_assigned_at: note.dn_number_assigned_at ? String(note.dn_number_assigned_at) : null,
+    cn_copy_file_path: note.cn_copy_file_path ?? null,
+    cn_copy_file_name: note.cn_copy_file_name ?? null,
+    cn_copy_uploaded_at: note.cn_copy_uploaded_at ? String(note.cn_copy_uploaded_at) : null,
+    cn_copy_uploaded_by: note.cn_copy_uploaded_by ?? null,
     lines: lineRes.rows.map((l) => ({
       id: toNum(l.id),
       debit_note_id: toNum(l.debit_note_id),
@@ -320,6 +337,73 @@ export async function getDebitNoteForGrn(grnIdRaw: unknown): Promise<DebitNote> 
   return fetchNoteById(toNum(res.rows[0].id));
 }
 
+// ── DN number assignment ──────────────────────────────────────────────────────
+
+export async function assignDnNumber(
+  grnIdRaw: unknown,
+  dnNumber: string,
+  assignedBy: string
+): Promise<DebitNote> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+  const trimmed = dnNumber.trim();
+  if (!trimmed) throw new AppError("dn_number is required", 400);
+
+  const res = await query(
+    `UPDATE inbound_zap_debit_notes
+     SET dn_number = $1, dn_number_assigned_by = $2, dn_number_assigned_at = NOW(),
+         status = CASE WHEN status IN ('DRAFT','EXPORTED') THEN 'ISSUED' ELSE status END
+     WHERE grn_id = $3
+     RETURNING id`,
+    [trimmed, assignedBy, grnId]
+  );
+  if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  return fetchNoteById(toNum(res.rows[0].id));
+}
+
+// ── CN copy upload ────────────────────────────────────────────────────────────
+
+export async function uploadCnCopy(
+  grnIdRaw: unknown,
+  filePath: string,
+  fileName: string,
+  uploadedBy: string
+): Promise<DebitNote> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  const res = await query(
+    `UPDATE inbound_zap_debit_notes
+     SET cn_copy_file_path = $1, cn_copy_file_name = $2,
+         cn_copy_uploaded_at = NOW(), cn_copy_uploaded_by = $3,
+         status = 'CLOSED'
+     WHERE grn_id = $4
+     RETURNING id`,
+    [filePath, fileName, uploadedBy, grnId]
+  );
+  if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  return fetchNoteById(toNum(res.rows[0].id));
+}
+
+// ── Explicit demand close ─────────────────────────────────────────────────────
+
+export async function closeDnDemand(
+  grnIdRaw: unknown,
+  _closedBy: string
+): Promise<DebitNote> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  const res = await query(
+    `UPDATE inbound_zap_debit_notes SET status = 'CLOSED'
+     WHERE grn_id = $1
+     RETURNING id`,
+    [grnId]
+  );
+  if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  return fetchNoteById(toNum(res.rows[0].id));
+}
+
 // ── Tally CSV export ──────────────────────────────────────────────────────────
 
 function csvRow(cells: (string | number)[]): string {
@@ -382,4 +466,92 @@ export async function buildTallyCsv(
   );
 
   return { csv, filename: `${note.note_reference}.csv` };
+}
+
+// ── Invoice Excel export ──────────────────────────────────────────────────────
+
+export async function buildInvoiceExcel(
+  grnIdRaw: unknown
+): Promise<{ buffer: Buffer; filename: string }> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  const grnRes = await query(
+    `SELECT g.grn_id, g.po_id, g.vendor_id, g.vendor_name,
+            g.grn_invoice_collection_status, g.created_at,
+            g.grn_accepted_quantity, g.grn_invoice_quantity, g.grn_rejected_quantity
+     FROM inbound_grns g WHERE g.grn_id = $1`,
+    [grnId]
+  );
+  if (grnRes.rows.length === 0) throw new AppError(`GRN ${grnId} not found`, 404);
+  const grn = grnRes.rows[0];
+
+  const noteRes = await query(
+    `SELECT n.note_reference, n.dn_number, n.total_debit_amount, n.status,
+            nl.sku_id, nl.sku_description, nl.quantity, nl.vendor_price,
+            nl.audit_price, nl.price_diff, nl.debit_amount
+     FROM inbound_zap_debit_notes n
+     LEFT JOIN inbound_zap_debit_note_lines nl ON nl.debit_note_id = n.id
+     WHERE n.grn_id = $1
+     ORDER BY nl.line_index`,
+    [grnId]
+  );
+
+  const itemRes = await query(
+    `SELECT sku_id, raw FROM inbound_grn_items WHERE grn_id = $1 ORDER BY line_index`,
+    [grnId]
+  );
+
+  const wb = XLSX.utils.book_new();
+
+  // Summary sheet
+  const summary = [
+    ["GRN ID", grnId],
+    ["PO ID", grn.po_id ?? ""],
+    ["Vendor", grn.vendor_name ?? ""],
+    ["GRN Date", grn.created_at ? new Date(String(grn.created_at)).toLocaleDateString("en-IN") : ""],
+    ["Invoice Collection Status", grn.grn_invoice_collection_status ?? ""],
+    ["Invoice Qty", grn.grn_invoice_quantity ?? ""],
+    ["Accepted Qty", grn.grn_accepted_quantity ?? ""],
+    ["Rejected Qty", grn.grn_rejected_quantity ?? ""],
+  ];
+  if (noteRes.rows.length > 0) {
+    const first = noteRes.rows[0];
+    summary.push(
+      ["DN Reference", first.note_reference ?? ""],
+      ["DN Number", first.dn_number ?? ""],
+      ["Total Debit Amount", first.total_debit_amount ?? ""],
+      ["DN Status", first.status ?? ""]
+    );
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+
+  // GRN Items sheet
+  const itemHeaders = ["SKU ID", "Description", "Ordered Qty", "Accepted Qty", "Rejected Qty", "Received Price"];
+  const itemRows = itemRes.rows.map((r) => {
+    const raw = (r.raw as Record<string, unknown>) ?? {};
+    const pick = (keys: string[]) => { for (const k of keys) { const v = raw[k]; if (v != null && v !== "") return v; } return ""; };
+    return [
+      r.sku_id ?? pick(["sku_id", "skuId"]),
+      pick(["title", "name", "description", "sku_name"]),
+      pick(["ordered_quantity", "orderedQuantity", "po_quantity", "quantity"]),
+      pick(["accepted_quantity", "acceptedQuantity", "current_grn_accepted_quantity"]),
+      pick(["rejected_quantity", "rejectedQuantity", "current_grn_rejected_quantity"]),
+      pick(["received_price", "receivedPrice", "grn_received_price"]),
+    ];
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows]), "GRN Items");
+
+  // Debit Note lines sheet (if present)
+  if (noteRes.rows.length > 0 && noteRes.rows[0].sku_id != null) {
+    const dnHeaders = ["SKU ID", "Description", "Qty", "Vendor Price", "Audit Price", "Price Diff", "Debit Amount"];
+    const dnRows = noteRes.rows.map((r) => [
+      r.sku_id ?? "", r.sku_description ?? "",
+      r.quantity, r.vendor_price, r.audit_price, r.price_diff, r.debit_amount,
+    ]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([dnHeaders, ...dnRows]), "Debit Note");
+  }
+
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer: buf, filename: `GRN-${grnId}-invoice.xlsx` };
 }

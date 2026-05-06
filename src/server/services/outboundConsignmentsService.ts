@@ -1,4 +1,5 @@
 import { query } from "@/server/db";
+import { AppError } from "@/server/errors";
 
 export type OutboundConsignmentRow = {
   id: number;
@@ -12,6 +13,9 @@ export type OutboundConsignmentRow = {
   invoice_number_status: string | null;
   invoice_number: string | null;
   invoice_upload_status: string | null;
+  invoice_file_name: string | null;
+  invoice_uploaded_at: string | null;
+  invoice_uploaded_by: string | null;
   boxes_count: number | null;
   sku_count: number | null;
   total_quantity: number | null;
@@ -492,6 +496,9 @@ function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
     invoice_number_status: r.invoice_number_status as string | null,
     invoice_number: r.invoice_number as string | null,
     invoice_upload_status: r.invoice_upload_status as string | null,
+    invoice_file_name: r.invoice_file_name as string | null,
+    invoice_uploaded_at: r.invoice_uploaded_at ? new Date(r.invoice_uploaded_at as string).toISOString() : null,
+    invoice_uploaded_by: r.invoice_uploaded_by as string | null,
     boxes_count: r.boxes_count != null ? Number(r.boxes_count) : null,
     sku_count: r.sku_count != null ? Number(r.sku_count) : null,
     total_quantity: r.total_quantity != null ? Number(r.total_quantity) : null,
@@ -518,6 +525,7 @@ export async function getOutboundConsignmentById(
   const r = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments WHERE id = $1`,
@@ -590,6 +598,7 @@ export async function listOutboundConsignments(opts: {
   const listR = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments
@@ -671,4 +680,30 @@ export async function upsertOutboundConsignmentDeliveryLocationsFromApi(
     n += 1;
   }
   return n;
+}
+
+export async function attachConsignmentInvoice(
+  consignmentId: number,
+  filePath: string,
+  fileName: string,
+  uploadedBy: string
+): Promise<void> {
+  const existing = await query(
+    `SELECT invoice_number_status FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (existing.rows.length === 0) throw new AppError("Consignment not found", 404);
+  const invoiceStatus = existing.rows[0].invoice_number_status;
+  if (!invoiceStatus) {
+    throw new AppError("Invoice number must be assigned before uploading invoice file", 409);
+  }
+
+  await query(
+    `UPDATE outbound_consignments
+     SET invoice_file_path = $1, invoice_file_name = $2,
+         invoice_uploaded_at = NOW(), invoice_uploaded_by = $3,
+         invoice_upload_status = 'DONE'
+     WHERE id = $4`,
+    [filePath, fileName, uploadedBy, consignmentId]
+  );
 }

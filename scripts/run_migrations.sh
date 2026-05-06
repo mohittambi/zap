@@ -82,7 +82,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/049_grn_debit_notes.sql \
          migrations/050_grn_accounts_and_inventory.sql \
          migrations/051_secondary_listings_logs.sql \
-         migrations/052_secondary_listings_manage_permission.sql; do
+         migrations/052_secondary_listings_manage_permission.sql \
+         migrations/053_grn_close_and_dn_enhancements.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

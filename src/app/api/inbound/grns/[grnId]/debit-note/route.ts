@@ -13,6 +13,8 @@ import {
   getDebitNoteForGrn,
   generateDebitNote,
   getAuditPreview,
+  assignDnNumber,
+  closeDnDemand,
 } from "@/server/services/grnDebitNoteService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
@@ -44,6 +46,26 @@ export async function POST(request: Request, ctx: RouteContext) {
 
     const note = await generateDebitNote(grnId, user.email);
     return NextResponse.json(note, { status: 201 });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function PATCH(request: Request, ctx: RouteContext) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "purchase_orders", "write");
+    const { grnId } = await ctx.params;
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+
+    if (body.close === true) {
+      const note = await closeDnDemand(grnId, user.email);
+      return NextResponse.json(note);
+    }
+
+    const dnNumber = typeof body.dn_number === "string" ? body.dn_number.trim() : "";
+    const note = await assignDnNumber(grnId, dnNumber, user.email);
+    return NextResponse.json(note);
   } catch (err) {
     return handleApiError(err);
   }

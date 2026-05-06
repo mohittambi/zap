@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon } from "lucide-react";
+import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon, Upload } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -74,6 +75,25 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
   const [loading, setLoading] = React.useState(true);
   const [row, setRow] = React.useState<OutboundConsignmentRow | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const invoiceFileRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingInvoice, setUploadingInvoice] = React.useState(false);
+
+  function handleUploadInvoice() {
+    const file = invoiceFileRef.current?.files?.[0];
+    if (!file) { toast.error("Select a file first"); return; }
+    setUploadingInvoice(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    apiFetch<{ ok: boolean }>(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice-upload`, { method: "POST", body: fd })
+      .then(() => {
+        toast.success("Invoice uploaded");
+        if (invoiceFileRef.current) invoiceFileRef.current.value = "";
+        return apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`);
+      })
+      .then((updated) => setRow(updated))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Upload failed"))
+      .finally(() => setUploadingInvoice(false));
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -164,6 +184,29 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
           <MetaRow label="Invoice Number" value={row.invoice_number} mono />
           <MetaRow label="Invoice status" value={row.invoice_number_status} />
           <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
+          {row.invoice_file_name ? (
+            <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
+              <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice file</span>
+              <span className="flex items-center gap-2 text-right">
+                <span className="font-mono text-xs">{row.invoice_file_name}</span>
+                {row.invoice_uploaded_at ? (
+                  <span className="text-muted-foreground text-xs">{fmt(row.invoice_uploaded_at)}</span>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+          {row.invoice_number_status && !row.invoice_file_name ? (
+            <div className="flex items-center justify-between gap-4 py-2">
+              <span className="text-muted-foreground shrink-0 text-xs font-medium">Upload invoice</span>
+              <div className="flex items-center gap-2">
+                <input ref={invoiceFileRef} type="file" accept=".pdf,.jpg,.jpeg" className="text-xs" />
+                <Button size="sm" variant="outline" disabled={uploadingInvoice} onClick={handleUploadInvoice}>
+                  <Upload className="size-3.5 mr-1" />
+                  {uploadingInvoice ? "Uploading…" : "Upload"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
