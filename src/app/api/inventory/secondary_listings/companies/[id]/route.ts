@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "company_relations", "write");
+    assertPermission(user, "secondary_listings", "manage");
     const { id } = await context.params;
     const relationId = Number(id);
     const body = await request.json().catch(() => ({}));
@@ -20,6 +20,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
 
     const data = await companySkuService.updateCompanyAssociation(relationId, {
       company_code_primary,
+      createdBy: user.email,
     });
     return NextResponse.json(data);
   } catch (err) {
@@ -30,11 +31,11 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   try {
     const user = await requireAuth(_request);
-    assertPermission(user, "company_relations", "write");
+    assertPermission(user, "secondary_listings", "manage");
     const { id } = await context.params;
     const relationId = Number(id);
 
-    const data = await companySkuService.deleteCompanyAssociation(relationId);
+    const data = await companySkuService.deleteCompanyAssociation(relationId, user.email);
     return NextResponse.json(data);
   } catch (err) {
     return handleApiError(err);

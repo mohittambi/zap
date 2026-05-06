@@ -17,10 +17,16 @@ export async function GET(request: Request) {
       limit: 100,
       maxLimit: 200,
     });
+    const tag_ids = q.tag_ids
+      ? q.tag_ids.split(',').map(Number).filter((n) => !Number.isNaN(n))
+      : undefined;
+    const min_price = q.min_price ? Number(q.min_price) : undefined;
+    const max_price = q.max_price ? Number(q.max_price) : undefined;
     const data = await listingsService.getListingsByPage(
       search_keyword,
       page,
-      limit
+      limit,
+      { tag_ids, min_price, max_price }
     );
     return NextResponse.json(data);
   } catch (err) {

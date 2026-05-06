@@ -85,15 +85,26 @@ export async function deleteCatalogue(id) {
 export async function listCatalogueItems(catalogueId) {
   const r = await query(
     `SELECT ci.id, ci.sku_id, ci.sort_order, ci.moq, ci.display_price,
-            l.description, l.img_hd, l.img_white, l.available_quantity, l.bulk_price
+            l.description, l.img_hd, l.img_white, l.available_quantity, l.bulk_price,
+            COALESCE(
+              json_agg(
+                json_build_object('id', st.id, 'name', st.name, 'tag_type', st.tag_type)
+              ) FILTER (WHERE st.id IS NOT NULL),
+              '[]'::json
+            ) AS tags
      FROM catalogue_items ci
      JOIN listings l ON l.sku_id = ci.sku_id
+     LEFT JOIN sku_tag_assignments sta ON sta.sku_id = ci.sku_id
+     LEFT JOIN sku_tags st ON st.id = sta.tag_id
      WHERE ci.catalogue_id = $1
+     GROUP BY ci.id, ci.sku_id, ci.sort_order, ci.moq, ci.display_price,
+              l.description, l.img_hd, l.img_white, l.available_quantity, l.bulk_price
      ORDER BY ci.sort_order ASC, ci.id ASC`,
     [catalogueId]
   );
   return r.rows.map((row) => ({
     ...row,
+    tags: row.tags ?? [],
     display_price:
       row.display_price != null
         ? Number(row.display_price)

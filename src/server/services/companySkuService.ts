@@ -1,5 +1,6 @@
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { insertLog } from "@/server/services/secondaryListingsLogsService";
 
 export type CompanyAssociationDetail = {
   relation_id: number;
@@ -120,6 +121,7 @@ export async function associateCompany(input: {
   secondary_sku: string;
   company_id: number;
   company_code_primary: string;
+  createdBy?: string;
 }) {
   const secondary_sku = String(input.secondary_sku ?? "").trim().slice(0, 200);
   const company_id = Number(input.company_id);
@@ -158,6 +160,17 @@ export async function associateCompany(input: {
   const company_name =
     nameR.rows[0]?.name != null ? String(nameR.rows[0].name) : "";
 
+  if (input.createdBy) {
+    await insertLog({
+      secondary_sku,
+      company_id,
+      operation: "CREATE_ASSOCIATION",
+      field_name: "company_code_primary",
+      new_value: { company_id, company_code_primary },
+      created_by: input.createdBy,
+    });
+  }
+
   return {
     id,
     secondary_sku,
@@ -171,7 +184,7 @@ export async function associateCompany(input: {
 
 export async function updateCompanyAssociation(
   relationId: number,
-  input: { company_code_primary: string }
+  input: { company_code_primary: string; createdBy?: string }
 ) {
   const id = Number(relationId);
   if (!Number.isFinite(id) || id <= 0)
@@ -193,6 +206,12 @@ export async function updateCompanyAssociation(
   const secondary_sku = String(row.secondary_sku);
   const company_id = Number(row.company_id);
 
+  const oldCodeR = await query(
+    `SELECT company_code_primary FROM company_secondary_sku WHERE id = $1`,
+    [id]
+  );
+  const old_code = oldCodeR.rows[0]?.company_code_primary ?? null;
+
   const upd = await query(
     `UPDATE company_secondary_sku
      SET company_code_primary = $1, updated_at = NOW()
@@ -209,6 +228,18 @@ export async function updateCompanyAssociation(
   const company_name =
     nameR.rows[0]?.name != null ? String(nameR.rows[0].name) : "";
 
+  if (input.createdBy) {
+    await insertLog({
+      secondary_sku,
+      company_id,
+      operation: "UPDATE_CODE",
+      field_name: "company_code_primary",
+      old_value: { company_code_primary: old_code },
+      new_value: { company_code_primary },
+      created_by: input.createdBy,
+    });
+  }
+
   return {
     id: Number(upd.rows[0].id),
     secondary_sku,
@@ -220,19 +251,32 @@ export async function updateCompanyAssociation(
   };
 }
 
-export async function deleteCompanyAssociation(relationId: number) {
+export async function deleteCompanyAssociation(relationId: number, createdBy?: string) {
   const id = Number(relationId);
   if (!Number.isFinite(id) || id <= 0)
     throw new AppError("Invalid association id", 400);
 
-  const sel = await query(
-    `DELETE FROM company_secondary_sku WHERE id = $1 RETURNING secondary_sku`,
+  const before = await query(
+    `SELECT secondary_sku, company_id, company_code_primary FROM company_secondary_sku WHERE id = $1`,
     [id]
   );
-  if (sel.rows.length === 0) throw new AppError("Association not found", 404);
+  if (before.rows.length === 0) throw new AppError("Association not found", 404);
 
-  const secondary_sku = String(sel.rows[0].secondary_sku);
-  await rebuildCompanyDetailsJsonSnapshot(secondary_sku);
+  const { secondary_sku, company_id, company_code_primary } = before.rows[0];
+
+  await query(`DELETE FROM company_secondary_sku WHERE id = $1`, [id]);
+  await rebuildCompanyDetailsJsonSnapshot(String(secondary_sku));
+
+  if (createdBy) {
+    await insertLog({
+      secondary_sku: String(secondary_sku),
+      company_id: Number(company_id),
+      operation: "DELETE_ASSOCIATION",
+      old_value: { company_id: Number(company_id), company_code_primary },
+      created_by: createdBy,
+    });
+  }
+
   return { ok: true as const };
 }
 
@@ -244,6 +288,7 @@ export async function upsertCompanyAssociation(input: {
   secondary_sku: string;
   company_id: number;
   company_code_primary: string;
+  createdBy?: string;
 }) {
   const secondary_sku = String(input.secondary_sku ?? "").trim().slice(0, 200);
   const company_id = Number(input.company_id);
@@ -270,6 +315,17 @@ export async function upsertCompanyAssociation(input: {
   const nameR = await query(`SELECT name FROM companies WHERE id = $1 LIMIT 1`, [company_id]);
   const company_name = nameR.rows[0]?.name != null ? String(nameR.rows[0].name) : "";
 
+  if (input.createdBy) {
+    await insertLog({
+      secondary_sku,
+      company_id,
+      operation: "UPDATE_CODE",
+      field_name: "company_code_primary",
+      new_value: { company_id, company_code_primary },
+      created_by: input.createdBy,
+    });
+  }
+
   return {
     id: Number(upsert.rows[0].id),
     secondary_sku,
@@ -288,12 +344,19 @@ export async function upsertCompanyAssociation(input: {
 export async function deleteCompanyBySkuAndCompany(input: {
   secondary_sku: string;
   company_id: number;
+  createdBy?: string;
 }) {
   const secondary_sku = String(input.secondary_sku ?? "").trim();
   const company_id = Number(input.company_id);
 
   if (!secondary_sku) throw new AppError("secondary_sku is required", 400);
   if (!Number.isFinite(company_id)) throw new AppError("company_id is required", 400);
+
+  const beforeDel = await query(
+    `SELECT company_code_primary FROM company_secondary_sku WHERE secondary_sku = $1 AND company_id = $2`,
+    [secondary_sku, company_id]
+  );
+  const old_code = beforeDel.rows[0]?.company_code_primary ?? null;
 
   const del = await query(
     `DELETE FROM company_secondary_sku WHERE secondary_sku = $1 AND company_id = $2 RETURNING id`,
@@ -317,6 +380,17 @@ export async function deleteCompanyBySkuAndCompany(input: {
   } else {
     await rebuildCompanyDetailsJsonSnapshot(secondary_sku);
   }
+
+  if (input.createdBy) {
+    await insertLog({
+      secondary_sku,
+      company_id,
+      operation: "DELETE_ASSOCIATION",
+      old_value: { company_id, company_code_primary: old_code },
+      created_by: input.createdBy,
+    });
+  }
+
   return { ok: true as const };
 }
 

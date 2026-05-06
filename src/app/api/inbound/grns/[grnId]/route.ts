@@ -25,7 +25,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { grnId } = await context.params;
     const body = (await request.json()) as Record<string, unknown>;
 
-    const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status"] as const;
+    const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by"] as const;
     const fields: Record<string, string | null> = {};
     for (const key of allowed) {
       if (key in body) {

@@ -61,6 +61,7 @@ const moreLinks = [
   { href: "/vendors", label: "Vendors" },
   { href: "/warehouses", label: "Warehouses" },
   { href: "/bins", label: "Bins" },
+  { href: "/reorder", label: "Reorder alerts" },
   { href: "/forms", label: "Forms" },
   { href: "/purchase-orders", label: "Purchase orders" },
   { href: "/warehouse-inventory", label: "Warehouse inventory log" },

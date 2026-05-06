@@ -2,6 +2,7 @@
 import { query } from '@/server/db';
 import { AppError } from '@/server/errors';
 import * as companySkuService from '@/server/services/companySkuService';
+import { insertLog } from '@/server/services/secondaryListingsLogsService';
 
 function jsonbCompanyDetails(row) {
   const v = row?.company_details;
@@ -433,7 +434,8 @@ export async function getSkuWiseDetails(secondarySku) {
  */
 export async function updateLabelsData(
   secondarySku,
-  fields
+  fields,
+  createdBy?: string
 ) {
   const secondary_sku = String(secondarySku ?? '').trim();
   if (!secondary_sku) throw new AppError('secondary_sku is required', 400);
@@ -459,6 +461,12 @@ export async function updateLabelsData(
   if (!Number.isFinite(patch.mrp)) throw new AppError('mrp must be a valid number', 400);
   if (!patch.material) throw new AppError('material is required', 400);
 
+  const oldR = await query(
+    `SELECT labels_data FROM secondary_listings WHERE secondary_sku = $1`,
+    [secondary_sku]
+  );
+  const old_labels = oldR.rows[0]?.labels_data ?? null;
+
   const r = await query(
     `UPDATE secondary_listings
      SET labels_data = COALESCE(labels_data, '{}'::jsonb) || $1::jsonb
@@ -470,5 +478,17 @@ export async function updateLabelsData(
     throw new AppError('Secondary SKU not found', 404);
   }
   const labels_data = jsonbLabelsData(r.rows[0]);
+
+  if (createdBy) {
+    await insertLog({
+      secondary_sku,
+      operation: 'UPDATE_LABELS',
+      field_name: 'labels_data',
+      old_value: old_labels,
+      new_value: patch,
+      created_by: createdBy,
+    });
+  }
+
   return { secondary_sku_labels_data: labels_data };
 }

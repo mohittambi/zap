@@ -64,14 +64,44 @@ export async function getListingBySku(skuId) {
   };
 }
 
-export async function getListingsByPage(searchKeyword, page, count) {
+export async function getListingsByPage(
+  searchKeyword,
+  page,
+  count,
+  filters?: { tag_ids?: number[]; min_price?: number; max_price?: number }
+) {
   const offset = (page - 1) * count;
-  let whereClause = '';
-  const params = [];
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
   if (searchKeyword) {
     params.push(`%${searchKeyword}%`);
-    whereClause = `WHERE sku_id ILIKE $1 OR description ILIKE $1 OR keyword_pool ILIKE $1 OR category ILIKE $1`;
+    conditions.push(
+      `(sku_id ILIKE $${params.length} OR description ILIKE $${params.length} OR keyword_pool ILIKE $${params.length} OR category ILIKE $${params.length})`
+    );
   }
+  if (filters?.min_price != null) {
+    params.push(filters.min_price);
+    conditions.push(`bulk_price >= $${params.length}`);
+  }
+  if (filters?.max_price != null) {
+    params.push(filters.max_price);
+    conditions.push(`bulk_price <= $${params.length}`);
+  }
+  if (filters?.tag_ids && filters.tag_ids.length > 0) {
+    const tagIdsIdx = params.length + 1;
+    const tagCountIdx = params.length + 2;
+    params.push(filters.tag_ids, filters.tag_ids.length);
+    conditions.push(
+      `sku_id IN (
+        SELECT sku_id FROM sku_tag_assignments
+        WHERE tag_id = ANY($${tagIdsIdx})
+        GROUP BY sku_id HAVING COUNT(DISTINCT tag_id) = $${tagCountIdx}
+      )`
+    );
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const countResult = await query(
     `SELECT COUNT(*)::int AS total FROM listings ${whereClause}`,
@@ -82,13 +112,12 @@ export async function getListingsByPage(searchKeyword, page, count) {
   const limitParam = params.length + 1;
   const offsetParam = params.length + 2;
   const listParams = [...params, count, offset];
-  const listWhere = params.length ? 'WHERE sku_id ILIKE $1 OR description ILIKE $1 OR keyword_pool ILIKE $1 OR category ILIKE $1' : '';
   const listQuery = `SELECT id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
      inventory_bypass_on, ops_tag, category, description, meta_fields,
      img_hd, img_white, img_wdim, img_link1, img_link2, no_of_constituents,
      actual_weight, dimension, bulk_price, keyword_pool, material_info,
      available_quantity, raw_created_at, raw_updated_at
-     FROM listings ${listWhere}
+     FROM listings ${whereClause}
      ORDER BY id LIMIT $${limitParam} OFFSET $${offsetParam}`;
 
   const listResult = await query(listQuery, listParams);

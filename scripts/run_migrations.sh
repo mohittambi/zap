@@ -75,7 +75,14 @@ for f in migrations/001_create_warehouses.sql \
          migrations/042_zap_file_storage_paths.sql \
          migrations/043_outbound_consignment_details.sql \
          migrations/044_outbound_po_logs.sql \
-         migrations/045_business_roles_and_permissions.sql; do
+         migrations/045_business_roles_and_permissions.sql \
+         migrations/046_create_sku_tags.sql \
+         migrations/047_reorder_system.sql \
+         migrations/048_sheets_sync_log.sql \
+         migrations/049_grn_debit_notes.sql \
+         migrations/050_grn_accounts_and_inventory.sql \
+         migrations/051_secondary_listings_logs.sql \
+         migrations/052_secondary_listings_manage_permission.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

@@ -33,7 +33,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { Download, FileText, PanelRightOpen } from "lucide-react";
+import { AlertTriangle, Download, FileText, PanelRightOpen } from "lucide-react";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,6 +47,12 @@ type GrnHeader = {
   grn_audit_by: string | null;
   grn_invoice_collection_status: string | null;
   grn_invoice_collection_by: string | null;
+  accounts_status: string | null;
+  accounts_by: string | null;
+  accounts_at: string | null;
+  inventory_receipt_status: string | null;
+  inventory_receipt_by: string | null;
+  inventory_receipt_at: string | null;
   vendor_invoice_number: string | null;
   box_count_invoice: number;
   actual_box_count_recieved: number;
@@ -173,6 +179,45 @@ type GrnDetailsBundle = {
   grn_logs: GrnLogRow[];
   added_items: LineRow[];
   grn_items: LineRow[];
+};
+
+type AuditLine = {
+  line_index: number;
+  sku_id: string | null;
+  sku_description: string | null;
+  quantity: number;
+  vendor_price: number;
+  audit_price: number;
+  price_diff: number;
+  debit_amount: number;
+  has_discrepancy: boolean;
+};
+
+type DebitNoteLine = {
+  id: number;
+  line_index: number;
+  sku_id: string | null;
+  sku_description: string | null;
+  quantity: number;
+  vendor_price: number;
+  audit_price: number;
+  price_diff: number;
+  debit_amount: number;
+};
+
+type ZapDebitNote = {
+  id: number;
+  grn_id: number;
+  note_reference: string;
+  vendor_name: string | null;
+  po_id: number | null;
+  total_debit_amount: number;
+  line_count: number;
+  status: "DRAFT" | "ISSUED" | "EXPORTED";
+  generated_by: string | null;
+  generated_at: string;
+  exported_at: string | null;
+  lines: DebitNoteLine[];
 };
 
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
@@ -1284,9 +1329,112 @@ export default function InboundGrnDetailPage() {
   const [grnSkuSelectedLine, setGrnSkuSelectedLine] =
     React.useState<LineRow | null>(null);
 
+  // Audit & debit note tab state
+  const [auditLines, setAuditLines] = React.useState<AuditLine[] | null>(null);
+  const [auditLoading, setAuditLoading] = React.useState(false);
+  const [debitNote, setDebitNote] = React.useState<ZapDebitNote | null>(null);
+  const [debitNoteLoading, setDebitNoteLoading] = React.useState(false);
+  const [generatingNote, setGeneratingNote] = React.useState(false);
+
+  function loadAuditPreview(grnId: number) {
+    if (auditLoading) return;
+    setAuditLoading(true);
+    apiFetch<{ lines: AuditLine[] }>(`/api/inbound/grns/${grnId}/debit-note?preview=1`)
+      .then((d) => setAuditLines(d.lines ?? []))
+      .catch(() => toast.error("Failed to load audit price preview"))
+      .finally(() => setAuditLoading(false));
+  }
+
+  function loadDebitNote(grnId: number) {
+    setDebitNoteLoading(true);
+    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`)
+      .then((note) => setDebitNote(note))
+      .catch(() => {}) // 404 = no debit note yet; silently ignore
+      .finally(() => setDebitNoteLoading(false));
+  }
+
+  function handleGenerateDebitNote(grnId: number) {
+    setGeneratingNote(true);
+    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`, { method: "POST" })
+      .then((note) => {
+        setDebitNote(note);
+        toast.success("Debit note generated");
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to generate debit note"))
+      .finally(() => setGeneratingNote(false));
+  }
+
+  function handleExportTally(grnId: number) {
+    const token = getStoredToken();
+    const url = apiUrl(`/api/inbound/grns/${grnId}/debit-note/export`);
+    const a = document.createElement("a");
+    a.href = token ? `${url}?token=${encodeURIComponent(token)}` : url;
+    a.download = "";
+    a.click();
+    // Mark note as exported locally
+    if (debitNote) setDebitNote({ ...debitNote, status: "EXPORTED" });
+  }
+
   function openGrnSkuSheet(line: LineRow) {
     setGrnSkuSelectedLine(line);
     setGrnSkuSheetOpen(true);
+  }
+
+  // Accounts + Inventory receipt tab state
+  const [accountsSubmitting, setAccountsSubmitting] = React.useState(false);
+  const [receiptItems, setReceiptItems] = React.useState<
+    { sku_id: string; sku_description: string; accepted_qty: number; bin_id: string; quantity: string }[]
+  >([]);
+  const [receiptSubmitting, setReceiptSubmitting] = React.useState(false);
+  const [receiptDone, setReceiptDone] = React.useState<{ sku_id: string; bin_id: string; new_quantity: number }[] | null>(null);
+
+  function initReceiptItems(grnItems: LineRow[]) {
+    if (receiptItems.length > 0) return;
+    const items = grnItems.map((line) => {
+      const raw = line.raw ?? {};
+      const skuId = line.sku_id ?? String(raw.sku_id ?? raw.skuId ?? "");
+      const desc = String(raw.title ?? raw.name ?? raw.description ?? raw.sku_name ?? "");
+      const qty = Number(raw.accepted_quantity ?? raw.acceptedQuantity ?? raw.current_grn_accepted_quantity ?? 0);
+      return { sku_id: skuId, sku_description: desc, accepted_qty: qty, bin_id: "", quantity: String(qty) };
+    }).filter((i) => i.sku_id);
+    setReceiptItems(items);
+  }
+
+  function handleAccountsAction(grnId: number, action: "APPROVED" | "REJECTED") {
+    setAccountsSubmitting(true);
+    apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ accounts_status: action, accounts_by: "" }),
+    })
+      .then((updated) => {
+        if (bundle) setBundle({ ...bundle, header: updated });
+        toast.success(action === "APPROVED" ? "Accounts approved" : "Accounts rejected");
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Action failed"))
+      .finally(() => setAccountsSubmitting(false));
+  }
+
+  function handleReceiveInventory(grnId: number) {
+    const payload = receiptItems
+      .filter((i) => i.bin_id.trim() && Number(i.quantity) > 0)
+      .map((i) => ({ sku_id: i.sku_id, bin_id: i.bin_id.trim(), quantity: Number(i.quantity) }));
+    if (payload.length === 0) {
+      toast.error("Enter at least one bin ID and quantity");
+      return;
+    }
+    setReceiptSubmitting(true);
+    apiFetch<{ ok: boolean; results: { sku_id: string; bin_id: string; new_quantity: number }[] }>(
+      `/api/inbound/grns/${grnId}/receive-inventory`,
+      { method: "POST", body: JSON.stringify({ items: payload }) }
+    )
+      .then((res) => {
+        setReceiptDone(res.results);
+        // Refresh header to show inventory_receipt_status=DONE
+        return apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}`);
+      })
+      .then((updated) => { if (bundle) setBundle({ ...bundle, header: updated }); })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to book inventory"))
+      .finally(() => setReceiptSubmitting(false));
   }
 
   return (
@@ -1368,6 +1516,21 @@ export default function InboundGrnDetailPage() {
               <TabsTrigger value="details">GRN Details</TabsTrigger>
               <TabsTrigger value="documents">GRN Documents</TabsTrigger>
               <TabsTrigger value="logs">GRN Logs</TabsTrigger>
+              <TabsTrigger
+                value="audit"
+                onClick={() => {
+                  if (!auditLines && row) { loadAuditPreview(row.grn_id); loadDebitNote(row.grn_id); }
+                }}
+              >
+                Audit &amp; Debit Note
+              </TabsTrigger>
+              <TabsTrigger value="accounts">Accounts</TabsTrigger>
+              <TabsTrigger
+                value="inventory"
+                onClick={() => { if (bundle && receiptItems.length === 0) initReceiptItems(bundle.grn_items); }}
+              >
+                Inventory Receipt
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="mt-4 space-y-6">
@@ -2279,6 +2442,391 @@ export default function InboundGrnDetailPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* ── Audit & Debit Note ─────────────────────────────────────────────── */}
+            <TabsContent value="audit" className="mt-4 space-y-6">
+              <Card className="overflow-hidden border-primary/15 shadow-sm">
+                <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
+                  <CardTitle className="text-base">Price audit — vendor vs. audit price</CardTitle>
+                  <CardDescription>
+                    Compares the vendor&apos;s received_price with the admin-approved audit_price (excl. GST)
+                    per accepted line item. Lines where the vendor price exceeds the audit price are
+                    eligible for a debit note.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {auditLoading ? (
+                    <Skeleton className="h-40 w-full" />
+                  ) : auditLines && auditLines.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">#</TableHead>
+                          <TableHead className="text-xs">SKU</TableHead>
+                          <TableHead className="text-xs">Description</TableHead>
+                          <TableHead className="text-right text-xs">Accepted Qty</TableHead>
+                          <TableHead className="text-right text-xs">Vendor Price</TableHead>
+                          <TableHead className="text-right text-xs">Audit Price</TableHead>
+                          <TableHead className="text-right text-xs">Diff/unit</TableHead>
+                          <TableHead className="text-right text-xs">Debit Amt</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {auditLines.map((l) => (
+                          <TableRow
+                            key={l.line_index}
+                            className={l.has_discrepancy ? "bg-red-50 dark:bg-red-950/20" : undefined}
+                          >
+                            <TableCell className="font-mono text-xs">{l.line_index}</TableCell>
+                            <TableCell className="font-mono text-xs">{l.sku_id ?? "—"}</TableCell>
+                            <TableCell className="max-w-[180px] truncate text-xs">{l.sku_description || "—"}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">{Number(l.quantity).toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.vendor_price) > 0 ? `₹${Number(l.vendor_price).toFixed(4)}` : "—"}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.audit_price) > 0 ? `₹${Number(l.audit_price).toFixed(4)}` : "—"}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-right font-mono text-xs tabular-nums font-semibold",
+                              l.has_discrepancy ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
+                            )}>
+                              {l.has_discrepancy ? `+₹${Number(l.price_diff).toFixed(4)}` : "✓"}
+                            </TableCell>
+                            <TableCell className={cn(
+                              "text-right font-mono text-xs tabular-nums",
+                              l.has_discrepancy ? "font-semibold text-red-600 dark:text-red-400" : ""
+                            )}>
+                              {l.has_discrepancy ? `₹${Number(l.debit_amount).toFixed(2)}` : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : auditLines && auditLines.length === 0 ? (
+                    <p className="text-muted-foreground py-8 text-center text-sm">
+                      No line items found. Refresh GRN details from eAutomate first.
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground py-8 text-center text-sm">
+                      Click the &ldquo;Audit &amp; Debit Note&rdquo; tab to load price data.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Debit note section */}
+              <Card className="overflow-hidden border-amber-200 shadow-sm dark:border-amber-800">
+                <CardHeader className="border-b bg-gradient-to-r from-amber-50/80 via-muted/20 to-transparent pb-4 dark:from-amber-950/30">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        Debit note
+                      </CardTitle>
+                      <CardDescription>
+                        Auto-generated from lines where vendor overcharged. Export as Tally-compatible CSV.
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={generatingNote || !row}
+                        onClick={() => row && handleGenerateDebitNote(row.grn_id)}
+                      >
+                        {generatingNote ? "Generating…" : debitNote ? "Regenerate" : "Generate debit note"}
+                      </Button>
+                      {debitNote ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => row && handleExportTally(row.grn_id)}
+                        >
+                          <Download className="mr-1 h-4 w-4" />
+                          Export for Tally
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {debitNoteLoading ? (
+                  <CardContent className="pt-4"><Skeleton className="h-24 w-full" /></CardContent>
+                ) : debitNote ? (
+                  <CardContent className="space-y-4 pt-4">
+                    <dl className="grid gap-2 sm:grid-cols-3">
+                      <div className="space-y-0.5">
+                        <dt className="text-muted-foreground text-xs">Reference</dt>
+                        <dd className="font-mono text-sm font-semibold">{debitNote.note_reference}</dd>
+                      </div>
+                      <div className="space-y-0.5">
+                        <dt className="text-muted-foreground text-xs">Total debit amount</dt>
+                        <dd className="font-mono text-sm font-semibold text-red-600 dark:text-red-400">
+                          ₹{Number(debitNote.total_debit_amount).toFixed(2)}
+                        </dd>
+                      </div>
+                      <div className="space-y-0.5">
+                        <dt className="text-muted-foreground text-xs">Status</dt>
+                        <dd>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-xs",
+                              debitNote.status === "EXPORTED"
+                                ? "border-green-500 text-green-600"
+                                : debitNote.status === "ISSUED"
+                                ? "border-blue-500 text-blue-600"
+                                : "border-amber-500 text-amber-600"
+                            )}
+                          >
+                            {debitNote.status}
+                          </Badge>
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">SKU</TableHead>
+                          <TableHead className="text-xs">Description</TableHead>
+                          <TableHead className="text-right text-xs">Qty</TableHead>
+                          <TableHead className="text-right text-xs">Vendor ₹</TableHead>
+                          <TableHead className="text-right text-xs">Audit ₹</TableHead>
+                          <TableHead className="text-right text-xs">Diff ₹</TableHead>
+                          <TableHead className="text-right text-xs">Debit Amt</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {debitNote.lines.map((l) => (
+                          <TableRow key={l.line_index}>
+                            <TableCell className="font-mono text-xs">{l.sku_id ?? "—"}</TableCell>
+                            <TableCell className="max-w-[160px] truncate text-xs">{l.sku_description || "—"}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">{Number(l.quantity).toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">₹{Number(l.vendor_price).toFixed(4)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">₹{Number(l.audit_price).toFixed(4)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums text-red-600 dark:text-red-400">
+                              +₹{Number(l.price_diff).toFixed(4)}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums font-semibold text-red-600 dark:text-red-400">
+                              ₹{Number(l.debit_amount).toFixed(2)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="bg-muted/40 font-semibold">
+                          <TableCell colSpan={6} className="text-right text-xs">Total</TableCell>
+                          <TableCell className="text-right font-mono text-xs tabular-nums text-red-600 dark:text-red-400">
+                            ₹{Number(debitNote.total_debit_amount).toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+
+                    {debitNote.exported_at ? (
+                      <p className="text-muted-foreground text-xs">
+                        Last exported {formatDisplayDateTime(debitNote.exported_at)} by {debitNote.generated_by ?? "unknown"}
+                      </p>
+                    ) : null}
+                  </CardContent>
+                ) : (
+                  <CardContent className="py-8 text-center">
+                    <p className="text-muted-foreground text-sm">
+                      No debit note generated yet. Click &ldquo;Generate debit note&rdquo; to create one from price discrepancies.
+                    </p>
+                  </CardContent>
+                )}
+              </Card>
+            </TabsContent>
+
+            {/* ── Accounts approval ───────────────────────────────────────────── */}
+            <TabsContent value="accounts" className="mt-4 space-y-4">
+              <Card className="overflow-hidden border-primary/15 shadow-sm">
+                <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
+                  <CardTitle className="text-base">Accounts approval</CardTitle>
+                  <CardDescription>
+                    Accounts team reviews the GRN and debit note before inventory is booked.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 pt-6">
+                  <dl className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-0.5">
+                      <dt className="text-muted-foreground text-xs">Status</dt>
+                      <dd>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-xs font-semibold",
+                            row?.accounts_status === "APPROVED"
+                              ? "border-green-500 text-green-600 dark:text-green-400"
+                              : row?.accounts_status === "REJECTED"
+                              ? "border-red-500 text-red-600 dark:text-red-400"
+                              : "border-slate-400 text-slate-500"
+                          )}
+                        >
+                          {row?.accounts_status ?? "PENDING"}
+                        </Badge>
+                      </dd>
+                    </div>
+                    <div className="space-y-0.5">
+                      <dt className="text-muted-foreground text-xs">Actioned by</dt>
+                      <dd className="text-sm">{row?.accounts_by ?? "—"}</dd>
+                    </div>
+                    <div className="space-y-0.5">
+                      <dt className="text-muted-foreground text-xs">At</dt>
+                      <dd className="text-sm">
+                        {row?.accounts_at ? formatDisplayDateTime(row.accounts_at) : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {row?.accounts_status !== "APPROVED" && row?.accounts_status !== "REJECTED" ? (
+                    <div className="flex gap-3">
+                      <Button
+                        size="sm"
+                        disabled={accountsSubmitting || !row}
+                        onClick={() => row && handleAccountsAction(row.grn_id, "APPROVED")}
+                        className="bg-green-600 text-white hover:bg-green-700"
+                      >
+                        {accountsSubmitting ? "Saving…" : "Approve"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={accountsSubmitting || !row}
+                        onClick={() => row && handleAccountsAction(row.grn_id, "REJECTED")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">
+                      {row?.accounts_status === "APPROVED"
+                        ? "GRN is approved by accounts. Proceed to Inventory Receipt tab."
+                        : "GRN was rejected by accounts."}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Inventory receipt ───────────────────────────────────────────── */}
+            <TabsContent value="inventory" className="mt-4 space-y-4">
+              <Card className="overflow-hidden border-primary/15 shadow-sm">
+                <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base">Inventory receipt</CardTitle>
+                      <CardDescription>
+                        Map each accepted SKU to a target bin and book quantities into the warehouse.
+                        Accounts approval is required first.
+                      </CardDescription>
+                    </div>
+                    {row?.inventory_receipt_status === "DONE" ? (
+                      <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">
+                        Received {row.inventory_receipt_at ? formatDisplayDateTime(row.inventory_receipt_at) : ""}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  {row?.accounts_status !== "APPROVED" ? (
+                    <p className="text-muted-foreground py-8 text-center text-sm">
+                      Accounts must approve this GRN before inventory can be booked.
+                    </p>
+                  ) : receiptDone ? (
+                    <div className="space-y-3">
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        Inventory booked successfully.
+                      </p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">SKU</TableHead>
+                            <TableHead className="text-xs">Bin</TableHead>
+                            <TableHead className="text-right text-xs">New Qty</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {receiptDone.map((r) => (
+                            <TableRow key={`${r.sku_id}-${r.bin_id}`}>
+                              <TableCell className="font-mono text-xs">{r.sku_id}</TableCell>
+                              <TableCell className="font-mono text-xs">{r.bin_id}</TableCell>
+                              <TableCell className="text-right font-mono text-xs tabular-nums">{r.new_quantity}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : receiptItems.length === 0 ? (
+                    <p className="text-muted-foreground py-8 text-center text-sm">
+                      No GRN line items found. Refresh details from eAutomate first.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-xs">SKU</TableHead>
+                            <TableHead className="text-xs">Description</TableHead>
+                            <TableHead className="text-right text-xs">Accepted Qty</TableHead>
+                            <TableHead className="text-xs">Target Bin ID</TableHead>
+                            <TableHead className="text-xs w-28">Qty to Book</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {receiptItems.map((item, idx) => (
+                            <TableRow key={item.sku_id + idx}>
+                              <TableCell className="font-mono text-xs">{item.sku_id}</TableCell>
+                              <TableCell className="max-w-[160px] truncate text-xs">{item.sku_description || "—"}</TableCell>
+                              <TableCell className="text-right font-mono text-xs tabular-nums">{item.accepted_qty}</TableCell>
+                              <TableCell>
+                                <input
+                                  type="text"
+                                  placeholder="BIN-001"
+                                  value={item.bin_id}
+                                  onChange={(e) => {
+                                    const next = [...receiptItems];
+                                    next[idx] = { ...next[idx], bin_id: e.target.value };
+                                    setReceiptItems(next);
+                                  }}
+                                  className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={item.accepted_qty}
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const next = [...receiptItems];
+                                    next[idx] = { ...next[idx], quantity: e.target.value };
+                                    setReceiptItems(next);
+                                  }}
+                                  className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      <div className="flex justify-end">
+                        <Button
+                          size="sm"
+                          disabled={receiptSubmitting || !row}
+                          onClick={() => row && handleReceiveInventory(row.grn_id)}
+                        >
+                          {receiptSubmitting ? "Booking…" : "Book to Inventory"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
           </Tabs>
         </>
       ) : null}

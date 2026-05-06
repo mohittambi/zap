@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     const filters = {
       warehouse_id: q.warehouse_id,
       sku_id: q.sku_id,
+      bin_id: q.bin_id,
     };
     const data = await binsService.getBins(filters, page, limit);
     return NextResponse.json(data);

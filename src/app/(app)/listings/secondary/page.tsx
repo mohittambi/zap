@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
 import { skuDisplay, hasRealSku } from "@/lib/sku-display";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Maximize2, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -410,6 +410,12 @@ export default function ListingsSecondaryPage() {
   const [editLabelsMaterial, setEditLabelsMaterial] = React.useState("");
   const [editLabelsSubmitting, setEditLabelsSubmitting] = React.useState(false);
 
+  const [canEdit, setCanEdit] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [historyLogs, setHistoryLogs] = React.useState<Record<string, unknown>[]>([]);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [expandViewOpen, setExpandViewOpen] = React.useState(false);
+
   const [sortKey, setSortKey] = React.useState<SortKey | null>(null);
   const [sortDir, setSortDir] = React.useState<SortDir>("asc");
   const [filterSecondary, setFilterSecondary] = React.useState("");
@@ -603,6 +609,28 @@ export default function ListingsSecondaryPage() {
     filterAvailable,
     filterType,
   ]);
+
+  React.useEffect(() => {
+    void apiFetch<{ allowed: boolean }>("/api/auth/can?resource=secondary_listings&action=manage")
+      .then((r) => setCanEdit(r.allowed))
+      .catch(() => setCanEdit(false));
+  }, []);
+
+  React.useEffect(() => {
+    setHistoryOpen(false);
+    setHistoryLogs([]);
+  }, [selected?.secondary_sku]);
+
+  React.useEffect(() => {
+    if ((!historyOpen && !expandViewOpen) || !selected?.secondary_sku) return;
+    setHistoryLoading(true);
+    void apiFetch<{ logs: Record<string, unknown>[] }>(
+      `/api/inventory/secondary_listings/logs?secondary_sku=${encodeURIComponent(selected.secondary_sku)}`
+    )
+      .then((r) => setHistoryLogs(r.logs ?? []))
+      .catch(() => setHistoryLogs([]))
+      .finally(() => setHistoryLoading(false));
+  }, [historyOpen, expandViewOpen, selected?.secondary_sku]);
 
   React.useEffect(() => {
     const sku = selected?.secondary_sku;
@@ -1023,7 +1051,21 @@ export default function ListingsSecondaryPage() {
           </div>
           <Card className="border-primary/10 shadow-sm flex min-h-0 flex-col overflow-hidden lg:max-h-full lg:flex-1">
             <CardHeader className="shrink-0 pb-2">
-              <CardTitle className="text-base">Preview</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Preview</CardTitle>
+                {selected ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground size-8 shrink-0"
+                    title="Expand view"
+                    onClick={() => setExpandViewOpen(true)}
+                  >
+                    <Maximize2 className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto text-sm">
             {selected ? (
@@ -1181,7 +1223,7 @@ export default function ListingsSecondaryPage() {
                       size="icon"
                       className="text-muted-foreground size-8 shrink-0"
                       title="Labels association"
-                      disabled={!selected.secondary_sku}
+                      disabled={!selected.secondary_sku || !canEdit}
                       onClick={() => {
                         setEditLabelsEan(naToEmpty(labels?.ean_code));
                         setEditLabelsSize(naToEmpty(labels?.size));
@@ -1253,7 +1295,7 @@ export default function ListingsSecondaryPage() {
                       </p>
                       <Button
                         size="sm"
-                        disabled={!selected?.secondary_sku}
+                        disabled={!selected?.secondary_sku || !canEdit}
                         onClick={() => {
                           setEditLabelsEan("");
                           setEditLabelsSize("");
@@ -1275,19 +1317,21 @@ export default function ListingsSecondaryPage() {
                     <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                       Associated companies ({assocCount})
                     </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={!selected.secondary_sku}
-                      onClick={() => {
-                        setAssocCompanyId("");
-                        setAssocCode("");
-                        setAssociateOpen(true);
-                      }}
-                    >
-                      Associate New
-                    </Button>
+                    {canEdit ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={!selected.secondary_sku}
+                        onClick={() => {
+                          setAssocCompanyId("");
+                          setAssocCode("");
+                          setAssociateOpen(true);
+                        }}
+                      >
+                        Associate New
+                      </Button>
+                    ) : null}
                   </div>
                   {companies.length === 0 ? (
                     <p className="text-muted-foreground text-xs">
@@ -1321,7 +1365,7 @@ export default function ListingsSecondaryPage() {
                                 </p>
                               </div>
                             </div>
-                            {c.company_id != null ? (
+                            {c.company_id != null && canEdit ? (
                               <div className="flex shrink-0 gap-0.5">
                                 <Button
                                   type="button"
@@ -1367,6 +1411,61 @@ export default function ListingsSecondaryPage() {
                     </ul>
                   )}
                 </div>
+                <Separator />
+                <div>
+                  <button
+                    type="button"
+                    className="text-muted-foreground flex w-full items-center gap-1 text-left text-xs font-medium uppercase tracking-wide"
+                    onClick={() => setHistoryOpen((o) => !o)}
+                  >
+                    {historyOpen ? (
+                      <ChevronDown className="size-3.5 shrink-0" />
+                    ) : (
+                      <ChevronRight className="size-3.5 shrink-0" />
+                    )}
+                    Change history
+                  </button>
+                  {historyOpen ? (
+                    historyLoading ? (
+                      <Skeleton className="mt-2 h-16 w-full" />
+                    ) : historyLogs.length === 0 ? (
+                      <p className="text-muted-foreground mt-2 text-xs">No history found.</p>
+                    ) : (
+                      <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                        {historyLogs.map((log) => (
+                          <li
+                            key={String(log.id)}
+                            className="rounded-md border p-2 text-xs space-y-0.5"
+                          >
+                            <p className="font-medium">{String(log.operation ?? "")}</p>
+                            {log.field_name ? (
+                              <p className="text-muted-foreground">Field: {String(log.field_name)}</p>
+                            ) : null}
+                            {log.old_value != null ? (
+                              <p className="text-muted-foreground font-mono truncate">
+                                Old: {JSON.stringify(log.old_value)}
+                              </p>
+                            ) : null}
+                            {log.new_value != null ? (
+                              <p className="font-mono truncate">
+                                New: {JSON.stringify(log.new_value)}
+                              </p>
+                            ) : null}
+                            <p className="text-muted-foreground">
+                              {String(log.created_by ?? "")} ·{" "}
+                              {log.created_at
+                                ? new Date(String(log.created_at)).toLocaleString("en-IN", {
+                                    dateStyle: "medium",
+                                    timeStyle: "short",
+                                  })
+                                : "—"}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )
+                  ) : null}
+                </div>
               </>
             ) : (
               <p className="text-muted-foreground">Select a row in the table.</p>
@@ -1375,6 +1474,99 @@ export default function ListingsSecondaryPage() {
           </Card>
         </div>
       </div>
+
+      {/* Expand view: full-screen modal with sidebar content at wider layout */}
+      <Dialog open={expandViewOpen} onOpenChange={setExpandViewOpen}>
+        <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm">
+              {selected?.secondary_sku ?? "Preview"}
+            </DialogTitle>
+          </DialogHeader>
+          {selected && previewDetail ? (
+            <div className="space-y-4 text-sm">
+              {previewDetail.warehouse_secondary_listing ? (
+                <WarehouseListingCard listing={previewDetail.warehouse_secondary_listing} />
+              ) : null}
+              <Separator />
+              <div>
+                <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">Labels</p>
+                {labelsHaveDisplayableData(labels) ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {LABEL_KEYS_ORDER.map((k) => labelLine(k.replaceAll("_", " ").toUpperCase(), labels?.[k]))}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-xs">No labels data.</p>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
+                  Associated companies ({companies.length})
+                </p>
+                {companies.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">No company mapping.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {companies.map((c, idx) => (
+                      <li
+                        key={c.relation_id ?? `${c.company_id ?? "c"}-${idx}`}
+                        className="rounded-md border p-2 text-xs"
+                      >
+                        <p className="font-medium">{c.company_name ?? "—"}</p>
+                        <p className="text-muted-foreground font-mono">
+                          id {c.company_id ?? "—"} · {c.company_code_primary ?? "—"}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Separator />
+              <div>
+                <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
+                  Change history
+                </p>
+                {historyLoading ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : historyLogs.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">No history found.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {historyLogs.map((log) => (
+                      <li key={String(log.id)} className="rounded-md border p-2 text-xs space-y-0.5">
+                        <p className="font-medium">{String(log.operation ?? "")}</p>
+                        {log.field_name ? (
+                          <p className="text-muted-foreground">Field: {String(log.field_name)}</p>
+                        ) : null}
+                        {log.old_value != null ? (
+                          <p className="text-muted-foreground font-mono truncate">
+                            Old: {JSON.stringify(log.old_value)}
+                          </p>
+                        ) : null}
+                        {log.new_value != null ? (
+                          <p className="font-mono truncate">New: {JSON.stringify(log.new_value)}</p>
+                        ) : null}
+                        <p className="text-muted-foreground">
+                          {String(log.created_by ?? "")} ·{" "}
+                          {log.created_at
+                            ? new Date(String(log.created_at)).toLocaleString("en-IN", {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })
+                            : "—"}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">Loading…</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={associateOpen}

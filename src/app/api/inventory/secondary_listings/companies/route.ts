@@ -7,7 +7,7 @@ import * as companySkuService from "@/server/services/companySkuService";
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "company_relations", "write");
+    assertPermission(user, "secondary_listings", "manage");
     const body = await request.json().catch(() => ({}));
     const secondary_sku =
       typeof body.secondary_sku === "string" ? body.secondary_sku.trim() : "";
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       secondary_sku,
       company_id,
       company_code_primary,
+      createdBy: user.email,
     });
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request): Promise<Response> {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "company_relations", "write");
+    assertPermission(user, "secondary_listings", "manage");
     const body = await request.json().catch(() => ({}));
     const secondary_sku =
       typeof body.secondary_sku === "string" ? body.secondary_sku.trim() : "";
@@ -48,6 +49,7 @@ export async function PATCH(request: Request): Promise<Response> {
       secondary_sku,
       company_id,
       company_code_primary,
+      createdBy: user.email,
     });
     return NextResponse.json(data);
   } catch (err) {
@@ -59,7 +61,7 @@ export async function PATCH(request: Request): Promise<Response> {
 export async function DELETE(request: Request): Promise<Response> {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "company_relations", "write");
+    assertPermission(user, "secondary_listings", "manage");
     const body = await request.json().catch(() => ({}));
     const secondary_sku =
       typeof body.secondary_sku === "string" ? body.secondary_sku.trim() : "";
@@ -69,6 +71,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const data = await companySkuService.deleteCompanyBySkuAndCompany({
       secondary_sku,
       company_id,
+      createdBy: user.email,
     });
     return NextResponse.json(data);
   } catch (err) {

@@ -295,7 +295,7 @@ export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId) || grnId === 0) throw new AppError("Invalid grn id", 400);
 
-  const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status"];
+  const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by"];
   const setClauses = [];
   const params = [];
   let idx = 1;
