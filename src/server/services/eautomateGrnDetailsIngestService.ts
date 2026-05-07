@@ -60,7 +60,21 @@ function extractArray(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
   const o = asRecord(data);
   if (!o) return [];
-  for (const k of ["content", "data", "items", "files", "invoice_files", "logs"]) {
+  for (const k of [
+    "content",
+    "data",
+    "items",
+    "files",
+    "invoice_files",
+    "logs",
+    "logList",
+    "grnLogs",
+    "grn_logs",
+    "activity",
+    "records",
+    "rows",
+    "results",
+  ]) {
     const a = o[k];
     if (Array.isArray(a)) return a;
   }
@@ -220,8 +234,8 @@ function mergeGrnHeaderRaw(
 }
 
 /**
- * Ingest eight eautomate GET payloads for a GRN (live header, PO, vendor, invoice files,
- * debit/credit notes, GRN logs, PO added items, GRN line items).
+ * Ingest eautomate GET payloads for a GRN (live header, PO, vendor, invoice files,
+ * debit/credit notes, PO added items, GRN line items). GRN activity logs are written in Zap only.
  */
 export async function ingestGrnDetailsByGrnId(grnId: number): Promise<void> {
   if (!Number.isFinite(grnId) || grnId < 1) {
@@ -253,7 +267,6 @@ export async function ingestGrnDetailsByGrnId(grnId: number): Promise<void> {
     vendorJson,
     invoiceFilesJson,
     debitCreditNotesJson,
-    grnLogsJson,
     addedJson,
     grnItemsJson,
   ] = await Promise.all([
@@ -262,7 +275,6 @@ export async function ingestGrnDetailsByGrnId(grnId: number): Promise<void> {
     fetchEautomateJson(`/vendors/${vendorId}`).catch(() => null),
     fetchEautomateJson(`/purchase_orders/grn/invoice_files/${grnId}`).catch(() => null),
     fetchEautomateJson(`/purchase_orders/grn/debit_credit_notes/${grnId}`).catch(() => null),
-    fetchEautomateJson(`/purchase_orders/grn/logs/${grnId}`).catch(() => null),
     fetchEautomateJson(
       `/purchase_orders/addedItems/withListing/withPendency/${poId}`
     ).catch(() => null),
@@ -566,60 +578,6 @@ export async function ingestGrnDetailsByGrnId(grnId: number): Promise<void> {
           ]
         );
       }
-    }
-
-    await client.query(`DELETE FROM inbound_grn_logs WHERE grn_id = $1`, [grnId]);
-    const logRows = extractArray(grnLogsJson);
-    for (let i = 0; i < logRows.length; i += 1) {
-      const lg = asRecord(logRows[i]);
-      if (!lg) continue;
-      const logId = num(pick(lg, ["id", "log_id", "logId"]), null);
-      if (logId == null) continue;
-
-      const op = str(pick(lg, ["operation_performed", "operationPerformed", "operation"]));
-      const logType = str(pick(lg, ["log_type", "logType", "type"]));
-      const remarks = str(pick(lg, ["remarks", "remark", "message"]));
-      const createdByLog = str(pick(lg, ["created_by", "createdBy"]));
-      const skuLog = str(
-        pick(lg, ["sku_id", "skuId", "SKU_ID", "sku", "secondary_sku_id", "inventory_sku_id"])
-      );
-      const invQty = num(
-        pick(lg, ["invoice_quantity", "invoiceQuantity", "grn_invoice_quantity", "invoiced_quantity"]),
-        null
-      );
-      const accQty = num(pick(lg, ["accepted_quantity", "acceptedQuantity", "grn_accepted_quantity"]), null);
-      const rejQty = num(pick(lg, ["rejected_quantity", "rejectedQuantity", "grn_rejected_quantity"]), null);
-      const recvPrice = num(pick(lg, ["received_price", "receivedPrice", "price", "audit_price"]), null);
-
-      await client.query(
-        `INSERT INTO inbound_grn_logs (
-          grn_id, log_id, line_index, log_type, operation_performed, po_id, vendor_id, foreign_key,
-          sku_id, invoice_quantity, accepted_quantity, rejected_quantity, received_price,
-          remarks, created_by, created_at, updated_at, raw
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::timestamptz, $17::timestamptz, $18::jsonb
-        )`,
-        [
-          grnId,
-          logId,
-          i,
-          logType,
-          op,
-          num(pick(lg, ["po_id", "poId"]), null),
-          num(pick(lg, ["vendor_id", "vendorId"]), null),
-          num(pick(lg, ["foreign_key", "foreignKey", "grn_id", "grnId"]), null),
-          skuLog,
-          invQty,
-          accQty,
-          rejQty,
-          recvPrice,
-          remarks,
-          createdByLog,
-          parseTimestamptz(pick(lg, ["created_at", "createdAt"])),
-          parseTimestamptz(pick(lg, ["updated_at", "updatedAt"])),
-          lg as object,
-        ]
-      );
     }
 
     await client.query(`DELETE FROM inbound_grn_added_items WHERE grn_id = $1`, [grnId]);

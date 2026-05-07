@@ -89,6 +89,19 @@ function unwrapEntity(raw: unknown): Record<string, unknown> | null {
   return o;
 }
 
+/** Resolve vendor id from eAutomate PO JSON (top-level or nested purchase_order). */
+function vendorIdFromPoPayload(po: Record<string, unknown>): number | null {
+  const top = num(pick(po, ["vendor_id", "vendorId"]), null);
+  if (top != null && top > 0) return top;
+  for (const key of ["purchase_order", "purchaseOrder", "po"] as const) {
+    const nested = asRecord(po[key]);
+    if (!nested) continue;
+    const n = num(pick(nested, ["vendor_id", "vendorId"]), null);
+    if (n != null && n > 0) return n;
+  }
+  return null;
+}
+
 async function fetchEautomateJson(pathSuffix: string): Promise<unknown> {
   if (!eautomateConfigured()) {
     throw new AppError(
@@ -186,28 +199,27 @@ export async function ingestPoDetailsByVendorAndPo(
     throw new AppError("Invalid po id", 400);
   }
 
-  const [vendorJson, listingsJson, skuNamesJson, poJson, addedJson, grnsJson] =
-    await Promise.all([
-      fetchEautomateJson(`/vendors/${vendorId}`).catch(() => null),
-      fetchEautomateJson(`/vendors/listings/${vendorId}`).catch(() => null),
-      fetchEautomateJson(`/listings/sku/names`).catch(() => null),
-      fetchEautomateJson(`/purchase_orders/${poId}`).catch(() => null),
-      fetchEautomateJson(`/purchase_orders/addedItems/withListing/${poId}`).catch(
-        () => null
-      ),
-      fetchEautomateJson(`/purchase_orders/grn/get_by_po_id/${poId}`).catch(
-        () => null
-      ),
-    ]);
+  const [skuNamesJson, poJson, addedJson, grnsJson] = await Promise.all([
+    fetchEautomateJson(`/listings/sku/names`).catch(() => null),
+    fetchEautomateJson(`/purchase_orders/${poId}`).catch(() => null),
+    fetchEautomateJson(`/purchase_orders/addedItems/withListing/${poId}`).catch(
+      () => null
+    ),
+    fetchEautomateJson(`/purchase_orders/grn/get_by_po_id/${poId}`).catch(
+      () => null
+    ),
+  ]);
 
   const po = unwrapEntity(poJson) ?? asRecord(poJson) ?? {};
-  const vidFromPo = num(pick(po, ["vendor_id", "vendorId"]), null);
-  if (vidFromPo != null && vidFromPo !== vendorId) {
-    throw new AppError(
-      `PO ${poId} belongs to vendor ${vidFromPo}, not ${vendorId}`,
-      400
-    );
-  }
+  const vidFromPo = vendorIdFromPoPayload(po);
+  /** eAutomate PO payload is canonical; path vendor may differ (stale links, list drift). */
+  const effectiveVendorId =
+    vidFromPo != null && vidFromPo > 0 ? vidFromPo : vendorId;
+
+  const [vendorJson, listingsJson] = await Promise.all([
+    fetchEautomateJson(`/vendors/${effectiveVendorId}`).catch(() => null),
+    fetchEautomateJson(`/vendors/listings/${effectiveVendorId}`).catch(() => null),
+  ]);
 
   const vendorListingsArr = normalizeVendorListingsPayload(listingsJson);
   const skuNamesArr = normalizeSkuNamesPayload(skuNamesJson);
@@ -241,7 +253,7 @@ export async function ingestPoDetailsByVendorAndPo(
         po_raw = EXCLUDED.po_raw`,
       [
         poId,
-        vendorId,
+        effectiveVendorId,
         toJsonbString(vendorJson ?? {}),
         toJsonbString(vendorListingsArr),
         toJsonbString(skuNamesArr),
@@ -313,10 +325,7 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
     throw new AppError("PO detail not found; run sync or open with refresh=1", 404);
   }
   const snap = snapR.rows[0] as Record<string, unknown>;
-  const snapVendor = Number(snap.vendor_id);
-  if (snapVendor !== vendorId) {
-    throw new AppError("PO detail vendor mismatch", 400);
-  }
+  // Snapshot is keyed by po_id; canonical vendor is snapshot.vendor_id (path vendor may differ).
 
   const linesR = await query(
     `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,

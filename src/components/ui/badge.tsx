@@ -20,6 +20,9 @@ const badgeVariants = cva(
           "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
         processing:
           "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+        open: "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400",
+        wip: "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400",
+        expired: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-400",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         outline:

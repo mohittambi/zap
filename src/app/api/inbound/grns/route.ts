@@ -18,6 +18,9 @@ export async function POST(request: Request) {
       vendorId,
       poId,
       createdBy: user.email,
+      vendorInvoiceNumber: body.vendor_invoice_number,
+      boxCountInvoice: body.box_count_invoice,
+      actualBoxCountReceived: body.actual_box_count_received,
     });
     return NextResponse.json(row, { status: 201 });
   } catch (err) {

@@ -43,6 +43,7 @@ web/docs/
 | [../web/README.md](../README.md) | Web app setup, env, scripts |
 | [../mobile/README.md](../../mobile/README.md) | Zap Ops (React Native) |
 | [../mobile/docs/](../../mobile/docs/) | Mobile UI / design notes |
+| [mobile/inbound-grn-flow-parity.md](mobile/inbound-grn-flow-parity.md) | GRN flow web vs mobile (canonical steps, parity, backlog) |
 | [../docs/eautomate-references.md](../../docs/eautomate-references.md) | Repo-level eAutomate references |
 | [../zap-native-app-plan/](../../zap-native-app-plan/) | Native app planning corpus |
 

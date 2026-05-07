@@ -16,3 +16,27 @@ export function hasRealSku(value: string | null | undefined): boolean {
   const s = String(value).trim();
   return s !== "" && s !== "NA";
 }
+
+/**
+ * Format a percentage value for display.
+ * null/undefined/"NA" → "—", numbers normalised to one decimal place.
+ */
+export function fmtPct(v: number | string | null | undefined): string {
+  if (v == null) return "—";
+  const s = String(v).trim();
+  if (s === "" || s === "NA") return "—";
+  const n = parseFloat(s);
+  if (isNaN(n)) return "—";
+  return `${n % 1 === 0 ? n : n.toFixed(1)}%`;
+}
+
+/**
+ * Format a plain numeric value for display.
+ * null/undefined/"NA" → "—", otherwise String(n).
+ */
+export function fmtNum(v: number | string | null | undefined): string {
+  if (v == null) return "—";
+  const s = String(v).trim();
+  if (s === "" || s === "NA") return "—";
+  return s;
+}

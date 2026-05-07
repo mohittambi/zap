@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusPill } from "@/components/ui/status-pill";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
 
 type Analytics = {
   sku_count?: number;
@@ -93,6 +95,12 @@ function fmtDateTime(d: string | null | undefined): string {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function wipStatus(v: string | null | undefined): string | null {
+  if (v === "YES") return "wip";
+  if (v === "NO") return "open";
+  return v ?? null;
 }
 
 function statusClass(status: string | null | undefined): string {
@@ -378,15 +386,11 @@ export function OutboundPurchaseOrdersTable({
                       <td className="text-muted-foreground px-2 py-1.5">{row.po_type ?? "—"}</td>
                       <td className="px-2 py-1.5">{row.company_name ?? "—"}</td>
                       <td className="px-2 py-1.5">{row.delivery_city ?? "—"}</td>
-                      <td className={`px-2 py-1.5 font-medium ${statusClass(row.calculated_po_status)}`}>
-                        {row.calculated_po_status ?? "—"}
+                      <td className="px-2 py-1.5">
+                        <StatusPill status={row.calculated_po_status} />
                       </td>
-                      <td
-                        className={`px-2 py-1.5 font-medium ${
-                          row.is_wip === "NO" ? "text-destructive font-bold" : ""
-                        }`}
-                      >
-                        {row.is_wip ?? "—"}
+                      <td className="px-2 py-1.5">
+                        <StatusPill status={wipStatus(row.is_wip)} />
                       </td>
                       <td className="text-muted-foreground max-w-[120px] truncate px-2 py-1.5">
                         {row.remarks || "—"}
@@ -407,10 +411,10 @@ export function OutboundPurchaseOrdersTable({
                         {a.total_pending != null ? String(a.total_pending) : "—"}
                       </td>
                       <td className="px-2 py-1.5">
-                        {a.quantity_fill_rate != null ? `${a.quantity_fill_rate}%` : "—"}
+                        <FillRateBar value={a.quantity_fill_rate} />
                       </td>
                       <td className="px-2 py-1.5">
-                        {a.sku_fill_rate != null ? `${a.sku_fill_rate}%` : "—"}
+                        <FillRateBar value={a.sku_fill_rate} />
                       </td>
                       <td className="px-2 py-1.5">
                         {a.total_consignments != null ? String(a.total_consignments) : "—"}

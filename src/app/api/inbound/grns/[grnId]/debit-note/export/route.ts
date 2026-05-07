@@ -10,6 +10,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { buildTallyCsv, markDebitNoteExported } from "@/server/services/grnDebitNoteService";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
@@ -39,6 +40,17 @@ export async function POST(request: Request, ctx: RouteContext) {
     assertPermission(user, "purchase_orders", "write");
     const { grnId } = await ctx.params;
     const note = await markDebitNoteExported(grnId);
+    const gid = Number(grnId);
+    if (Number.isFinite(gid)) {
+      await appendInboundGrnLogSafe({
+        grnId: gid,
+        logType: "DEBIT_NOTE",
+        operationPerformed: "Debit note marked exported (Tally)",
+        remarks: null,
+        createdBy: user.email,
+        raw: { exported: true },
+      });
+    }
     return Response.json(note, { status: 200 });
   } catch (err) {
     return handleApiError(err);

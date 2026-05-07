@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create database (if missing) and run migrations 001-036 in order.
+# Create database (if missing) and run migrations 001-056 in order.
 # Requires DATABASE_URL (e.g. from .env). Use: npm run migrate
 #
 # Migrations use CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS so
@@ -83,7 +83,10 @@ for f in migrations/001_create_warehouses.sql \
          migrations/050_grn_accounts_and_inventory.sql \
          migrations/051_secondary_listings_logs.sql \
          migrations/052_secondary_listings_manage_permission.sql \
-         migrations/053_grn_close_and_dn_enhancements.sql; do
+         migrations/053_grn_close_and_dn_enhancements.sql \
+         migrations/054_grn_grn_id_on_update_cascade.sql \
+         migrations/055_inbound_zap_debit_notes_status_include_closed.sql \
+         migrations/056_inbound_grn_logs_log_id_seq.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

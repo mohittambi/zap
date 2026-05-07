@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,16 @@ const ACCEPTED_QTY_KEYS = [
   "accepted_quantity", "acceptedQuantity",
   "grn_accepted_quantity", "current_grn_accepted_quantity",
   "currentGrnAcceptedQuantity",
+];
+
+/** PO snapshot lines (inbound_po_detail_lines) may use these for quantity before GRN receipt. */
+const PO_LINE_QTY_FALLBACK_KEYS = [
+  "required_quantity",
+  "requiredQuantity",
+  "quantity",
+  "qty",
+  "ordered_quantity",
+  "orderedQuantity",
 ];
 
 const SKU_KEYS = [
@@ -171,11 +182,87 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
   };
 }
 
+/**
+ * If `inbound_grn_items` is empty, copy lines from `inbound_po_detail_lines` for this GRN’s `po_id`.
+ * Uses only ZAP/Postgres data (seeded or previously synced PO) — no live eAutomate call.
+ * Enables debit-note and preview flows for Zap-created draft GRNs without GRN detail ingest.
+ */
+export async function seedGrnItemsFromPoDetailLinesIfEmpty(
+  grnIdRaw: unknown
+): Promise<number> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) return 0;
+
+  const cnt = await query(
+    `SELECT COUNT(*)::int AS c FROM inbound_grn_items WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (Number(cnt.rows[0]?.c) > 0) return 0;
+
+  const grn = await query(`SELECT po_id FROM inbound_grns WHERE grn_id = $1`, [grnId]);
+  if (grn.rows.length === 0) return 0;
+  const poId = Number(grn.rows[0].po_id);
+  if (!Number.isFinite(poId) || poId < 1) return 0;
+
+  const lines = await query(
+    `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,
+    [poId]
+  );
+  if (lines.rows.length === 0) return 0;
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const row of lines.rows) {
+      const base: JsonRecord = {
+        ...(((row.raw as JsonRecord) ?? {}) as JsonRecord),
+      };
+      if (pickNum(base, ACCEPTED_QTY_KEYS) === 0) {
+        const q = pickNum(base, PO_LINE_QTY_FALLBACK_KEYS);
+        if (q > 0) base.accepted_quantity = q;
+      }
+      if (pickNum(base, RECEIVED_PRICE_KEYS) === 0 && pickNum(base, AUDIT_PRICE_KEYS) === 0) {
+        const listing = base.listing as JsonRecord | undefined;
+        if (listing && typeof listing === "object") {
+          const vp = pickNum(listing, [
+            "vendor_price",
+            "price",
+            "unit_price",
+            "list_price",
+            "received_price",
+          ]);
+          const ap = pickNum(listing, ["audit_price", "cost_price", "landing_price"]);
+          if (vp > 0) base.received_price = vp;
+          if (ap > 0) base.audit_price = ap;
+        }
+      }
+      const rawJson = JSON.stringify(base, (_k, v) =>
+        typeof v === "bigint" ? v.toString() : v
+      );
+      await client.query(
+        `INSERT INTO inbound_grn_items (grn_id, line_index, sku_id, raw)
+         VALUES ($1, $2, $3, $4::jsonb)`,
+        [grnId, row.line_index, row.sku_id, rawJson]
+      );
+    }
+    await client.query("COMMIT");
+    return lines.rows.length;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 // ── Audit preview (read-only) ─────────────────────────────────────────────────
 
 export async function getAuditPreview(grnIdRaw: unknown): Promise<AuditLine[]> {
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  await seedGrnItemsFromPoDetailLinesIfEmpty(grnId);
 
   const res = await query(
     `SELECT line_index, sku_id, raw FROM inbound_grn_items WHERE grn_id = $1 ORDER BY line_index`,
@@ -219,6 +306,8 @@ export async function generateDebitNote(
   if (headerRes.rows.length === 0) throw new AppError(`GRN ${grnId} not found`, 404);
   const header = headerRes.rows[0];
 
+  await seedGrnItemsFromPoDetailLinesIfEmpty(grnId);
+
   const itemRes = await query(
     `SELECT line_index, sku_id, raw FROM inbound_grn_items WHERE grn_id = $1 ORDER BY line_index`,
     [grnId]
@@ -226,7 +315,7 @@ export async function generateDebitNote(
 
   if (itemRes.rows.length === 0) {
     throw new AppError(
-      `GRN ${grnId} has no line items — refresh details from eAutomate first`,
+      `GRN ${grnId} has no line items. Ensure the purchase order has lines in ZAP (open the PO page once if PO data was seeded), or add line items to this GRN.`,
       400
     );
   }
@@ -331,6 +420,20 @@ export async function generateDebitNote(
     }
 
     await client.query("COMMIT");
+    await appendInboundGrnLogSafe({
+      grnId,
+      logType: "DEBIT_NOTE",
+      operationPerformed: "Debit note generated",
+      remarks: `${noteRef} · ${candidateLines.length} line(s) · total ${totalDebit.toFixed(2)}`,
+      poId: header.po_id != null ? Number(header.po_id) : null,
+      vendorId: header.vendor_id != null ? Number(header.vendor_id) : null,
+      createdBy: String(generatedBy).slice(0, 100),
+      raw: {
+        note_reference: noteRef,
+        line_count: candidateLines.length,
+        total_debit: totalDebit,
+      },
+    });
     return fetchNoteById(noteId);
   } catch (err) {
     await client.query("ROLLBACK");
@@ -383,7 +486,16 @@ export async function assignDnNumber(
     [trimmed, assignedBy, grnId]
   );
   if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
-  return fetchNoteById(toNum(res.rows[0].id));
+  const note = await fetchNoteById(toNum(res.rows[0].id));
+  await appendInboundGrnLogSafe({
+    grnId,
+    logType: "DEBIT_NOTE",
+    operationPerformed: "Debit note number assigned",
+    remarks: `DN number: ${trimmed}`,
+    createdBy: String(assignedBy).slice(0, 100),
+    raw: { dn_number: trimmed },
+  });
+  return note;
 }
 
 // ── CN copy upload ────────────────────────────────────────────────────────────
@@ -417,7 +529,16 @@ export async function uploadCnCopy(
     [filePath, fileName, uploadedBy, grnId]
   );
   if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
-  return fetchNoteById(toNum(res.rows[0].id));
+  const note = await fetchNoteById(toNum(res.rows[0].id));
+  await appendInboundGrnLogSafe({
+    grnId,
+    logType: "DEBIT_NOTE",
+    operationPerformed: "Vendor CN copy uploaded; debit note closed",
+    remarks: fileName.slice(0, 500),
+    createdBy: String(uploadedBy).slice(0, 100),
+    raw: { cn_copy_file_name: fileName },
+  });
+  return note;
 }
 
 // ── Explicit demand close ─────────────────────────────────────────────────────
@@ -446,7 +567,16 @@ export async function closeDnDemand(
     [grnId]
   );
   if (res.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
-  return fetchNoteById(toNum(res.rows[0].id));
+  const note = await fetchNoteById(toNum(res.rows[0].id));
+  await appendInboundGrnLogSafe({
+    grnId,
+    logType: "DEBIT_NOTE",
+    operationPerformed: "Debit note demand closed",
+    remarks: null,
+    createdBy: String(_closedBy).slice(0, 100),
+    raw: {},
+  });
+  return note;
 }
 
 // ── Tally CSV export ──────────────────────────────────────────────────────────

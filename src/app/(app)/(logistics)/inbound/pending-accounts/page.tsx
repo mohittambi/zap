@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ListFilter } from "lucide-react";
+import { CircleHelp, ListFilter } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,14 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
   Table,
   TableBody,
@@ -56,6 +64,18 @@ type GrnListResponse = {
   curr_page_count: number;
   content: GrnRow[];
 };
+
+const PENDING_ACCOUNTS_WORKFLOW = `
+flowchart TD
+  openPage["Open this pending list"] --> seeGrns["Each row is one GRN awaiting accounts"]
+  seeGrns --> review["Review vendor invoice and GRN quantities"]
+  review --> decide{"Approve or Reject?"}
+  decide -->|Approve| approved["Accounts approved"]
+  decide -->|Reject| rejected["Accounts rejected"]
+  approved --> booking["Warehouse can book inventory for this GRN"]
+  booking --> doneRow["Row leaves this list"]
+  rejected --> doneRow
+`;
 
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -112,6 +132,8 @@ export default function InboundPendingAccountsPage() {
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [actingId, setActingId] = React.useState<number | null>(null);
+  const [workflowOpen, setWorkflowOpen] = React.useState(false);
+  const [workflowChartMounted, setWorkflowChartMounted] = React.useState(false);
 
   const perPage = 100;
 
@@ -168,10 +190,63 @@ export default function InboundPendingAccountsPage() {
 
   return (
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
-      <AppPageTitle
-        title="Pending Accounts Approval"
-        description="GRNs waiting for accounts approval before inventory can be booked."
-      />
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <AppPageTitle
+          className="mb-0 min-w-0 flex-1"
+          title="Pending Accounts Approval"
+          description="GRNs waiting for accounts approval before inventory can be booked."
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2 self-end sm:self-start sm:mt-1 sm:shrink-0"
+          onClick={() => {
+            setWorkflowOpen(true);
+            setWorkflowChartMounted(true);
+          }}
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden />
+          How this queue works
+        </Button>
+      </div>
+
+      <Sheet
+        open={workflowOpen}
+        onOpenChange={(open) => {
+          setWorkflowOpen(open);
+          if (open) {
+            setWorkflowChartMounted(true);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
+        >
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>How this queue works</SheetTitle>
+            <SheetDescription>
+              Accounts sign-off before inventory booking. Scroll for the diagram.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 p-4">
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              This list shows every goods receipt (GRN) that still needs an accounts decision.
+              Each row is one GRN: use the columns for vendor, invoice, quantities, and audit context.
+              Use <strong className="text-foreground">Approve</strong> when the case is ready for
+              warehouse booking, or <strong className="text-foreground">Reject</strong> when it must
+              go back for correction. Completed rows no longer appear here.
+            </p>
+            {workflowChartMounted ? (
+              <MermaidDiagram
+                chart={PENDING_ACCOUNTS_WORKFLOW}
+                className="w-full overflow-x-auto"
+              />
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-end sm:justify-between">
@@ -217,6 +292,9 @@ export default function InboundPendingAccountsPage() {
             <>
               <p className="text-muted-foreground border-b px-4 py-2 text-sm">
                 Showing {data.curr_page_count} of {data.total} grn(s).
+              </p>
+              <p className="text-muted-foreground border-b bg-muted/30 px-4 py-2 text-xs">
+                Scroll right on the table to reach Approve and Reject.
               </p>
               <div className="overflow-x-auto">
                 <Table>

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { BuildingIcon, MailIcon, PhoneIcon, MapPinIcon, FileTextIcon } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { EditVendorDialog, type VendorRow } from "./edit-vendor-dialog";
 
 function str(v: unknown): string {
   if (v == null) return "";
@@ -52,9 +63,36 @@ function MetaRow({
 
 export default function VendorDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = str(params.id ?? "");
   const [data, setData] = React.useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [editOpen, setEditOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+
+  async function load() {
+    try {
+      const res = await apiFetch<Record<string, unknown>>(
+        `/api/vendors/${encodeURIComponent(id)}`
+      );
+      setData(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Not found");
+    }
+  }
+
+  async function confirmDelete() {
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/vendors/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast.success("Vendor deleted");
+      router.push("/vendors");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+      setDeleting(false);
+    }
+  }
 
   React.useEffect(() => {
     let c = false;
@@ -72,6 +110,11 @@ export default function VendorDetailPage() {
     })();
     return () => { c = true; };
   }, [id]);
+
+  // Refresh data after a successful edit
+  function handleSaved() {
+    void load();
+  }
 
   if (loading) {
     return (
@@ -132,9 +175,17 @@ export default function VendorDetailPage() {
           </div>
           <p className="text-muted-foreground font-mono text-sm">ID: {id}</p>
         </div>
-        <Button asChild variant="outline" size="sm" className="shrink-0">
-          <Link href={`/vendors/${id}/listings`}>View SKUs</Link>
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            Edit
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => setDeleteOpen(true)}>
+            Delete
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/vendors/${id}/listings`}>View SKUs</Link>
+          </Button>
+        </div>
       </div>
 
       {/* Identity metrics */}
@@ -215,6 +266,29 @@ export default function VendorDetailPage() {
           </>
         );
       })()}
+
+      <EditVendorDialog
+        target={editOpen ? (data as VendorRow) : null}
+        onClose={() => setEditOpen(false)}
+        onSaved={handleSaved}
+      />
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{name || `Vendor #${id}`}</strong>. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={deleting} onClick={() => void confirmDelete()}>
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -555,11 +555,11 @@ Note: API may spell `actual_box_count_recieved` (typo); Zap accepts both.
 | | |
 |---|---|
 | **Full URL** | `{base}/public/api/purchase_orders/grn/logs/{grnId}` |
-| **Used by** | `eautomateGrnDetailsIngestService.ts` |
+| **Used by** | _(not used by Zap ingest)_ — GRN activity rows in `inbound_grn_logs` are appended by Zap when users perform actions. |
 | **Query** | _(none)_ |
 | **Body** | _(none)_ |
 
-**Response:** Activity log lines for the GRN; columns ingested align with `inbound_grn_logs` (see migration `032_inbound_grn_logs.sql`).
+**Note:** This endpoint may still exist on eAutomate for reference; Zap does **not** sync its response into Postgres. **Illustrative** response shape (legacy):
 
 **Illustrative log element:**
 

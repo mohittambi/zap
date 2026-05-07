@@ -1,4 +1,5 @@
 -- Clears operational rows populated by eAutomate sync (master script + detail phases).
+-- Also truncates inbound_grn_logs (Zap-written GRN activity; it is not re-synced from eAutomate).
 -- Keeps: users, RBAC, forms, form_submissions, outbound_sold_via (reference seed).
 -- Truncates catalogue_items / focus_list_items that FK listings (CASCADE from listings).
 --

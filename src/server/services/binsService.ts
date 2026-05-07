@@ -186,65 +186,73 @@ export async function getSkuInventorySummary(
   };
 }
 
+/**
+ * Adjust one bin row using an existing transaction (caller runs BEGIN/COMMIT).
+ * Used by GRN receive-inventory to book multiple bins atomically.
+ */
+export async function adjustBinInventoryInTransaction(
+  client,
+  params: AdjustBinInventoryParams
+): Promise<AdjustBinInventoryResult> {
+  const lockResult = await client.query(
+    `SELECT id, warehouse_id, sku_id, bin_id, available_quantity
+     FROM bins WHERE bin_id = $1 AND sku_id = $2 AND is_deleted = false
+     FOR UPDATE`,
+    [params.bin_id.trim(), params.sku_id.trim()]
+  );
+
+  if (lockResult.rows.length === 0) {
+    throw new AppError('Bin not found for the given bin_id and sku_id', 404);
+  }
+
+  const row = lockResult.rows[0];
+  const current: number = Number(row.available_quantity);
+  const new_quantity =
+    params.operation === 'ADD'
+      ? current + params.quantity
+      : current - params.quantity;
+
+  if (new_quantity < 0) {
+    throw new AppError(
+      `REMOVE would result in negative quantity (current: ${current}, requested: ${params.quantity})`,
+      400
+    );
+  }
+
+  const updateResult = await client.query(
+    `UPDATE bins SET available_quantity = $1, updated_at = NOW()
+     WHERE id = $2
+     RETURNING id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted, created_at, updated_at`,
+    [new_quantity, row.id]
+  );
+
+  const movementType: MovementType = params.movement_type ??
+    (params.operation === 'ADD' ? 'ADJUSTMENT_IN' : 'SALE');
+  await recordMovement({
+    client,
+    warehouse_id: Number(row.warehouse_id),
+    sku_id: params.sku_id.trim(),
+    bin_id: params.bin_id.trim(),
+    quantity: params.quantity,
+    movement_type: movementType,
+    user_id: params.user_id,
+  });
+
+  return {
+    bin: mapBinRow(updateResult.rows[0]),
+    new_quantity,
+  };
+}
+
 export async function adjustBinInventory(
   params: AdjustBinInventoryParams
 ): Promise<AdjustBinInventoryResult> {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
-
-    const lockResult = await client.query(
-      `SELECT id, warehouse_id, sku_id, bin_id, available_quantity
-       FROM bins WHERE bin_id = $1 AND sku_id = $2 AND is_deleted = false
-       FOR UPDATE`,
-      [params.bin_id.trim(), params.sku_id.trim()]
-    );
-
-    if (lockResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      throw new AppError('Bin not found for the given bin_id and sku_id', 404);
-    }
-
-    const row = lockResult.rows[0];
-    const current: number = Number(row.available_quantity);
-    const new_quantity =
-      params.operation === 'ADD'
-        ? current + params.quantity
-        : current - params.quantity;
-
-    if (new_quantity < 0) {
-      await client.query('ROLLBACK');
-      throw new AppError(
-        `REMOVE would result in negative quantity (current: ${current}, requested: ${params.quantity})`,
-        400
-      );
-    }
-
-    const updateResult = await client.query(
-      `UPDATE bins SET available_quantity = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted, created_at, updated_at`,
-      [new_quantity, row.id]
-    );
-
-    const movementType: MovementType = params.movement_type ??
-      (params.operation === 'ADD' ? 'ADJUSTMENT_IN' : 'SALE');
-    await recordMovement({
-      client,
-      warehouse_id: Number(row.warehouse_id),
-      sku_id: params.sku_id.trim(),
-      bin_id: params.bin_id.trim(),
-      quantity: params.quantity,
-      movement_type: movementType,
-      user_id: params.user_id,
-    });
-
+    const result = await adjustBinInventoryInTransaction(client, params);
     await client.query('COMMIT');
-
-    return {
-      bin: mapBinRow(updateResult.rows[0]),
-      new_quantity,
-    };
+    return result;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;

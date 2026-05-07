@@ -13,6 +13,15 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { CircleHelp } from "lucide-react";
+import { MermaidDiagram } from "@/components/ui/mermaid";
+import {
   Table,
   TableBody,
   TableCell,
@@ -52,6 +61,17 @@ type GrnListResponse = {
   curr_page_count: number;
   content: GrnRow[];
 };
+
+const PENDING_INVOICE_COLLECTION_WORKFLOW = `
+flowchart TD
+  openPage["Open this pending list"] --> seeList["Each row needs physical invoice marked collected"]
+  seeList --> how{"How do you want to mark?"}
+  how -->|One GRN| rowBtn["Mark received on that row"]
+  how -->|Many GRNs| pick["Select checkboxes"]
+  pick --> bulkBtn["Mark as received in bulk"]
+  rowBtn --> done["Updated rows no longer appear here"]
+  bulkBtn --> done
+`;
 
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -105,6 +125,9 @@ export default function InboundPendingInvoiceCollectionPage() {
   const [selectedIds, setSelectedIds] = React.useState<number[]>([]);
   const [bulkMarking, setBulkMarking] = React.useState(false);
   const selectAllRef = React.useRef<HTMLInputElement>(null);
+  const [workflowOpen, setWorkflowOpen] = React.useState(false);
+  const [workflowChartMounted, setWorkflowChartMounted] =
+    React.useState(false);
 
   const perPage = 100;
 
@@ -238,10 +261,69 @@ export default function InboundPendingInvoiceCollectionPage() {
 
   return (
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
-      <AppPageTitle
-        title="Pending Invoice Collection"
-        description="GRNs pending invoice collection."
-      />
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <AppPageTitle
+          className="mb-0 min-w-0 flex-1"
+          title="Pending Invoice Collection"
+          description="GRNs pending invoice collection."
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2 self-end sm:mt-1 sm:shrink-0 sm:self-start"
+          onClick={() => {
+            setWorkflowOpen(true);
+            setWorkflowChartMounted(true);
+          }}
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden />
+          How this queue works
+        </Button>
+      </div>
+
+      <Sheet
+        open={workflowOpen}
+        onOpenChange={(open) => {
+          setWorkflowOpen(open);
+          if (open) {
+            setWorkflowChartMounted(true);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
+        >
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>How this queue works</SheetTitle>
+            <SheetDescription>
+              Steps for each row on this screen. Scroll for the diagram.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 p-4">
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              When you open this page, you see GRNs where the physical invoice still
+              needs to be marked collected for this workflow. For one line, use{" "}
+              <strong className="text-foreground">Mark received</strong> on the far
+              right (it shows <strong className="text-foreground">Saving…</strong>{" "}
+              while it updates). To mark several at once, tick the checkboxes and
+              choose <strong className="text-foreground">Mark as received in bulk</strong>{" "}
+              in the bar above—that button shows{" "}
+              <strong className="text-foreground">Updating…</strong> during a bulk
+              run and is disabled until at least one row is selected. Rows you finish
+              disappear from this list (if some bulk updates fail, you will see a
+              warning and can retry).
+            </p>
+            {workflowChartMounted ? (
+              <MermaidDiagram
+                chart={PENDING_INVOICE_COLLECTION_WORKFLOW}
+                className="w-full overflow-x-auto"
+              />
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-end sm:justify-between">
@@ -308,6 +390,13 @@ export default function InboundPendingInvoiceCollectionPage() {
                   {bulkMarking ? "Updating…" : "Mark as received in bulk"}
                 </Button>
               </div>
+              <p className="text-muted-foreground border-b bg-muted/30 px-4 py-2 text-xs">
+                Use the toolbar above for{" "}
+                <strong className="text-foreground">Mark as received in bulk</strong>{" "}
+                after selecting rows. Scroll right on the table to reach{" "}
+                <strong className="text-foreground">Mark received</strong> on each
+                row.
+              </p>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>

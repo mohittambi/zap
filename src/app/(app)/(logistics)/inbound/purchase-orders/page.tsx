@@ -24,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import { ChevronDown, Download } from "lucide-react";
 import {
   DropdownMenu,
@@ -727,11 +728,11 @@ export default function InboundPurchaseOrdersPage() {
                         <TableCell className="text-right font-mono text-xs">
                           {row.total_rejected_quantity}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {row.sku_fill_rate}
+                        <TableCell className="px-2 py-1.5">
+                          <FillRateBar value={row.sku_fill_rate} />
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {row.quantity_fill_rate}
+                        <TableCell className="px-2 py-1.5">
+                          <FillRateBar value={row.quantity_fill_rate} />
                         </TableCell>
                         <TableCell
                           className="text-muted-foreground max-w-[120px] truncate text-xs"

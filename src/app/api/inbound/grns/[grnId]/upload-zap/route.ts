@@ -8,11 +8,39 @@ import {
   isZapStorageConfigured,
   uploadBufferToBucket,
 } from "@/server/zapStorage";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
 
 type Ctx = { params: Promise<{ grnId: string }> };
 
 function safeObjectSegment(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 180);
+}
+
+const MAX_VENDOR_INVOICE_BYTES = 4 * 1024 * 1024;
+
+/** Zap-close workflow: vendor invoice is JPG / JPEG / PDF only, max 4MB. */
+function assertVendorInvoiceFileAllowed(file: File) {
+  if (file.size > MAX_VENDOR_INVOICE_BYTES) {
+    throw new AppError("Vendor invoice must be 4MB or smaller", 400);
+  }
+  const name = file.name.toLowerCase();
+  const ext = name.match(/\.([^.]+)$/)?.[1] ?? "";
+  const extOk = ext === "jpg" || ext === "jpeg" || ext === "pdf";
+  if (!extOk) {
+    throw new AppError("Vendor invoice must be .jpg, .jpeg, or .pdf", 400);
+  }
+  const mt = (file.type || "").toLowerCase();
+  if (mt === "") {
+    return;
+  }
+  const mimeOk =
+    mt === "image/jpeg" ||
+    mt === "application/pdf" ||
+    mt === "image/jpg" ||
+    mt === "image/pjpeg";
+  if (!mimeOk) {
+    throw new AppError("Vendor invoice must be JPG, JPEG, or PDF", 400);
+  }
 }
 
 export async function POST(request: Request, context: Ctx) {
@@ -52,10 +80,20 @@ export async function POST(request: Request, context: Ctx) {
     if (g.rows.length === 0) throw new AppError("GRN not found", 404);
 
     const buf = Buffer.from(await file.arrayBuffer());
-    const ct =
+    let ct =
       file.type && file.type !== "" ? file.type : "application/octet-stream";
 
     if (kind === "invoice") {
+      assertVendorInvoiceFileAllowed(file);
+      const nameLower = file.name.toLowerCase();
+      if (nameLower.endsWith(".pdf")) {
+        ct = "application/pdf";
+      } else if (
+        nameLower.endsWith(".jpg") ||
+        nameLower.endsWith(".jpeg")
+      ) {
+        ct = "image/jpeg";
+      }
       const negR = await query(
         `SELECT COALESCE(MIN(file_id), 0) - 1 AS next_id
          FROM inbound_grn_invoice_files
@@ -79,16 +117,43 @@ export async function POST(request: Request, context: Ctx) {
           objectPath,
         ]
       );
+      await appendInboundGrnLogSafe({
+        grnId,
+        logType: "DOCUMENT",
+        operationPerformed: "Vendor invoice uploaded (Zap)",
+        remarks: file.name.slice(0, 500),
+        poId: Number(g.rows[0].po_id) || null,
+        vendorId: Number(g.rows[0].vendor_id) || null,
+        createdBy: user.email,
+        raw: { kind: "invoice", file_id: fileId },
+      });
       return NextResponse.json({ ok: true, kind: "invoice", file_id: fileId });
     }
 
     const noteIdRaw = formData.get("noteId");
-    const noteId =
-      noteIdRaw != null && String(noteIdRaw).trim() !== ""
-        ? Number(noteIdRaw)
-        : -1;
+    const noteIdText =
+      typeof noteIdRaw === "string"
+        ? noteIdRaw.trim()
+        : noteIdRaw instanceof File
+          ? ""
+          : "";
+    let noteId = noteIdText !== "" ? Number(noteIdText) : -1;
     if (!Number.isFinite(noteId)) {
       throw new AppError("noteId must be a number when kind is debit_note", 400);
+    }
+    if (noteId < 0) {
+      // Fallback to latest known debit/credit note for this GRN.
+      const existingNote = await query(
+        `SELECT note_id
+         FROM inbound_grn_debit_credit_notes
+         WHERE grn_id = $1
+         ORDER BY updated_at DESC NULLS LAST, note_id DESC
+         LIMIT 1`,
+        [grnId]
+      );
+      if (existingNote.rows.length > 0) {
+        noteId = Number(existingNote.rows[0].note_id);
+      }
     }
 
     await query(
@@ -123,6 +188,26 @@ export async function POST(request: Request, context: Ctx) {
         objectPath,
       ]
     );
+
+    await query(
+      `UPDATE inbound_grn_debit_credit_notes
+       SET credit_debit_note_upload_status = 'UPLOADED',
+           credit_debit_note_uploaded_by = $1,
+           updated_at = NOW()
+       WHERE grn_id = $2 AND note_id = $3`,
+      [user.email, grnId, noteId]
+    );
+
+    await appendInboundGrnLogSafe({
+      grnId,
+      logType: "DOCUMENT",
+      operationPerformed: "Debit/credit note file uploaded (Zap)",
+      remarks: file.name.slice(0, 500),
+      poId: Number(g.rows[0].po_id) || null,
+      vendorId: Number(g.rows[0].vendor_id) || null,
+      createdBy: user.email,
+      raw: { kind: "debit_note", note_id: noteId, file_id: fileId },
+    });
 
     return NextResponse.json({
       ok: true,

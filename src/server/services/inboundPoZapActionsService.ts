@@ -2,7 +2,14 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 
-export async function assertVendorPoSnapshot(vendorId: number, poId: number) {
+/**
+ * Ensures a PO snapshot row exists. Snapshot is keyed by `po_id`; `vendor_id` in the URL
+ * may differ from `inbound_po_detail_snapshot.vendor_id` (canonical vendor from eAutomate PO).
+ */
+export async function assertVendorPoSnapshot(
+  _pathVendorId: number,
+  poId: number
+) {
   const r = await query(
     `SELECT vendor_id, po_raw FROM inbound_po_detail_snapshot WHERE po_id = $1`,
     [poId]
@@ -10,12 +17,9 @@ export async function assertVendorPoSnapshot(vendorId: number, poId: number) {
   if (r.rows.length === 0) {
     throw new AppError("PO snapshot not found", 404);
   }
-  const vid = Number(r.rows[0].vendor_id);
-  if (vid !== vendorId) {
-    throw new AppError("PO does not belong to this vendor", 403);
-  }
   return {
     po_raw: r.rows[0].po_raw as Record<string, unknown>,
+    canonicalVendorId: Number(r.rows[0].vendor_id),
   };
 }
 
@@ -30,9 +34,9 @@ export async function mergeInboundPoRaw(
     `UPDATE inbound_po_detail_snapshot
      SET po_raw = po_raw || $1::jsonb,
          synced_at = NOW()
-     WHERE po_id = $2 AND vendor_id = $3
+     WHERE po_id = $2
      RETURNING po_id`,
-    [json, poId, vendorId]
+    [json, poId]
   );
   if (r.rows.length === 0) {
     throw new AppError("Could not update PO", 500);
@@ -46,10 +50,11 @@ export async function buildInboundPoPdfBytes(
   await assertVendorPoSnapshot(vendorId, poId);
 
   const snap = await query(
-    `SELECT po_raw FROM inbound_po_detail_snapshot WHERE po_id = $1 AND vendor_id = $2`,
-    [poId, vendorId]
+    `SELECT po_raw, vendor_id FROM inbound_po_detail_snapshot WHERE po_id = $1`,
+    [poId]
   );
   const poRaw = (snap.rows[0]?.po_raw ?? {}) as Record<string, unknown>;
+  const displayVendorId = Number(snap.rows[0]?.vendor_id ?? vendorId);
 
   const linesR = await query(
     `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines
@@ -84,7 +89,7 @@ export async function buildInboundPoPdfBytes(
 
   drawLine("Purchase order", true, 16);
   drawLine(`PO ID: ${poId}`);
-  drawLine(`Vendor ID: ${vendorId}`);
+  drawLine(`Vendor ID: ${displayVendorId}`);
   const poNum =
     poRaw.po_number ?? poRaw.po_id ?? poRaw.id ?? poRaw.purchase_order_id;
   if (poNum != null) drawLine(`PO number: ${String(poNum)}`);

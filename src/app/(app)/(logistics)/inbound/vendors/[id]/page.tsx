@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -603,11 +604,11 @@ function InboundVendorHubBody() {
                           <TableCell className="text-right font-mono text-xs">
                             {row.total_rejected_quantity}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {row.sku_fill_rate}
+                          <TableCell className="px-2 py-1.5">
+                            <FillRateBar value={row.sku_fill_rate} />
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {row.quantity_fill_rate}
+                          <TableCell className="px-2 py-1.5">
+                            <FillRateBar value={row.quantity_fill_rate} />
                           </TableCell>
                           <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
                             {row.date_published ?? "—"}

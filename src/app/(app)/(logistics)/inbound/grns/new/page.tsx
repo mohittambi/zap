@@ -1,12 +1,8 @@
 "use client";
 
-import * as React from "react";
 import { Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
-import { Button } from "@/components/ui/button";
-import { AppPageTitle } from "@/components/layout/app-page-shell";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -14,63 +10,37 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { AppPageTitle } from "@/components/layout/app-page-shell";
 
-type GrnRow = { grn_id: number };
-
-function NewGrnForm() {
-  const router = useRouter();
+/** Bookmark/deep links land here; creating a draft GRN is done via the PO page modal only. */
+function NewGrnNotice() {
   const sp = useSearchParams();
   const vendorId = sp.get("vendor_id") ?? "";
   const poId = sp.get("po_id") ?? "";
-  const [busy, setBusy] = React.useState(false);
-
-  const submit = async () => {
-    const vid = Number(vendorId);
-    const pid = Number(poId);
-    if (!Number.isFinite(vid) || !Number.isFinite(pid)) {
-      toast.error("vendor_id and po_id query params are required");
-      return;
-    }
-    setBusy(true);
-    try {
-      const row = await apiFetch<GrnRow>(`/api/inbound/grns`, {
-        method: "POST",
-        body: JSON.stringify({ vendor_id: vid, po_id: pid }),
-      });
-      toast.success("Draft GRN created");
-      router.push(`/inbound/grns/${row.grn_id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const poHref =
+    vendorId && poId
+      ? `/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}`
+      : null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create draft GRN</CardTitle>
+        <CardTitle>Open New GRN</CardTitle>
         <CardDescription>
-          Creates a draft goods receipt row in Zap for this vendor and PO.
+          Draft GRNs are opened from the purchase order: use{" "}
+          <span className="text-foreground font-medium">Open new GRN</span> in the GRN section on
+          the PO—this opens a modal; there is no separate form here.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>Vendor ID</Label>
-          <Input value={vendorId} readOnly className="font-mono" />
-        </div>
-        <div className="space-y-2">
-          <Label>PO ID</Label>
-          <Input value={poId} readOnly className="font-mono" />
-        </div>
-        <Button
-          type="button"
-          disabled={busy || !vendorId || !poId}
-          onClick={() => void submit()}
-        >
-          {busy ? "Creating…" : "Create draft GRN"}
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        {poHref ? (
+          <Button asChild>
+            <Link href={poHref}>Go to this purchase order</Link>
+          </Button>
+        ) : null}
+        <Button variant="outline" asChild>
+          <Link href="/inbound/grns">All GRNs</Link>
         </Button>
       </CardContent>
     </Card>
@@ -82,12 +52,12 @@ export default function NewInboundGrnPage() {
     <div className="mx-auto max-w-lg space-y-6 px-2 py-6">
       <AppPageTitle
         title="New GRN"
-        description="Create a draft GRN linked to a vendor PO."
+        description="Create a draft from the purchase order page."
       />
       <Suspense
         fallback={<p className="text-muted-foreground text-sm">Loading…</p>}
       >
-        <NewGrnForm />
+        <NewGrnNotice />
       </Suspense>
     </div>
   );

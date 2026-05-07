@@ -17,6 +17,7 @@ import {
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import {
   Card,
   CardContent,
@@ -44,6 +45,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -58,6 +61,16 @@ type PoGrnRow = {
   grn_id: number | null;
   raw: JsonRecord;
 };
+
+type CreatedGrnRow = { grn_id: number };
+
+function parseNonNegativeInt(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return n;
+}
 
 type PoDetailBundle = {
   snapshot: {
@@ -212,6 +225,17 @@ export default function InboundPoDetailPage() {
   const [cancelOpen, setCancelOpen] = React.useState(false);
   const [actionBusy, setActionBusy] = React.useState(false);
 
+  const [newGrnOpen, setNewGrnOpen] = React.useState(false);
+  const [newGrnInvoice, setNewGrnInvoice] = React.useState("");
+  const [newGrnBoxInvoice, setNewGrnBoxInvoice] = React.useState("");
+  const [newGrnActualBox, setNewGrnActualBox] = React.useState("");
+  const [newGrnBusy, setNewGrnBusy] = React.useState(false);
+
+  const newGrnCanSubmit =
+    newGrnInvoice.trim() !== "" &&
+    parseNonNegativeInt(newGrnBoxInvoice) !== null &&
+    parseNonNegativeInt(newGrnActualBox) !== null;
+
   const reloadBundle = React.useCallback(async () => {
     if (!vendorId || !poId) return;
     setLoading(true);
@@ -361,9 +385,46 @@ export default function InboundPoDetailPage() {
   };
 
   const openNewGrn = () => {
-    router.push(
-      `/inbound/grns/new?vendor_id=${encodeURIComponent(vendorId)}&po_id=${encodeURIComponent(poId)}`
-    );
+    setNewGrnInvoice("");
+    setNewGrnBoxInvoice("");
+    setNewGrnActualBox("");
+    setNewGrnOpen(true);
+  };
+
+  const submitNewGrn = async () => {
+    const vid = Number(vendorId);
+    const pid = Number(poId);
+    const boxInv = parseNonNegativeInt(newGrnBoxInvoice);
+    const boxAct = parseNonNegativeInt(newGrnActualBox);
+    if (
+      !Number.isFinite(vid) ||
+      !Number.isFinite(pid) ||
+      newGrnInvoice.trim() === "" ||
+      boxInv === null ||
+      boxAct === null
+    ) {
+      return;
+    }
+    setNewGrnBusy(true);
+    try {
+      const row = await apiFetch<CreatedGrnRow>(`/api/inbound/grns`, {
+        method: "POST",
+        body: JSON.stringify({
+          vendor_id: vid,
+          po_id: pid,
+          vendor_invoice_number: newGrnInvoice.trim(),
+          box_count_invoice: boxInv,
+          actual_box_count_received: boxAct,
+        }),
+      });
+      toast.success("Draft GRN created");
+      setNewGrnOpen(false);
+      router.push(`/inbound/grns/${row.grn_id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create GRN");
+    } finally {
+      setNewGrnBusy(false);
+    }
   };
 
   const snap = bundle?.snapshot;
@@ -555,14 +616,6 @@ export default function InboundPoDetailPage() {
               { label: "Total required qty", value: totalReq },
               { label: "Total received qty", value: totalInv },
               { label: "Total rejected qty", value: totalRej },
-              {
-                label: "SKU fill rate",
-                value: skuFill === "—" ? skuFill : `${skuFill}%`,
-              },
-              {
-                label: "Quantity fill rate",
-                value: qtyFill === "—" ? qtyFill : `${qtyFill}%`,
-              },
             ].map((m) => (
               <Card key={m.label} className="border-primary/10">
                 <CardHeader className="pb-1 pt-3">
@@ -571,6 +624,21 @@ export default function InboundPoDetailPage() {
                   </CardDescription>
                   <CardTitle className="text-lg font-semibold">
                     {m.value}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            ))}
+            {[
+              { label: "SKU fill rate", value: skuFill },
+              { label: "Quantity fill rate", value: qtyFill },
+            ].map((m) => (
+              <Card key={m.label} className="border-primary/10">
+                <CardHeader className="pb-1 pt-3">
+                  <CardDescription className="text-xs uppercase">
+                    {m.label}
+                  </CardDescription>
+                  <CardTitle className="pt-1">
+                    <FillRateBar value={m.value === "—" ? null : Number(m.value)} />
                   </CardTitle>
                 </CardHeader>
               </Card>
@@ -715,7 +783,7 @@ export default function InboundPoDetailPage() {
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  disabled={actionBusy}
+                  disabled={actionBusy || newGrnBusy}
                   onClick={openNewGrn}
                 >
                   <Plus className="size-3.5" />
@@ -801,6 +869,97 @@ export default function InboundPoDetailPage() {
               ) : null}
             </div>
           </div>
+
+          <Dialog
+            open={newGrnOpen}
+            onOpenChange={(open) => {
+              setNewGrnOpen(open);
+              if (!open) {
+                setNewGrnInvoice("");
+                setNewGrnBoxInvoice("");
+                setNewGrnActualBox("");
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Open New GRN</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-2">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-vendor-invoice"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Vendor Invoice Number
+                  </Label>
+                  <Input
+                    id="new-grn-vendor-invoice"
+                    placeholder="Enter vendor invoice number"
+                    value={newGrnInvoice}
+                    onChange={(e) => setNewGrnInvoice(e.target.value)}
+                    disabled={newGrnBusy}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-box-invoice"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Box Count in Invoice
+                  </Label>
+                  <Input
+                    id="new-grn-box-invoice"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    placeholder="Enter box count"
+                    value={newGrnBoxInvoice}
+                    onChange={(e) => setNewGrnBoxInvoice(e.target.value)}
+                    disabled={newGrnBusy}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-actual-box"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Actual Box Count Received
+                  </Label>
+                  <Input
+                    id="new-grn-actual-box"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    placeholder="Enter actual box count"
+                    value={newGrnActualBox}
+                    onChange={(e) => setNewGrnActualBox(e.target.value)}
+                    disabled={newGrnBusy}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={newGrnBusy}
+                  onClick={() => setNewGrnOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={newGrnBusy || !newGrnCanSubmit}
+                  onClick={() => void submitNewGrn()}
+                >
+                  {newGrnBusy ? "Submitting…" : "Submit"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <Dialog open={modifyOpen} onOpenChange={setModifyOpen}>
             <DialogContent className="sm:max-w-lg">

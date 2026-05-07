@@ -2,10 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { filenameFromContentDisposition } from "@/lib/filenameFromContentDisposition";
+import { assertGrnLineQuantitiesAccountable } from "@/lib/grnLineQuantityValidation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -32,8 +35,25 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Download, FileText, PanelRightOpen } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleHelp,
+  Download,
+  FileText,
+  PanelRightOpen,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { MermaidDiagram } from "@/components/ui/mermaid";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -107,6 +127,40 @@ type LineRow = {
   sku_id: string | null;
   raw: JsonRecord;
 };
+
+type BinOptionRow = {
+  bin_id: string;
+  warehouse_id: number;
+  available_quantity: number;
+};
+
+type ReceiptLineItem = {
+  row_key: string;
+  line_index: number;
+  sku_id: string;
+  sku_description: string;
+  /** Total accepted quantity for this GRN line (cap across bin splits). */
+  accepted_qty: number;
+  bin_id: string;
+  quantity: string;
+  bin_entry_mode: "dropdown" | "custom";
+};
+
+function sumBookedForLine(items: ReceiptLineItem[], line_index: number, excludeRowKey?: string): number {
+  return items
+    .filter((i) => i.line_index === line_index && i.row_key !== excludeRowKey)
+    .reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+}
+
+function maxBookableForRow(items: ReceiptLineItem[], item: ReceiptLineItem): number {
+  return Math.max(0, item.accepted_qty - sumBookedForLine(items, item.line_index, item.row_key));
+}
+
+function sumBookedLineTotal(items: ReceiptLineItem[], line_index: number): number {
+  return items
+    .filter((i) => i.line_index === line_index)
+    .reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+}
 
 type DebitCreditNoteFileRow = {
   grn_id: number;
@@ -226,6 +280,23 @@ type ZapDebitNote = {
   lines: DebitNoteLine[];
 };
 
+const INBOUND_GRN_DETAIL_FLOW = `
+flowchart TD
+  start(["1 Open GRN in Zap web"]) --> idGate{"Negative GRN id?"}
+  idGate -->|Yes draft| draft["Zap draft DRAFT_ZAP from PO"]
+  idGate -->|No operational| ops["Positive GRN id live or synced"]
+  draft --> register(["2 Register operational GRN"])
+  register --> ops
+  ops --> enterLines(["3 GRN Details OPEN"])
+  enterLines --> noteEnter["Line qty and price vs PO"]
+  noteEnter --> vendorInv(["4 Vendor invoice Documents or Close GRN"])
+  vendorInv --> closeGate(["5 Close GRN"])
+  closeGate --> closed["CLOSED lines frozen"]
+  closed --> accountsGate(["6 Accounts if required"])
+  accountsGate --> inventoryStep(["7 Inventory to bins"])
+  inventoryStep --> auditStep(["8 Audit and Debit Note"])
+`;
+
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
   month: "short",
@@ -290,6 +361,28 @@ function invoiceCollectionClass(value: string | null | undefined): string {
   return statusClosedClass(value);
 }
 
+/** Max 2 vendor invoice files (JPG, JPEG, PDF; 4 MB each) — Close GRN modal and GRN Documents upload. */
+function filterVendorInvoiceFilesPicked(picked: File[]): File[] {
+  const maxBytes = 4 * 1024 * 1024;
+  if (picked.length > 2) {
+    toast.message("Only the first 2 files are used (max 2).");
+  }
+  const out: File[] = [];
+  for (const f of picked.slice(0, 2)) {
+    if (f.size > maxBytes) {
+      toast.error(`${f.name} exceeds 4MB`);
+      continue;
+    }
+    const lower = f.name.toLowerCase();
+    if (!/\.(jpg|jpeg|pdf)$/.test(lower)) {
+      toast.error(`${f.name}: use JPG, JPEG, or PDF only`);
+      continue;
+    }
+    out.push(f);
+  }
+  return out;
+}
+
 function debitNoteGoodClass(value: string | null | undefined): string {
   if (!value) return "";
   const up = value.trim().toUpperCase();
@@ -316,6 +409,23 @@ function debitNoteBadClass(value: string | null | undefined): string {
 function formatNoteType(t: string | null | undefined): string {
   if (!t) return "—";
   return t.replaceAll("_", " ");
+}
+
+function mimeTypeForCnFilename(name: string | null | undefined): string | null {
+  const n = (name ?? "").toLowerCase();
+  if (n.endsWith(".pdf")) return "application/pdf";
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+  if (n.endsWith(".png")) return "image/png";
+  return null;
+}
+
+function withExplicitCnMime(blob: Blob, filename: string | null | undefined): Blob {
+  const hint = mimeTypeForCnFilename(filename);
+  if (!hint) return blob;
+  if (blob.type && blob.type !== "" && blob.type !== "application/octet-stream") {
+    return blob;
+  }
+  return new Blob([blob], { type: hint });
 }
 
 function pickPoRaw(snap: SnapshotRow | null, key: string): string | null {
@@ -802,6 +912,107 @@ function fmtInboundQty(n: number | null | undefined): string {
   return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(Number(n));
 }
 
+/** Draft row for Close GRN modal (same fields as GRN Section PATCH). */
+type CloseGrnLineDraft = {
+  inv: string;
+  acc: string;
+  rej: string;
+  short: string;
+  price: string;
+  tax: string;
+  audit: string;
+};
+
+function parseGrnLineNum(s: string, label: string): number {
+  const t = s.trim();
+  if (t === "") {
+    throw new Error(`${label} is required`);
+  }
+  const n = Number(t.replaceAll(",", ""));
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`${label} must be a non-negative number`);
+  }
+  return n;
+}
+
+function buildGrnLinePatchBody(d: CloseGrnLineDraft): Record<string, unknown> {
+  const inv = parseGrnLineNum(d.inv, "Quantity in Invoice");
+  const acc = parseGrnLineNum(d.acc, "Accepted Quantity");
+  const rej = parseGrnLineNum(d.rej, "Rejected Quantity");
+  const short = parseGrnLineNum(d.short, "Short Quantity");
+  assertGrnLineQuantitiesAccountable({
+    invoice_quantity: inv,
+    accepted_quantity: acc,
+    rejected_quantity: rej,
+    shortage_quantity: short,
+  });
+  let auditPayload: number | null;
+  if (d.audit.trim() === "") {
+    auditPayload = null;
+  } else {
+    auditPayload = parseGrnLineNum(d.audit, "Audited Price (excl. Taxes)");
+  }
+  return {
+    invoice_quantity: inv,
+    accepted_quantity: acc,
+    rejected_quantity: rej,
+    shortage_quantity: short,
+    received_price: parseGrnLineNum(d.price, "Product Price (excl. Taxes)"),
+    tax_rate: parseGrnLineNum(d.tax, "Tax Rate"),
+    audit_price: auditPayload,
+  };
+}
+
+function closeModalDraftDiffers(line: LineRow, d: CloseGrnLineDraft): boolean {
+  const r = line.raw ?? {};
+  const taxN = parseLineQty(r, GRN_ITEM_KEYS.taxRate);
+  const audN = parseLineQty(r, GRN_ITEM_KEYS.auditPriceExclGst);
+  const taxStr = taxN > 0 ? String(taxN) : "";
+  const audStr = audN > 0 ? String(audN) : "";
+  return (
+    d.inv.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.invoice)) ||
+    d.acc.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.accepted)) ||
+    d.rej.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.rejected)) ||
+    d.short.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.shortage)) ||
+    d.price.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.receivedPrice)) ||
+    d.tax.trim() !== taxStr ||
+    d.audit.trim() !== audStr
+  );
+}
+
+function seedCloseGrnDraftsFromLines(items: LineRow[]): Record<number, CloseGrnLineDraft> {
+  const out: Record<number, CloseGrnLineDraft> = {};
+  for (const line of items) {
+    const r = line.raw ?? {};
+    const taxN = parseLineQty(r, GRN_ITEM_KEYS.taxRate);
+    const audN = parseLineQty(r, GRN_ITEM_KEYS.auditPriceExclGst);
+    out[line.line_index] = {
+      inv: String(parseLineQty(r, GRN_ITEM_KEYS.invoice)),
+      acc: String(parseLineQty(r, GRN_ITEM_KEYS.accepted)),
+      rej: String(parseLineQty(r, GRN_ITEM_KEYS.rejected)),
+      short: String(parseLineQty(r, GRN_ITEM_KEYS.shortage)),
+      price: String(parseLineQty(r, GRN_ITEM_KEYS.receivedPrice)),
+      tax: taxN > 0 ? String(taxN) : "",
+      audit: audN > 0 ? String(audN) : "",
+    };
+  }
+  return out;
+}
+
+function mergeGrnLineIntoBundle(
+  b: GrnDetailsBundle,
+  line: { line_index: number; sku_id: string | null; raw: JsonRecord }
+): GrnDetailsBundle {
+  return {
+    ...b,
+    grn_items: b.grn_items.map((li) =>
+      li.line_index === line.line_index
+        ? { ...li, raw: line.raw, sku_id: line.sku_id ?? li.sku_id }
+        : li
+    ),
+  };
+}
+
 function listingFromLineRaw(raw: JsonRecord): JsonRecord | null {
   const l = raw.listing;
   if (l && typeof l === "object" && !Array.isArray(l)) return l as JsonRecord;
@@ -823,35 +1034,45 @@ function listingThumbUrls(listing: JsonRecord | null): string[] {
   return urls;
 }
 
-function GrnInputStatBox({
+/** Single GRN line quantity/price control with label (editable). */
+function GrnInputEditableBox({
   label,
   value,
+  onChange,
+  disabled,
   className,
-  valueClassName,
+  inputClassName,
+  inputMode,
 }: {
   label: string;
   value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
   className?: string;
-  valueClassName?: string;
+  inputClassName?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
   return (
     <div
       className={cn(
-        "flex min-h-[52px] min-w-[96px] flex-1 flex-col justify-center rounded-md border-2 border-foreground/15 bg-background px-2 py-1.5 shadow-sm",
+        "flex min-h-[52px] min-w-[96px] flex-1 flex-col justify-center gap-1 rounded-md border-2 border-foreground/15 bg-background px-2 py-1.5 shadow-sm",
         className
       )}
     >
       <span className="text-[10px] leading-tight font-medium text-muted-foreground">
         {label}
       </span>
-      <span
+      <Input
+        type="text"
+        inputMode={inputMode}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         className={cn(
-          "font-mono text-sm tabular-nums font-semibold",
-          valueClassName
+          "h-8 font-mono text-sm tabular-nums font-semibold",
+          inputClassName
         )}
-      >
-        {value}
-      </span>
+      />
     </div>
   );
 }
@@ -865,20 +1086,24 @@ const DEMAND_KEYS = [
 function GrnSkuDetailSheet(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  grnId: string;
   grn_items: LineRow[];
   added_items: LineRow[];
   selectedLine: LineRow | null;
   onSelectLine: (line: LineRow) => void;
   grnTitle: string;
+  onLineUpdated: (line: { line_index: number; sku_id: string | null; raw: JsonRecord }) => void;
 }) {
   const {
     open,
     onOpenChange,
+    grnId,
     grn_items,
     added_items,
     selectedLine,
     onSelectLine,
     grnTitle,
+    onLineUpdated,
   } = props;
 
   const sku =
@@ -922,6 +1147,119 @@ function GrnSkuDetailSheet(props: {
     };
   }, [open, sku]);
 
+  const [draftInv, setDraftInv] = React.useState("");
+  const [draftAcc, setDraftAcc] = React.useState("");
+  const [draftRej, setDraftRej] = React.useState("");
+  const [draftShort, setDraftShort] = React.useState("");
+  const [draftPrice, setDraftPrice] = React.useState("");
+  const [draftTax, setDraftTax] = React.useState("");
+  const [draftAudit, setDraftAudit] = React.useState("");
+  const [savingGrnInput, setSavingGrnInput] = React.useState(false);
+  const draftSnapshotRef = React.useRef("");
+
+  React.useEffect(() => {
+    if (!selectedLine?.raw) {
+      setDraftInv("");
+      setDraftAcc("");
+      setDraftRej("");
+      setDraftShort("");
+      setDraftPrice("");
+      setDraftTax("");
+      setDraftAudit("");
+      draftSnapshotRef.current = "";
+      return;
+    }
+    const r = selectedLine.raw;
+    const taxN = parseLineQty(r, GRN_ITEM_KEYS.taxRate);
+    const audN = parseLineQty(r, GRN_ITEM_KEYS.auditPriceExclGst);
+    const ds = {
+      inv: String(parseLineQty(r, GRN_ITEM_KEYS.invoice)),
+      acc: String(parseLineQty(r, GRN_ITEM_KEYS.accepted)),
+      rej: String(parseLineQty(r, GRN_ITEM_KEYS.rejected)),
+      short: String(parseLineQty(r, GRN_ITEM_KEYS.shortage)),
+      price: String(parseLineQty(r, GRN_ITEM_KEYS.receivedPrice)),
+      tax: taxN > 0 ? String(taxN) : "",
+      audit: audN > 0 ? String(audN) : "",
+    };
+    setDraftInv(ds.inv);
+    setDraftAcc(ds.acc);
+    setDraftRej(ds.rej);
+    setDraftShort(ds.short);
+    setDraftPrice(ds.price);
+    setDraftTax(ds.tax);
+    setDraftAudit(ds.audit);
+    draftSnapshotRef.current = JSON.stringify(ds);
+  }, [selectedLine?.line_index, selectedLine?.raw]);
+
+  const grnInputDirty =
+    draftSnapshotRef.current !== "" &&
+    JSON.stringify({
+      inv: draftInv.trim(),
+      acc: draftAcc.trim(),
+      rej: draftRej.trim(),
+      short: draftShort.trim(),
+      price: draftPrice.trim(),
+      tax: draftTax.trim(),
+      audit: draftAudit.trim(),
+    }) !== draftSnapshotRef.current;
+
+  async function saveGrnLineInput() {
+    if (!selectedLine || !grnId.trim()) return;
+    const parseNum = (s: string, label: string) => {
+      const t = s.trim();
+      if (t === "") {
+        throw new Error(`${label} is required`);
+      }
+      const n = Number(t.replaceAll(",", ""));
+      if (!Number.isFinite(n) || n < 0) {
+        throw new Error(`${label} must be a non-negative number`);
+      }
+      return n;
+    };
+    let auditPayload: number | null;
+    if (draftAudit.trim() === "") {
+      auditPayload = null;
+    } else {
+      auditPayload = parseNum(draftAudit, "Audited Price (excl. Taxes)");
+    }
+    try {
+      setSavingGrnInput(true);
+      const invoice_quantity = parseNum(draftInv, "Quantity in Invoice");
+      const accepted_quantity = parseNum(draftAcc, "Accepted Quantity");
+      const rejected_quantity = parseNum(draftRej, "Rejected Quantity");
+      const shortage_quantity = parseNum(draftShort, "Short Quantity");
+      assertGrnLineQuantitiesAccountable({
+        invoice_quantity,
+        accepted_quantity,
+        rejected_quantity,
+        shortage_quantity,
+      });
+      const payload = {
+        invoice_quantity,
+        accepted_quantity,
+        rejected_quantity,
+        shortage_quantity,
+        received_price: parseNum(draftPrice, "Product Price (excl. Taxes)"),
+        tax_rate: parseNum(draftTax, "Tax Rate"),
+        audit_price: auditPayload,
+      };
+      const res = await apiFetch<{
+        line_index: number;
+        sku_id: string | null;
+        raw: JsonRecord;
+      }>(
+        `/api/inbound/grns/${encodeURIComponent(grnId)}/items/${selectedLine.line_index}`,
+        { method: "PATCH", body: JSON.stringify(payload) }
+      );
+      toast.success("GRN line saved");
+      onLineUpdated(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingGrnInput(false);
+    }
+  }
+
   const raw = selectedLine?.raw ?? null;
   const listing = raw ? listingFromLineRaw(raw) : null;
   const thumbs = listingThumbUrls(listing);
@@ -932,13 +1270,6 @@ function GrnSkuDetailSheet(props: {
 
   const totalDemand = added ? parseLineQty(added.raw, DEMAND_KEYS) : 0;
   const pendency = added ? parseLineQty(added.raw, ADDED_ITEM_KEYS.pendency) : 0;
-  const lineInv = raw ? parseLineQty(raw, GRN_ITEM_KEYS.invoice) : 0;
-  const lineAcc = raw ? parseLineQty(raw, GRN_ITEM_KEYS.accepted) : 0;
-  const lineRej = raw ? parseLineQty(raw, GRN_ITEM_KEYS.rejected) : 0;
-  const lineShort = raw ? parseLineQty(raw, GRN_ITEM_KEYS.shortage) : 0;
-  const linePrice = raw ? parseLineQty(raw, GRN_ITEM_KEYS.receivedPrice) : 0;
-  const lineTax = raw ? parseLineQty(raw, GRN_ITEM_KEYS.taxRate) : 0;
-  const lineAuditPrice = raw ? parseLineQty(raw, GRN_ITEM_KEYS.auditPriceExclGst) : 0;
 
   let fillPct: number | null = null;
   if (added && totalDemand > 0) {
@@ -1002,289 +1333,326 @@ function GrnSkuDetailSheet(props: {
             })}
           </nav>
 
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 space-y-5">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
             {!selectedLine ? (
               <p className="text-muted-foreground text-sm">Select a line item.</p>
             ) : (
-              <>
-                <section className="space-y-3">
-                  <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
-                    Details
-                  </div>
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <div className="flex gap-2">
-                      <div className="flex shrink-0 flex-col gap-1">
-                        {thumbs.slice(0, 5).map((url, thumbIdx) => (
-                          <img
-                            key={`${thumbIdx}-${url}`}
-                            src={url}
-                            alt=""
-                            className="border-border h-14 w-14 rounded border bg-muted object-contain"
-                          />
-                        ))}
-                      </div>
-                      {thumbs[0] ? (
-                        <img
-                          src={thumbs[0]}
-                          alt=""
-                          className="border-border h-44 max-w-[200px] flex-1 rounded-md border bg-muted object-contain"
-                        />
-                      ) : null}
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
+                <div className="order-2 flex flex-col gap-4 lg:order-1">
+                  <section className="space-y-2">
+                    <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
+                      Vendor billing summary
                     </div>
-                    <dl className="grid flex-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-                      <div>
-                        <dt className="text-muted-foreground text-xs">SKU Id</dt>
-                        <dd className="font-mono text-sm">{sku || "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground text-xs">Title</dt>
-                        <dd className="text-sm">{title}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground text-xs">Ops Tag</dt>
-                        <dd className="text-sm">
-                          {listing
-                            ? pickLine(listing, GRN_ITEM_KEYS.opsTag)
-                            : pickLine(raw, GRN_ITEM_KEYS.opsTag)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground text-xs">
-                          Warehouse Quantity
-                        </dt>
-                        <dd className="text-sm">{fmtInboundQty(whQty)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="text-muted-foreground text-[11px]">
-                    Quantity summary for this SKU on the PO line.
-                  </div>
-                  <div className="bg-muted/40 grid grid-cols-2 gap-2 rounded-md border p-2 sm:grid-cols-2">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Total Original Demand:</span>{" "}
-                      <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">
-                        {fmtInboundQty(totalDemand)}
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Total Accepted Quantity:</span>{" "}
-                      <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                        {added
-                          ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.accepted))
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Total Rejected Quantity:</span>{" "}
-                      <span className="font-mono font-semibold text-red-600">
-                        {added
-                          ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.rejected))
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Total Pending Quantity:</span>{" "}
-                      <span className="font-mono font-semibold">{fmtInboundQty(pendency)}</span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Total Invoice Quantity:</span>{" "}
-                      <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">
-                        {added
-                          ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.invoice))
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">Fill Rate %:</span>{" "}
-                      <span className="font-mono font-semibold tabular-nums">
-                        {fillPct != null && Number.isFinite(fillPct)
-                          ? `${fillPct.toFixed(2)}`
-                          : "—"}
-                      </span>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="bg-sky-100/80 px-2 py-1.5 text-center font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
-                    GRN input
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <GrnInputStatBox
-                      label="Quantity in Invoice"
-                      value={fmtInboundQty(lineInv)}
-                      valueClassName="text-violet-700 dark:text-violet-300"
-                    />
-                    <GrnInputStatBox
-                      label="Accepted Quantity"
-                      value={fmtInboundQty(lineAcc)}
-                      valueClassName="text-emerald-700 dark:text-emerald-400"
-                    />
-                    <GrnInputStatBox
-                      label="Rejected Quantity"
-                      value={fmtInboundQty(lineRej)}
-                      valueClassName="text-red-600"
-                    />
-                    <GrnInputStatBox
-                      label="Short Quantity"
-                      value={fmtInboundQty(lineShort)}
-                      className="border-blue-300/80"
-                      valueClassName="text-blue-700 dark:text-blue-300"
-                    />
-                    <GrnInputStatBox
-                      label="Product Price (excl. Taxes)"
-                      value={fmtInboundQty(linePrice)}
-                    />
-                    <GrnInputStatBox
-                      label="Tax Rate"
-                      value={lineTax > 0 ? String(lineTax) : "—"}
-                    />
-                    <GrnInputStatBox
-                      label="Audited Price (excl. Taxes)"
-                      value={lineAuditPrice > 0 ? fmtInboundQty(lineAuditPrice) : "—"}
-                      className="border-amber-300/70 bg-amber-50 dark:bg-amber-950/30"
-                      valueClassName="text-amber-950 dark:text-amber-100"
-                    />
-                  </div>
-                </section>
-
-                <section className="space-y-2">
-                  <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
-                    Vendor billing summary
-                  </div>
-                  <p className="text-muted-foreground text-[11px]">
-                    Only GRNs whose status and audit are CLOSED — rollups from inbound_grn_items in
-                    this workspace.
-                  </p>
-                  {summaryLoading ? (
-                    <Skeleton className="h-24 w-full" />
-                  ) : summary && summary.vendor_billing.length > 0 ? (
-                    <div className="overflow-x-auto rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="whitespace-nowrap">
-                            <TableHead className="w-10">Sr.</TableHead>
-                            <TableHead>Vendor ID</TableHead>
-                            <TableHead>Vendor Name</TableHead>
-                            <TableHead className="text-right">
-                              Total quantity received
-                            </TableHead>
-                            <TableHead className="text-right">Number of bills</TableHead>
-                            <TableHead className="text-right">
-                              Minimum price from vendor (Rs. excl. GST)
-                            </TableHead>
-                            <TableHead className="text-right">
-                              Maximum price from vendor (Rs. excl. GST)
-                            </TableHead>
-                            <TableHead className="text-right">
-                              Latest price from vendor (Rs. excl. GST)
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {summary.vendor_billing.map((vb, idx) => (
-                            <TableRow key={vb.vendor_id}>
-                              <TableCell className="text-muted-foreground text-xs">
-                                {idx + 1}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">{vb.vendor_id}</TableCell>
-                              <TableCell className="text-xs">{vb.vendor_name ?? "—"}</TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(vb.total_qty_received)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {vb.bill_count}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(vb.min_price)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(vb.max_price)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(vb.latest_price)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">No billing rows for this SKU.</p>
-                  )}
-                </section>
-
-                <section className="space-y-2">
-                  <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
-                    Closed GRN summary
-                  </div>
-                  <p className="text-muted-foreground text-[11px]">
-                    Only the most recent 30 GRNs whose audit status has been marked as closed and
-                    whose GRN status is CLOSED — ordered by GRN date (newest first).
-                  </p>
-                  {summaryLoading ? (
-                    <Skeleton className="h-28 w-full" />
-                  ) : summary && summary.closed_grn_summary.length > 0 ? (
-                    <div className="max-h-[min(40vh,320px)] overflow-auto rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="whitespace-nowrap">
-                            <TableHead>Vendor Name</TableHead>
-                            <TableHead>Invoice Number</TableHead>
-                            <TableHead>GRN Date</TableHead>
-                            <TableHead className="text-right">Invoice Quantity</TableHead>
-                            <TableHead className="text-right">Accepted Quantity</TableHead>
-                            <TableHead className="text-right">Rejected Quantity</TableHead>
-                            <TableHead className="text-right">
-                              Received price (Rs. excl GST)
-                            </TableHead>
-                            <TableHead className="text-right">
-                              Audited price (Rs. excl GST)
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {summary.closed_grn_summary.map((r) => (
-                            <TableRow key={`${r.grn_id}-${r.invoice_number ?? ""}-${r.grn_date}`}>
-                              <TableCell className="max-w-[140px] truncate text-xs">
-                                {r.vendor_name ?? "—"}
-                              </TableCell>
-                              <TableCell className="font-mono text-xs">
-                                {r.invoice_number ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-xs whitespace-nowrap">
-                                {r.grn_date ? formatDisplayDateOnly(r.grn_date) : "—"}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(r.invoice_qty)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(r.accepted_qty)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(r.rejected_qty)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(r.received_price)}
-                              </TableCell>
-                              <TableCell className="text-right text-xs tabular-nums">
-                                {fmtInboundQty(r.audit_price)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-sm">
-                      No closed GRN rows for this SKU yet.
+                    <p className="text-muted-foreground text-[11px] italic">
+                      *Billing summary is only available when the GRN and GRN audit are closed for
+                      this SKU (rollups from closed receipts in this workspace).
                     </p>
-                  )}
-                </section>
-              </>
+                    {summaryLoading ? (
+                      <Skeleton className="h-24 w-full" />
+                    ) : summary && summary.vendor_billing.length > 0 ? (
+                      <div className="overflow-x-auto rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="whitespace-nowrap">
+                              <TableHead className="w-10">Sr.</TableHead>
+                              <TableHead>Vendor ID</TableHead>
+                              <TableHead>Vendor Name</TableHead>
+                              <TableHead className="text-right">
+                                Total quantity received
+                              </TableHead>
+                              <TableHead className="text-right">Number of bills</TableHead>
+                              <TableHead className="text-right">
+                                Minimum price from vendor (Rs. excl. GST)
+                              </TableHead>
+                              <TableHead className="text-right">
+                                Maximum price from vendor (Rs. excl. GST)
+                              </TableHead>
+                              <TableHead className="text-right">
+                                Latest price from vendor (Rs. excl. GST)
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {summary.vendor_billing.map((vb, idx) => (
+                              <TableRow key={vb.vendor_id}>
+                                <TableCell className="text-muted-foreground text-xs">
+                                  {idx + 1}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">{vb.vendor_id}</TableCell>
+                                <TableCell className="text-xs">{vb.vendor_name ?? "—"}</TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(vb.total_qty_received)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {vb.bill_count}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(vb.min_price)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(vb.max_price)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(vb.latest_price)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">No billing rows for this SKU.</p>
+                    )}
+                  </section>
+
+                  <section className="space-y-2">
+                    <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
+                      Closed GRN summary
+                    </div>
+                    <p className="text-muted-foreground text-[11px] italic">
+                      *Only the most recent 30 GRNs with closed audit and CLOSED GRN status — ordered
+                      by GRN date (newest first).
+                    </p>
+                    {summaryLoading ? (
+                      <Skeleton className="h-28 w-full" />
+                    ) : summary && summary.closed_grn_summary.length > 0 ? (
+                      <div className="max-h-[min(40vh,320px)] overflow-auto rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="whitespace-nowrap">
+                              <TableHead>Vendor Name</TableHead>
+                              <TableHead>Invoice Number</TableHead>
+                              <TableHead>GRN Date</TableHead>
+                              <TableHead className="text-right">Invoice Quantity</TableHead>
+                              <TableHead className="text-right">Accepted Quantity</TableHead>
+                              <TableHead className="text-right">Rejected Quantity</TableHead>
+                              <TableHead className="text-right">
+                                Received price (Rs. excl GST)
+                              </TableHead>
+                              <TableHead className="text-right">
+                                Audited price (Rs. excl GST)
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {summary.closed_grn_summary.map((r) => (
+                              <TableRow key={`${r.grn_id}-${r.invoice_number ?? ""}-${r.grn_date}`}>
+                                <TableCell className="max-w-[140px] truncate text-xs">
+                                  {r.vendor_name ?? "—"}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {r.invoice_number ?? "—"}
+                                </TableCell>
+                                <TableCell className="text-xs whitespace-nowrap">
+                                  {r.grn_date ? formatDisplayDateOnly(r.grn_date) : "—"}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(r.invoice_qty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(r.accepted_qty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(r.rejected_qty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(r.received_price)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums">
+                                  {fmtInboundQty(r.audit_price)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">
+                        No closed GRN rows for this SKU yet.
+                      </p>
+                    )}
+                  </section>
+                </div>
+
+                <div className="order-1 flex flex-col gap-4 lg:order-2">
+                  <section className="space-y-3">
+                    <div className="bg-sky-100/80 px-2 py-1.5 font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
+                      Details
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <div className="flex gap-2">
+                        <div className="flex shrink-0 flex-col gap-1">
+                          {thumbs.slice(0, 5).map((url, thumbIdx) => (
+                            <img
+                              key={`${thumbIdx}-${url}`}
+                              src={url}
+                              alt=""
+                              className="border-border h-14 w-14 rounded border bg-muted object-contain"
+                            />
+                          ))}
+                        </div>
+                        {thumbs[0] ? (
+                          <img
+                            src={thumbs[0]}
+                            alt=""
+                            className="border-border h-44 max-w-[200px] flex-1 rounded-md border bg-muted object-contain"
+                          />
+                        ) : null}
+                      </div>
+                      <dl className="grid flex-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-muted-foreground text-xs">SKU Id</dt>
+                          <dd className="font-mono text-sm">{sku || "—"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground text-xs">Title</dt>
+                          <dd className="text-sm">{title}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground text-xs">Ops Tag</dt>
+                          <dd className="text-sm">
+                            {listing
+                              ? pickLine(listing, GRN_ITEM_KEYS.opsTag)
+                              : pickLine(raw, GRN_ITEM_KEYS.opsTag)}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-muted-foreground text-xs">Warehouse Quantity</dt>
+                          <dd className="text-sm">{fmtInboundQty(whQty)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </section>
+
+                  <section className="space-y-2">
+                    <div className="text-muted-foreground text-[11px]">
+                      Quantity summary for this SKU on the PO line.
+                    </div>
+                    <div className="bg-muted/40 grid grid-cols-2 gap-2 rounded-md border p-2 sm:grid-cols-2">
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Total Original Demand:</span>{" "}
+                        <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">
+                          {fmtInboundQty(totalDemand)}
+                        </span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Total Accepted Quantity:</span>{" "}
+                        <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                          {added
+                            ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.accepted))
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Total Rejected Quantity:</span>{" "}
+                        <span className="font-mono font-semibold text-red-600">
+                          {added
+                            ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.rejected))
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Total Pending Quantity:</span>{" "}
+                        <span className="font-mono font-semibold">{fmtInboundQty(pendency)}</span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Total Invoice Quantity:</span>{" "}
+                        <span className="font-mono font-semibold text-violet-700 dark:text-violet-300">
+                          {added
+                            ? fmtInboundQty(parseLineQty(added.raw, ADDED_ITEM_KEYS.invoice))
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Fill Rate %:</span>{" "}
+                        <span className="font-mono font-semibold tabular-nums">
+                          {fillPct != null && Number.isFinite(fillPct)
+                            ? `${fillPct.toFixed(2)}`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-2">
+                    <div className="bg-sky-100/80 px-2 py-1.5 text-center font-semibold text-sky-950 text-xs uppercase tracking-wide dark:bg-sky-950/50 dark:text-sky-100">
+                      GRN input
+                    </div>
+                    <p className="text-muted-foreground text-[11px] leading-snug">
+                      Quantity in Invoice must equal Accepted + Rejected + Short (same rule applies when
+                      saving, closing the GRN, and on the server).
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <GrnInputEditableBox
+                        label="Quantity in Invoice"
+                        value={draftInv}
+                        onChange={setDraftInv}
+                        disabled={savingGrnInput}
+                        inputClassName="text-violet-700 dark:text-violet-300"
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Accepted Quantity"
+                        value={draftAcc}
+                        onChange={setDraftAcc}
+                        disabled={savingGrnInput}
+                        inputClassName="text-emerald-700 dark:text-emerald-400"
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Rejected Quantity"
+                        value={draftRej}
+                        onChange={setDraftRej}
+                        disabled={savingGrnInput}
+                        inputClassName="text-red-600"
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Short Quantity"
+                        value={draftShort}
+                        onChange={setDraftShort}
+                        disabled={savingGrnInput}
+                        className="border-blue-300/80"
+                        inputClassName="text-blue-700 dark:text-blue-300"
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Product Price (excl. Taxes)"
+                        value={draftPrice}
+                        onChange={setDraftPrice}
+                        disabled={savingGrnInput}
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Tax Rate"
+                        value={draftTax}
+                        onChange={setDraftTax}
+                        disabled={savingGrnInput}
+                        inputMode="decimal"
+                      />
+                      <GrnInputEditableBox
+                        label="Audited Price (excl. Taxes)"
+                        value={draftAudit}
+                        onChange={setDraftAudit}
+                        disabled={savingGrnInput}
+                        className="border-amber-300/70 bg-amber-50 dark:bg-amber-950/30"
+                        inputClassName="text-amber-950 dark:text-amber-100"
+                        inputMode="decimal"
+                      />
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={savingGrnInput || !grnInputDirty}
+                        onClick={() => void saveGrnLineInput()}
+                      >
+                        {savingGrnInput ? "Saving…" : "Save line"}
+                      </Button>
+                    </div>
+                  </section>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -1295,9 +1663,12 @@ function GrnSkuDetailSheet(props: {
 
 export default function InboundGrnDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const grnId = typeof params.grnId === "string" ? params.grnId : "";
   const [bundle, setBundle] = React.useState<GrnDetailsBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [workflowOpen, setWorkflowOpen] = React.useState(false);
+  const [workflowChartMounted, setWorkflowChartMounted] = React.useState(false);
   const dcUploadRef = React.useRef<HTMLInputElement>(null);
   const [dcUploading, setDcUploading] = React.useState(false);
 
@@ -1345,6 +1716,7 @@ export default function InboundGrnDetailPage() {
   const [assigningDnNumber, setAssigningDnNumber] = React.useState(false);
   const cnCopyRef = React.useRef<HTMLInputElement>(null);
   const [uploadingCnCopy, setUploadingCnCopy] = React.useState(false);
+  const [exportingTally, setExportingTally] = React.useState(false);
 
   function loadAuditPreview(grnId: number) {
     if (auditLoading) return;
@@ -1357,10 +1729,23 @@ export default function InboundGrnDetailPage() {
 
   function loadDebitNote(grnId: number) {
     setDebitNoteLoading(true);
-    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`)
-      .then((note) => setDebitNote(note))
-      .catch(() => {}) // 404 = no debit note yet; silently ignore
+    return apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`)
+      .then((note) => {
+        setDebitNote(note);
+        return note;
+      })
+      .catch(() => {
+        setDebitNote(null);
+        return null;
+      })
       .finally(() => setDebitNoteLoading(false));
+  }
+
+  /** Refresh debit note from server without full-tab loading skeleton (e.g. after POST generate). */
+  function refreshDebitNoteQuiet(grnId: number) {
+    void apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`)
+      .then((n) => setDebitNote(n))
+      .catch(() => {});
   }
 
   function handleGenerateDebitNote(grnId: number) {
@@ -1368,7 +1753,10 @@ export default function InboundGrnDetailPage() {
     apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`, { method: "POST" })
       .then((note) => {
         setDebitNote(note);
-        toast.success("Debit note generated");
+        toast.success(
+          `Debit note ${note.note_reference}: ${note.lines.length} line(s), total ₹${Number(note.total_debit_amount).toFixed(2)}`
+        );
+        refreshDebitNoteQuiet(grnId);
       })
       .catch(async (e: unknown) => {
         const msg = e instanceof Error ? e.message : "Failed to generate debit note";
@@ -1385,7 +1773,10 @@ export default function InboundGrnDetailPage() {
               }
             );
             setDebitNote(forced);
-            toast.success("Debit note regenerated");
+            toast.success(
+              `Debit note ${forced.note_reference}: ${forced.lines.length} line(s), total ₹${Number(forced.total_debit_amount).toFixed(2)}`
+            );
+            refreshDebitNoteQuiet(grnId);
             return;
           }
         }
@@ -1408,9 +1799,54 @@ export default function InboundGrnDetailPage() {
 
   async function handleDownloadCnCopy(grnId: number) {
     try {
-      const { url } = await apiFetch<{ url: string }>(`/api/inbound/grns/${grnId}/debit-note/cn-copy`);
-      window.open(url, "_blank");
-    } catch (e) {
+      const meta = await apiFetch<{ url: string; filename?: string | null }>(
+        `/api/inbound/grns/${grnId}/debit-note/cn-copy`
+      );
+      const fname = meta.filename?.trim() || "cn-copy";
+      let blob: Blob | null = null;
+
+      try {
+        const signedRes = await fetch(meta.url, { mode: "cors" });
+        if (signedRes.ok) {
+          blob = await signedRes.blob();
+        }
+      } catch {
+        blob = null;
+      }
+
+      if (!blob) {
+        const token = getStoredToken();
+        if (!token) {
+          toast.error("Sign in to download");
+          return;
+        }
+        const res = await fetch(
+          apiUrl(`/api/inbound/grns/${grnId}/debit-note/cn-copy/file`),
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error ?? res.statusText);
+        }
+        blob = await res.blob();
+      }
+
+      blob = withExplicitCnMime(blob, fname);
+
+      const objectUrl = URL.createObjectURL(blob);
+      const preview = window.open(objectUrl, "_blank", "noopener,noreferrer");
+      if (!preview) {
+        const a = document.createElement("a");
+        a.href = objectUrl;
+        a.download = fname;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast.success("Download started");
+      }
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 900_000);
+    } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Download failed");
     }
   }
@@ -1427,18 +1863,52 @@ export default function InboundGrnDetailPage() {
       .finally(() => setUploadingCnCopy(false));
   }
 
-  function handleExportTally(grnId: number) {
+  async function handleExportTally(grnId: number) {
     const token = getStoredToken();
-    const url = apiUrl(`/api/inbound/grns/${grnId}/debit-note/export`);
-    const a = document.createElement("a");
-    a.href = token ? `${url}?token=${encodeURIComponent(token)}` : url;
-    a.download = "";
-    a.click();
-    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note/export`, { method: "POST" })
-      .then((note) => setDebitNote(note))
-      .catch((e: unknown) =>
-        toast.error(e instanceof Error ? e.message : "Failed to mark export status")
+    if (!token) {
+      toast.error("Sign in to export");
+      return;
+    }
+    setExportingTally(true);
+    try {
+      const res = await fetch(
+        apiUrl(`/api/inbound/grns/${grnId}/debit-note/export`),
+        { headers: { Authorization: `Bearer ${token}` } }
       );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? res.statusText);
+      }
+      const cd = res.headers.get("Content-Disposition");
+      const fname =
+        filenameFromContentDisposition(cd) ?? `tally-grn-${grnId}.csv`;
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = fname;
+      a.click();
+      URL.revokeObjectURL(objUrl);
+
+      toast.success("Tally CSV downloaded");
+      try {
+        const note = await apiFetch<ZapDebitNote>(
+          `/api/inbound/grns/${grnId}/debit-note/export`,
+          { method: "POST" }
+        );
+        setDebitNote(note);
+      } catch (e: unknown) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : "File downloaded but marking export failed — retry or contact support"
+        );
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExportingTally(false);
+    }
   }
 
   function openGrnSkuSheet(line: LineRow) {
@@ -1446,39 +1916,281 @@ export default function InboundGrnDetailPage() {
     setGrnSkuSheetOpen(true);
   }
 
-  // Close GRN
-  const [closingGrn, setClosingGrn] = React.useState(false);
+  // Close GRN modal (upload + line review)
+  const [closeGrnModalOpen, setCloseGrnModalOpen] = React.useState(false);
+  const [closeGrnDrafts, setCloseGrnDrafts] = React.useState<
+    Record<number, CloseGrnLineDraft>
+  >({});
+  const [closeGrnFiles, setCloseGrnFiles] = React.useState<File[]>([]);
+  const [closeGrnBusy, setCloseGrnBusy] = React.useState(false);
+  const closeGrnFileInputRef = React.useRef<HTMLInputElement>(null);
 
-  function handleCloseGrn(grnId: number) {
-    setClosingGrn(true);
-    apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}/close`, { method: "POST" })
-      .then((updated) => {
-        if (bundle) setBundle({ ...bundle, header: updated });
-        toast.success("GRN closed");
+  function openCloseGrnModal() {
+    if (!bundle) return;
+    setCloseGrnDrafts(seedCloseGrnDraftsFromLines(bundle.grn_items));
+    setCloseGrnFiles([]);
+    if (closeGrnFileInputRef.current) closeGrnFileInputRef.current.value = "";
+    setCloseGrnModalOpen(true);
+  }
+
+  function handleCloseGrnFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setCloseGrnFiles(
+      filterVendorInvoiceFilesPicked(Array.from(e.target.files ?? []))
+    );
+  }
+
+  const documentsInvoiceFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [invoiceDocumentsUploading, setInvoiceDocumentsUploading] =
+    React.useState(false);
+
+  async function uploadVendorInvoiceFilesFromDocuments(files: File[]) {
+    if (!row || row.grn_id < 1) return;
+    const gid = row.grn_id;
+    setInvoiceDocumentsUploading(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("kind", "invoice");
+        await apiFetch<unknown>(`/api/inbound/grns/${gid}/upload-zap`, {
+          method: "POST",
+          body: fd,
+        });
+      }
+      const refreshed = await apiFetch<GrnDetailsBundle>(
+        `/api/inbound/grns/${grnId}/details?refresh=1`
+      );
+      setBundle(refreshed);
+      toast.success(
+        files.length === 1 ? "Invoice uploaded" : "Invoices uploaded"
+      );
+      if (documentsInvoiceFileInputRef.current)
+        documentsInvoiceFileInputRef.current.value = "";
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setInvoiceDocumentsUploading(false);
+    }
+  }
+
+  async function handleConfirmCloseGrn() {
+    if (!bundle || !row) return;
+    const gid = row.grn_id;
+    if (bundle.invoice_files.length === 0 && closeGrnFiles.length === 0) {
+      toast.error("Upload the vendor invoice before closing.");
+      return;
+    }
+    setCloseGrnBusy(true);
+    try {
+      for (const line of bundle.grn_items) {
+        const d = closeGrnDrafts[line.line_index];
+        if (!d) continue;
+        assertGrnLineQuantitiesAccountable({
+          invoice_quantity: parseGrnLineNum(d.inv, "Quantity in Invoice"),
+          accepted_quantity: parseGrnLineNum(d.acc, "Accepted Quantity"),
+          rejected_quantity: parseGrnLineNum(d.rej, "Rejected Quantity"),
+          shortage_quantity: parseGrnLineNum(d.short, "Short Quantity"),
+        });
+      }
+
+      for (const file of closeGrnFiles) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("kind", "invoice");
+        await apiFetch<unknown>(`/api/inbound/grns/${gid}/upload-zap`, {
+          method: "POST",
+          body: fd,
+        });
+      }
+
+      let b: GrnDetailsBundle = bundle;
+      for (const line of bundle.grn_items) {
+        const d = closeGrnDrafts[line.line_index];
+        if (!d || !closeModalDraftDiffers(line, d)) continue;
+        const payload = buildGrnLinePatchBody(d);
+        const res = await apiFetch<{
+          line_index: number;
+          sku_id: string | null;
+          raw: JsonRecord;
+        }>(`/api/inbound/grns/${gid}/items/${line.line_index}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        b = mergeGrnLineIntoBundle(b, res);
+      }
+      setBundle(b);
+
+      await apiFetch<GrnHeader>(`/api/inbound/grns/${gid}/close`, { method: "POST" });
+
+      const refreshed = await apiFetch<GrnDetailsBundle>(
+        `/api/inbound/grns/${grnId}/details?refresh=1`
+      );
+      setBundle(refreshed);
+      toast.success("GRN closed");
+      setCloseGrnModalOpen(false);
+      setCloseGrnFiles([]);
+      if (closeGrnFileInputRef.current) closeGrnFileInputRef.current.value = "";
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to complete close workflow";
+      toast.error(msg);
+    } finally {
+      setCloseGrnBusy(false);
+    }
+  }
+
+  const [operationalGrnInput, setOperationalGrnInput] = React.useState("");
+  const [registeringOperationalId, setRegisteringOperationalId] =
+    React.useState(false);
+
+  function handleRegisterOperational(draftId: number) {
+    const n = Number.parseInt(String(operationalGrnInput).trim(), 10);
+    if (!Number.isFinite(n) || n < 1) {
+      toast.error("Enter a positive operational GRN number");
+      return;
+    }
+    if (
+      !globalThis.confirm(
+        `Register this draft as GRN #${n}? The current id (${draftId}) will be replaced sitewide with this number.`
+      )
+    ) {
+      return;
+    }
+    setRegisteringOperationalId(true);
+    apiFetch<GrnHeader>(`/api/inbound/grns/${draftId}/register-operational`, {
+      method: "POST",
+      body: JSON.stringify({ operational_grn_id: n }),
+    })
+      .then((header) => {
+        toast.success("GRN registered");
+        router.replace(`/inbound/grns/${header.grn_id}`);
       })
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to close GRN"))
-      .finally(() => setClosingGrn(false));
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Registration failed")
+      )
+      .finally(() => setRegisteringOperationalId(false));
   }
 
   // Accounts + Inventory receipt tab state
   const [accountsSubmitting, setAccountsSubmitting] = React.useState(false);
-  const [receiptItems, setReceiptItems] = React.useState<
-    { sku_id: string; sku_description: string; accepted_qty: number; bin_id: string; quantity: string }[]
-  >([]);
+  const [receiptItems, setReceiptItems] = React.useState<ReceiptLineItem[]>([]);
   const [receiptSubmitting, setReceiptSubmitting] = React.useState(false);
   const [receiptDone, setReceiptDone] = React.useState<{ sku_id: string; bin_id: string; new_quantity: number }[] | null>(null);
+  const [binsBySku, setBinsBySku] = React.useState<Record<string, BinOptionRow[]>>({});
+  const [binsLoading, setBinsLoading] = React.useState(false);
+
+  const receiptSkuKey = React.useMemo(
+    () =>
+      [...new Set(receiptItems.map((i) => i.sku_id))]
+        .sort((a, b) => a.localeCompare(b))
+        .join(","),
+    [receiptItems]
+  );
+
+  React.useEffect(() => {
+    if (!receiptSkuKey) return;
+    const skus = receiptSkuKey.split(",").filter(Boolean);
+    let cancelled = false;
+    setBinsLoading(true);
+    Promise.all(
+      skus.map((sku) =>
+        apiFetch<{ data: BinOptionRow[] }>(
+          `/api/bins?${new URLSearchParams({ sku_id: sku, page: "1", limit: "500" })}`
+        )
+          .then((r) => [sku, r.data ?? []] as const)
+          .catch(() => [sku, []] as const)
+      )
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        setBinsBySku(Object.fromEntries(entries));
+      })
+      .finally(() => {
+        if (!cancelled) setBinsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [receiptSkuKey]);
 
   function initReceiptItems(grnItems: LineRow[]) {
     if (receiptItems.length > 0) return;
-    const items = grnItems.map((line) => {
-      const raw = line.raw ?? {};
-      const skuId = line.sku_id ?? String(raw.sku_id ?? raw.skuId ?? "");
-      const desc = String(raw.title ?? raw.name ?? raw.description ?? raw.sku_name ?? "");
-      const qty = Number(raw.accepted_quantity ?? raw.acceptedQuantity ?? raw.current_grn_accepted_quantity ?? 0);
-      return { sku_id: skuId, sku_description: desc, accepted_qty: qty, bin_id: "", quantity: String(qty) };
-    }).filter((i) => i.sku_id);
+    const items = grnItems
+      .map((line) => {
+        const raw = line.raw ?? {};
+        const skuId = line.sku_id ?? String(raw.sku_id ?? raw.skuId ?? "");
+        const desc = String(raw.title ?? raw.name ?? raw.description ?? raw.sku_name ?? "");
+        const qty = Number(raw.accepted_quantity ?? raw.acceptedQuantity ?? raw.current_grn_accepted_quantity ?? 0);
+        return {
+          row_key: `line-${line.line_index}-0`,
+          line_index: line.line_index,
+          sku_id: skuId,
+          sku_description: desc,
+          accepted_qty: qty,
+          bin_id: "",
+          quantity: String(qty),
+          bin_entry_mode: "dropdown" as const,
+        };
+      })
+      .filter((i) => i.sku_id);
     setReceiptItems(items);
   }
+
+  function addSplitRowForLine(line_index: number) {
+    setReceiptItems((prev) => {
+      const template = prev.find((i) => i.line_index === line_index);
+      if (!template) return prev;
+      const totalBooked = sumBookedLineTotal(prev, line_index);
+      const rem = Math.max(0, template.accepted_qty - totalBooked);
+      if (rem <= 0) return prev;
+      const splitKey = `line-${line_index}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      return [
+        ...prev,
+        {
+          row_key: splitKey,
+          line_index,
+          sku_id: template.sku_id,
+          sku_description: template.sku_description,
+          accepted_qty: template.accepted_qty,
+          bin_id: "",
+          quantity: String(rem),
+          bin_entry_mode: "dropdown" as const,
+        },
+      ];
+    });
+  }
+
+  function removeSplitRow(rowKey: string) {
+    setReceiptItems((prev) => {
+      const idx = prev.findIndex((r) => r.row_key === rowKey);
+      if (idx <= 0) return prev;
+      const row = prev[idx];
+      const firstIdx = prev.findIndex((r) => r.line_index === row.line_index);
+      if (firstIdx < 0 || firstIdx === idx) return prev;
+      const qtyToReturn = Number(row.quantity) || 0;
+      const next = [...prev];
+      next.splice(idx, 1);
+      const firstRowIdx = next.findIndex((r) => r.row_key === prev[firstIdx].row_key);
+      if (firstRowIdx >= 0 && qtyToReturn > 0) {
+        const first = next[firstRowIdx];
+        const merged = Math.min(first.accepted_qty, (Number(first.quantity) || 0) + qtyToReturn);
+        next[firstRowIdx] = { ...first, quantity: String(merged) };
+      }
+      return next;
+    });
+  }
+
+  React.useEffect(() => {
+    setReceiptItems([]);
+    setReceiptDone(null);
+  }, [grnId]);
+
+  React.useEffect(() => {
+    if (!bundle?.grn_items?.length || !row) return;
+    if (Number(grnId) !== row.grn_id) return;
+    if (receiptItems.length > 0) return;
+    if (row.inventory_receipt_status === "DONE") return;
+    initReceiptItems(bundle.grn_items);
+  }, [bundle, grnId, receiptItems.length, row?.grn_id, row?.inventory_receipt_status]);
 
   function handleAccountsAction(grnId: number, action: "APPROVED" | "REJECTED") {
     setAccountsSubmitting(true);
@@ -1495,11 +2207,28 @@ export default function InboundGrnDetailPage() {
   }
 
   function handleReceiveInventory(grnId: number) {
+    if (row?.inventory_receipt_status === "DONE") {
+      toast.error("Inventory has already been booked for this GRN.");
+      return;
+    }
+    const lineIndexes = [...new Set(receiptItems.map((i) => i.line_index))];
+    for (const li of lineIndexes) {
+      const rows = receiptItems.filter((i) => i.line_index === li);
+      const cap = rows[0]?.accepted_qty ?? 0;
+      const sum = sumBookedLineTotal(receiptItems, li);
+      if (sum > cap + 1e-6) {
+        toast.error(
+          `GRN line ${li + 1}: total qty to book (${sum}) is greater than accepted (${cap}). Adjust quantities or bin splits.`
+        );
+        return;
+      }
+    }
+
     const payload = receiptItems
       .filter((i) => i.bin_id.trim() && Number(i.quantity) > 0)
       .map((i) => ({ sku_id: i.sku_id, bin_id: i.bin_id.trim(), quantity: Number(i.quantity) }));
     if (payload.length === 0) {
-      toast.error("Enter at least one bin ID and quantity");
+      toast.error("Choose a target bin and quantity for at least one line");
       return;
     }
     setReceiptSubmitting(true);
@@ -1525,10 +2254,152 @@ export default function InboundGrnDetailPage() {
         </Button>
       </div>
 
-      <AppPageTitle
-        title={loading ? "GRN" : row ? `GRN ${row.grn_id}` : "GRN"}
-        description="Receipt details, documents, and activity for this goods receipt note."
-      />
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <AppPageTitle
+          className="mb-0 min-w-0 flex-1"
+          title={loading ? "GRN" : row ? `GRN ${row.grn_id}` : "GRN"}
+          description="Receipt details, documents, and activity for this goods receipt note."
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2 self-end sm:mt-1 sm:shrink-0 sm:self-start"
+          onClick={() => {
+            setWorkflowOpen(true);
+            setWorkflowChartMounted(true);
+          }}
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden />
+          How this GRN flow works
+        </Button>
+      </div>
+
+      <Sheet
+        open={workflowOpen}
+        onOpenChange={(open) => {
+          setWorkflowOpen(open);
+          if (open) setWorkflowChartMounted(true);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className={cn(
+            "flex w-full flex-col gap-0 overflow-y-auto p-0",
+            /* Base Sheet uses data-[side=right]:sm:max-w-sm — override width like GRN Section */
+            "data-[side=right]:max-w-none data-[side=right]:sm:max-w-[min(96vw,900px)] data-[side=right]:lg:max-w-[min(94vw,1100px)]"
+          )}
+        >
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>How this GRN flow works</SheetTitle>
+            <SheetDescription>
+              This guide describes the full <strong className="text-foreground">Zap web</strong> experience
+              (all tabs below). The React Native app follows the same business order with a smaller UI;
+              see <span className="font-mono text-[13px]">web/docs/mobile/inbound-grn-flow-parity.md</span>{" "}
+              in the repo for web vs mobile mapping and backlog. Follow the numbered order below; tabs map
+              to the same sequence where your process allows. The diagram is a compact visual of that path.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 p-4">
+            <div>
+              <h3 className="text-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
+                Business flow (recommended order)
+              </h3>
+              <ol className="text-muted-foreground list-decimal space-y-3 pl-5 text-sm leading-relaxed marker:text-foreground/80">
+                <li>
+                  <strong className="text-foreground">Know your GRN id.</strong> A{" "}
+                  <strong className="text-foreground">negative id</strong> (e.g.{" "}
+                  <span className="font-mono text-foreground">-2</span>) is a{" "}
+                  <strong className="text-foreground">Zap draft</strong> tied to the PO—status{" "}
+                  <strong className="text-foreground">DRAFT_ZAP</strong>. A{" "}
+                  <strong className="text-foreground">positive id</strong> is the operational receipt in
+                  Zap (synced, imported, or after you register the draft).
+                </li>
+                <li>
+                  <strong className="text-foreground">Register the warehouse id (drafts only).</strong> Use{" "}
+                  <strong className="text-foreground">Register operational GRN number</strong> on this page
+                  when the real GRN number is known. Zap moves you to{" "}
+                  <span className="font-mono text-foreground">/inbound/grns/&lt;positive&gt;</span> and
+                  replaces the draft id everywhere.
+                </li>
+                <li>
+                  <strong className="text-foreground">Record the physical receipt while OPEN.</strong> On{" "}
+                  <strong className="text-foreground">GRN Details</strong>, use the line table and the{" "}
+                  <strong className="text-foreground">GRN Section</strong> sheet to enter invoice, accepted,
+                  rejected, shortage, and prices vs the PO{" "}
+                  <span className="text-muted-foreground">(Editable only until the GRN is closed.)</span>
+                </li>
+                <li>
+                  <strong className="text-foreground">Attach the vendor invoice before close.</strong>{" "}
+                  Use <strong className="text-foreground">JPG, JPEG, or PDF</strong> (max two files, 4 MB
+                  each). Upload on the <strong className="text-foreground">GRN Documents</strong> tab while
+                  the GRN is <strong className="text-foreground">OPEN</strong>, or pick files in the{" "}
+                  <strong className="text-foreground">Close GRN</strong> dialog before you confirm close.
+                </li>
+                <li>
+                  <strong className="text-foreground">Close the GRN.</strong> Requires the invoice on file.
+                  After <strong className="text-foreground">CLOSED</strong>, line quantities and prices are
+                  fixed for this receipt.
+                </li>
+                <li>
+                  <strong className="text-foreground">Accounts (if your policy uses it).</strong> On the{" "}
+                  <strong className="text-foreground">Accounts</strong> tab, approve or reject. Inventory
+                  booking usually expects <strong className="text-foreground">APPROVED</strong> first.
+                </li>
+                <li>
+                  <strong className="text-foreground">Book stock into bins.</strong> On{" "}
+                  <strong className="text-foreground">Inventory receipt</strong>, map each accepted line to
+                  target bin IDs (choose from the list where present). You can split one line across
+                  several bins; quantities must not exceed accepted per line. The bin must already exist in
+                  Bins for that SKU.
+                </li>
+                <li>
+                  <strong className="text-foreground">Audit and debit note.</strong> On{" "}
+                  <strong className="text-foreground">Audit &amp; Debit Note</strong>: generate the note,
+                  assign the <strong className="text-foreground">DN number</strong>, upload the vendor{" "}
+                  <strong className="text-foreground">CN copy</strong> when issued, and{" "}
+                  <strong className="text-foreground">Export Tally CSV</strong> when finance needs it.
+                </li>
+              </ol>
+              <p className="text-muted-foreground border-border mt-4 rounded-lg border bg-muted/20 px-3 py-2.5 text-sm leading-relaxed">
+                <strong className="text-foreground">Close GRN</strong> in the page header appears only when{" "}
+                <strong className="text-foreground">GRN</strong> status is{" "}
+                <strong className="text-foreground">OPEN</strong>. Zap drafts (negative id /{" "}
+                <strong className="text-foreground">DRAFT_ZAP</strong>) must use{" "}
+                <strong className="text-foreground">Register operational GRN number</strong> first.
+              </p>
+            </div>
+            <div>
+              <h3 className="text-foreground mb-2 text-sm font-semibold tracking-wide uppercase">
+                Where to look
+              </h3>
+              <ul className="text-muted-foreground list-disc space-y-2 pl-5 text-sm leading-relaxed marker:text-foreground/70">
+                <li>
+                  <strong className="text-foreground">Logs</strong> — timeline of actions Zap records on this
+                  GRN (line updates, close, accounts, inventory, debit note, uploads).
+                </li>
+                <li>
+                  <strong className="text-foreground">Documents</strong> — vendor invoice and other GRN
+                  files: upload here while <strong className="text-foreground">OPEN</strong> or in the Close
+                  GRN dialog; view and download anytime.
+                </li>
+                <li>
+                  <strong className="text-foreground">Mobile</strong> — same sequence on{" "}
+                  <span className="font-mono text-foreground">InboundGrnDetailScreen</span> (Summary, Items,
+                  Documents, Debit Note). Parity and gaps:{" "}
+                  <span className="font-mono text-[13px]">web/docs/mobile/inbound-grn-flow-parity.md</span>.
+                </li>
+              </ul>
+            </div>
+            {workflowChartMounted ? (
+              <MermaidDiagram
+                chart={INBOUND_GRN_DETAIL_FLOW}
+                className="w-full overflow-x-auto"
+              />
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {loading ? (
         <Card>
@@ -1588,18 +2459,93 @@ export default function InboundGrnDetailPage() {
             ) : null}
             {row.grn_status === "OPEN" ? (
               <Button
+                type="button"
                 size="sm"
                 variant="outline"
                 className="ml-auto"
-                disabled={closingGrn}
-                onClick={() => row && handleCloseGrn(row.grn_id)}
+                onClick={() => openCloseGrnModal()}
               >
-                {closingGrn ? "Closing…" : "Close GRN"}
+                Close GRN
               </Button>
-            ) : null}
+            ) : (
+              <p className="text-muted-foreground ml-auto max-w-lg text-right text-xs leading-snug">
+                {String(row.grn_status ?? "").toUpperCase() === "CLOSED" ? (
+                  <>
+                    GRN is closed. Use{" "}
+                    <span className="font-medium text-foreground">GRN Documents</span> and{" "}
+                    <span className="font-medium text-foreground">GRN Logs</span> for files and history.
+                  </>
+                ) : row.grn_id < 0 ||
+                  String(row.grn_status ?? "").toUpperCase() === "DRAFT_ZAP" ? (
+                  <>
+                    <span className="font-medium text-foreground">Close GRN</span> appears when status is
+                    OPEN. Register the operational GRN if this is still a draft.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-foreground">Close GRN</span> is available when
+                    status is OPEN.
+                  </>
+                )}
+              </p>
+            )}
           </div>
 
-          <Tabs defaultValue="details" className="w-full">
+          {row.grn_id < 0 ? (
+            <Card className="border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Register operational GRN number
+                </CardTitle>
+                <CardDescription>
+                  This is a Zap draft (negative id). Enter the warehouse or receipt GRN number you want
+                  to use. It replaces this draft id across documents, lines, and URLs; status becomes{" "}
+                  <span className="font-medium text-foreground">OPEN</span> if it was{" "}
+                  <span className="font-medium text-foreground">DRAFT_ZAP</span>.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="min-w-[12rem] flex-1 space-y-1.5">
+                  <label
+                    htmlFor="operational-grn-id-input"
+                    className="text-muted-foreground text-xs font-medium"
+                  >
+                    Operational GRN #
+                  </label>
+                  <Input
+                    id="operational-grn-id-input"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    placeholder="e.g. 12345"
+                    value={operationalGrnInput}
+                    onChange={(e) => setOperationalGrnInput(e.target.value)}
+                    disabled={registeringOperationalId}
+                    className="font-mono"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  disabled={registeringOperationalId}
+                  className="w-full sm:w-auto"
+                  onClick={() => handleRegisterOperational(row.grn_id)}
+                >
+                  {registeringOperationalId ? "Registering…" : "Register"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Tabs
+            defaultValue="details"
+            className="w-full"
+            onValueChange={(v) => {
+              if (v !== "inventory" || !bundle?.grn_items?.length) return;
+              if (row?.inventory_receipt_status === "DONE") return;
+              initReceiptItems(bundle.grn_items);
+            }}
+          >
             <TabsList
               variant="line"
               className="mb-2 w-full flex-wrap justify-start sm:w-auto"
@@ -1610,18 +2556,15 @@ export default function InboundGrnDetailPage() {
               <TabsTrigger
                 value="audit"
                 onClick={() => {
-                  if (!auditLines && row) { loadAuditPreview(row.grn_id); loadDebitNote(row.grn_id); }
+                  if (!row) return;
+                  if (!auditLines) loadAuditPreview(row.grn_id);
+                  void loadDebitNote(row.grn_id);
                 }}
               >
                 Audit &amp; Debit Note
               </TabsTrigger>
               <TabsTrigger value="accounts">Accounts</TabsTrigger>
-              <TabsTrigger
-                value="inventory"
-                onClick={() => { if (bundle && receiptItems.length === 0) initReceiptItems(bundle.grn_items); }}
-              >
-                Inventory Receipt
-              </TabsTrigger>
+              <TabsTrigger value="inventory">Inventory Receipt</TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="mt-4 space-y-6">
@@ -1983,12 +2926,421 @@ export default function InboundGrnDetailPage() {
               setGrnSkuSheetOpen(next);
               if (!next) setGrnSkuSelectedLine(null);
             }}
+            grnId={grnId}
             grn_items={bundle.grn_items}
             added_items={bundle.added_items}
             selectedLine={grnSkuSelectedLine}
             onSelectLine={setGrnSkuSelectedLine}
             grnTitle={`GRN #${row.grn_id}`}
+            onLineUpdated={(line) => {
+              setBundle((b) => {
+                if (!b) return b;
+                const grn_items = b.grn_items.map((li) =>
+                  li.line_index === line.line_index
+                    ? {
+                        ...li,
+                        raw: line.raw,
+                        sku_id: line.sku_id ?? li.sku_id,
+                      }
+                    : li
+                );
+                return { ...b, grn_items };
+              });
+              setGrnSkuSelectedLine((prev) =>
+                prev && prev.line_index === line.line_index
+                  ? {
+                      ...prev,
+                      raw: line.raw,
+                      sku_id: line.sku_id ?? prev.sku_id,
+                    }
+                  : prev
+              );
+            }}
           />
+
+          <Dialog
+            open={closeGrnModalOpen}
+            onOpenChange={(o) => {
+              if (!o && closeGrnBusy) return;
+              setCloseGrnModalOpen(o);
+              if (!o) {
+                setCloseGrnFiles([]);
+                if (closeGrnFileInputRef.current) closeGrnFileInputRef.current.value = "";
+              }
+            }}
+          >
+            <DialogContent
+              className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(96vw,1400px)]"
+              showCloseButton={!closeGrnBusy}
+            >
+              <DialogHeader className="border-border shrink-0 border-b px-6 py-4 text-left">
+                <DialogTitle>Close GRN</DialogTitle>
+                <DialogDescription className="text-muted-foreground pt-1 text-sm">
+                  Review “current GRN” quantities and prices, attach the vendor invoice, then confirm
+                  closure. At least one invoice file is required (upload here or from GRN Documents).
+                </DialogDescription>
+              </DialogHeader>
+              <div className="text-muted-foreground/90 hover:text-foreground/90 min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-4 text-xs leading-relaxed">
+                <div className="border-border bg-muted/30 space-y-2 rounded-md border p-3">
+                  <p className="text-foreground font-medium text-[13px]">How closing works</p>
+                  <ul className="list-inside list-disc space-y-1">
+                    <li>
+                      After goods are received, enter approved quantities and pricing per line (current
+                      GRN columns).
+                    </li>
+                    <li>
+                      Final closure requires a supporting vendor invoice — upload scanned PDF or JPG
+                      (max 2 files, 4MB each). An invoice already stored on this GRN counts toward this
+                      requirement.
+                    </li>
+                    <li>Formats: JPG, JPEG, PDF.</li>
+                  </ul>
+                </div>
+
+                <section className="space-y-2">
+                  <h3 className="text-foreground font-semibold text-sm">
+                    Upload scanned invoice files
+                  </h3>
+                  <p className="text-muted-foreground text-[13px]">
+                    Vendor invoice for this receipt — max <span className="font-medium">2</span> files,{" "}
+                    <span className="font-medium">4 MB</span> each;{" "}
+                    <span className="font-medium">JPG, JPEG, PDF</span>. If the vendor only provides a
+                    spreadsheet-style invoice, export or scan to PDF before uploading.
+                  </p>
+                  {bundle.invoice_files.length > 0 ? (
+                    <p className="text-sky-800 text-[13px] dark:text-sky-200">
+                      This GRN already has {bundle.invoice_files.length} invoice file
+                      {bundle.invoice_files.length === 1 ? "" : "s"} on file. You may add more below
+                      (up to 2 in this step) or close using the existing documents.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={closeGrnFileInputRef}
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,image/jpeg,application/pdf"
+                      multiple
+                      className="text-muted-foreground max-w-full text-xs file:mr-2 file:rounded file:border file:bg-muted file:px-2 file:py-1"
+                      disabled={closeGrnBusy}
+                      onChange={handleCloseGrnFilesChange}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  {closeGrnFiles.length > 0 ? (
+                    <ul className="text-[13px]">
+                      {closeGrnFiles.map((f) => (
+                        <li key={`${f.name}-${f.size}`} className="font-mono">
+                          {f.name}{" "}
+                          <span className="text-muted-foreground">
+                            ({(f.size / 1024).toFixed(1)} KB)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </section>
+
+                <section className="space-y-2">
+                  <h3 className="text-foreground font-semibold text-sm">
+                    GRN line items — review current GRN
+                  </h3>
+                  <p className="text-muted-foreground text-[13px]">
+                    Per line: Invoice qty = Accepted + Rejected + Short before you can close.
+                  </p>
+                  <div className="max-h-[min(50vh,420px)] overflow-auto rounded-md border">
+                    {bundle.grn_items.length === 0 ? (
+                      <p className="text-muted-foreground p-4 text-sm">No lines on this GRN.</p>
+                    ) : (
+                      <Table className="min-w-[2480px]">
+                        <TableHeader>
+                          <TableRow className="whitespace-nowrap">
+                            <TableHead className="w-12">Sr. No</TableHead>
+                            <TableHead>SKU ID</TableHead>
+                            <TableHead>Ops Tag</TableHead>
+                            <TableHead className="text-right">Available Quantity</TableHead>
+                            <TableHead className="text-right">Total Demand</TableHead>
+                            <TableHead className="text-right">
+                              Total Invoice Qty (Prev. GRNs)
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Total Accepted Qty (Prev. GRNs)
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Total Rejected Qty (Prev. GRNs)
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Avg. Received Price (Prev. GRNs)
+                            </TableHead>
+                            <TableHead className="text-right">
+                              Fill Rate % (Prev. GRNs)
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Invoice Qty
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Accepted Qty
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Rejected Qty
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Short Qty
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Received Price
+                            </TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Current Tax Rate
+                            </TableHead>
+                            <TableHead>Current Entry By</TableHead>
+                            <TableHead className="text-right">Damage Images Count</TableHead>
+                            <TableHead>Created At</TableHead>
+                            <TableHead
+                              className={cn(
+                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                "font-medium text-emerald-950 dark:text-emerald-100"
+                              )}
+                            >
+                              Audit Price (excl. GST)
+                            </TableHead>
+                            <TableHead>Audited By</TableHead>
+                            <TableHead>Last Audited At</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {bundle.grn_items.map((line) => {
+                            const d =
+                              closeGrnDrafts[line.line_index] ??
+                              seedCloseGrnDraftsFromLines([line])[line.line_index];
+                            return (
+                              <TableRow key={line.line_index} className="whitespace-nowrap">
+                                <TableCell className="text-muted-foreground text-xs">
+                                  {line.line_index + 1}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {line.sku_id ?? pickLine(line.raw, GRN_ITEM_KEYS.sku)}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.opsTag)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.availableQty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.totalDemand)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.prevInvoiceQty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.prevAcceptedQty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.prevRejectedQty)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.avgReceivedPricePrev)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.fillRatePrev)}
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.inv}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, inv: v },
+                                      }));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.acc}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, acc: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.rej}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, rej: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.short}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, short: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.price}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, price: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.tax}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, tax: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.entryBy)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.damageImagesCount)}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap text-xs">
+                                  {formatLineMaybeDate(
+                                    pickLine(line.raw, GRN_ITEM_KEYS.lineCreatedAt)
+                                  )}
+                                </TableCell>
+                                <TableCell
+                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Input
+                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                    value={d.audit}
+                                    disabled={closeGrnBusy}
+                                    onChange={(e) =>
+                                      setCloseGrnDrafts((prev) => ({
+                                        ...prev,
+                                        [line.line_index]: { ...d, audit: e.target.value },
+                                      }))
+                                    }
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {pickLine(line.raw, GRN_ITEM_KEYS.auditedBy)}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap text-xs">
+                                  {formatLineMaybeDate(
+                                    pickLine(line.raw, GRN_ITEM_KEYS.lastAuditedAt)
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                </section>
+              </div>
+              <DialogFooter className="border-border bg-muted/10 flex shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={closeGrnBusy}
+                  onClick={() => setCloseGrnModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={closeGrnBusy}
+                  onClick={() => void handleConfirmCloseGrn()}
+                >
+                  {closeGrnBusy ? "Closing…" : "Close GRN"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {snap?.synced_at ? (
             <p className="text-muted-foreground text-center text-xs">
@@ -2087,10 +3439,55 @@ export default function InboundGrnDetailPage() {
                     Vendor invoice files
                   </CardTitle>
                   <CardDescription>
-                    PDF / images uploaded against this vendor invoice — download or archive.
+                    PDF / images for this vendor invoice. Upload here while OPEN or add files in the Close GRN
+                    dialog — download or archive below.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
+                <CardContent className="space-y-4 pt-6">
+                  {(() => {
+                    if (row.grn_status === "OPEN" && row.grn_id > 0) {
+                      return (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            ref={documentsInvoiceFileInputRef}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,image/jpeg,application/pdf"
+                            multiple
+                            className="text-muted-foreground max-w-full text-xs file:mr-2 file:rounded file:border file:bg-muted file:px-2 file:py-1"
+                            disabled={invoiceDocumentsUploading}
+                            onChange={(e) => {
+                              const picked = filterVendorInvoiceFilesPicked(
+                                Array.from(e.target.files ?? [])
+                              );
+                              e.target.value = "";
+                              if (picked.length === 0) return;
+                              void uploadVendorInvoiceFilesFromDocuments(picked);
+                            }}
+                            onClick={(ev) => ev.stopPropagation()}
+                          />
+                          {invoiceDocumentsUploading ? (
+                            <span className="text-muted-foreground text-xs">Uploading…</span>
+                          ) : null}
+                        </div>
+                      );
+                    }
+                    if (row.grn_id < 0) {
+                      return (
+                        <p className="text-muted-foreground text-xs">
+                          Register the operational GRN before uploading invoice files.
+                        </p>
+                      );
+                    }
+                    if (row.grn_status !== "OPEN") {
+                      return (
+                        <p className="text-muted-foreground text-xs">
+                          Vendor invoice upload is available while the GRN is OPEN (or add files when you run
+                          Close GRN).
+                        </p>
+                      );
+                    }
+                    return null;
+                  })()}
                   {bundle.invoice_files.length === 0 ? (
                     <div className="border-border rounded-xl border border-dashed px-6 py-10 text-center">
                       <p className="text-muted-foreground text-sm">
@@ -2306,10 +3703,12 @@ export default function InboundGrnDetailPage() {
                         setDcUploading(true);
                         void (async () => {
                           try {
+                            const targetNoteId =
+                              bundle?.debit_credit_notes?.[0]?.note_id ?? -1;
                             const fd = new FormData();
                             fd.set("file", file);
                             fd.set("kind", "debit_note");
-                            fd.set("noteId", "-1");
+                            fd.set("noteId", String(targetNoteId));
                             const token = getStoredToken();
                             const headers = new Headers();
                             if (token)
@@ -2596,7 +3995,7 @@ export default function InboundGrnDetailPage() {
                     </Table>
                   ) : auditLines && auditLines.length === 0 ? (
                     <p className="text-muted-foreground py-8 text-center text-sm">
-                      No line items found. Refresh GRN details from eAutomate first.
+                      No line items found. Ensure the PO has lines in ZAP (purchase order page) or add GRN lines.
                     </p>
                   ) : (
                     <p className="text-muted-foreground py-8 text-center text-sm">
@@ -2644,11 +4043,15 @@ export default function InboundGrnDetailPage() {
                         <Button
                           type="button"
                           size="sm"
-                          disabled={debitNote.status === "ISSUED" || debitNote.status === "CLOSED"}
-                          onClick={() => row && handleExportTally(row.grn_id)}
+                          disabled={
+                            debitNote.status === "ISSUED" ||
+                            debitNote.status === "CLOSED" ||
+                            exportingTally
+                          }
+                          onClick={() => row && void handleExportTally(row.grn_id)}
                         >
                           <Download className="mr-1 h-4 w-4" />
-                          Export for Tally
+                          {exportingTally ? "Exporting…" : "Export for Tally"}
                         </Button>
                       ) : null}
                     </div>
@@ -2920,7 +4323,7 @@ export default function InboundGrnDetailPage() {
                     <p className="text-muted-foreground py-8 text-center text-sm">
                       Accounts must approve this GRN before inventory can be booked.
                     </p>
-                  ) : receiptDone ? (
+                  ) : receiptDone && receiptDone.length > 0 ? (
                     <div className="space-y-3">
                       <p className="font-medium text-green-600 dark:text-green-400">
                         Inventory booked successfully.
@@ -2934,8 +4337,8 @@ export default function InboundGrnDetailPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {receiptDone.map((r) => (
-                            <TableRow key={`${r.sku_id}-${r.bin_id}`}>
+                          {receiptDone.map((r, idx) => (
+                            <TableRow key={`${r.sku_id}-${r.bin_id}-${idx}`}>
                               <TableCell className="font-mono text-xs">{r.sku_id}</TableCell>
                               <TableCell className="font-mono text-xs">{r.bin_id}</TableCell>
                               <TableCell className="text-right font-mono text-xs tabular-nums">{r.new_quantity}</TableCell>
@@ -2944,9 +4347,21 @@ export default function InboundGrnDetailPage() {
                         </TableBody>
                       </Table>
                     </div>
+                  ) : row?.inventory_receipt_status === "DONE" ? (
+                    <div className="space-y-2 py-4">
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        Inventory receipt is complete for this GRN.
+                      </p>
+                      <p className="text-muted-foreground text-sm">
+                        {row.inventory_receipt_at
+                          ? `Booked ${formatDisplayDateTime(row.inventory_receipt_at)}`
+                          : "Stock was booked into bins from a previous session."}
+                        {row.inventory_receipt_by ? ` · ${row.inventory_receipt_by}` : ""}
+                      </p>
+                    </div>
                   ) : receiptItems.length === 0 ? (
                     <p className="text-muted-foreground py-8 text-center text-sm">
-                      No GRN line items found. Refresh details from eAutomate first.
+                      No GRN line items found. Load PO lines in ZAP or add lines to this GRN.
                     </p>
                   ) : (
                     <div className="space-y-4">
@@ -2956,45 +4371,167 @@ export default function InboundGrnDetailPage() {
                             <TableHead className="text-xs">SKU</TableHead>
                             <TableHead className="text-xs">Description</TableHead>
                             <TableHead className="text-right text-xs">Accepted Qty</TableHead>
-                            <TableHead className="text-xs">Target Bin ID</TableHead>
+                            <TableHead className="text-right text-xs">Booked Σ</TableHead>
+                            <TableHead className="text-xs min-w-[220px]">Target Bin ID</TableHead>
                             <TableHead className="text-xs w-28">Qty to Book</TableHead>
+                            <TableHead className="w-10 text-xs text-center"> </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {receiptItems.map((item, idx) => (
-                            <TableRow key={item.sku_id + idx}>
-                              <TableCell className="font-mono text-xs">{item.sku_id}</TableCell>
-                              <TableCell className="max-w-[160px] truncate text-xs">{item.sku_description || "—"}</TableCell>
-                              <TableCell className="text-right font-mono text-xs tabular-nums">{item.accepted_qty}</TableCell>
-                              <TableCell>
-                                <input
-                                  type="text"
-                                  placeholder="BIN-001"
-                                  value={item.bin_id}
-                                  onChange={(e) => {
-                                    const next = [...receiptItems];
-                                    next[idx] = { ...next[idx], bin_id: e.target.value };
-                                    setReceiptItems(next);
-                                  }}
-                                  className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                                />
-                              </TableCell>
-                              <TableCell>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={item.accepted_qty}
-                                  value={item.quantity}
-                                  onChange={(e) => {
-                                    const next = [...receiptItems];
-                                    next[idx] = { ...next[idx], quantity: e.target.value };
-                                    setReceiptItems(next);
-                                  }}
-                                  className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
-                                />
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {receiptItems.map((item, idx) => {
+                            const lineRows = receiptItems.filter((i) => i.line_index === item.line_index);
+                            const lineBooked = sumBookedLineTotal(receiptItems, item.line_index);
+                            const maxQty = maxBookableForRow(receiptItems, item);
+                            const skuBins = binsBySku[item.sku_id] ?? [];
+                            const isLastForLine =
+                              idx === receiptItems.length - 1 ||
+                              receiptItems[idx + 1]?.line_index !== item.line_index;
+                            const remainderLine = Math.max(0, item.accepted_qty - lineBooked);
+                            const binInList =
+                              item.bin_id.trim() !== "" &&
+                              skuBins.some((b) => b.bin_id === item.bin_id.trim());
+                            const effectiveCustom =
+                              item.bin_entry_mode === "custom" ||
+                              (item.bin_id.trim() !== "" && !binInList);
+                            const selectValue = effectiveCustom
+                              ? "__custom__"
+                              : item.bin_id.trim() && binInList
+                                ? item.bin_id.trim()
+                                : "";
+                            return (
+                              <TableRow key={item.row_key}>
+                                <TableCell className="font-mono text-xs">{item.sku_id}</TableCell>
+                                <TableCell className="max-w-[160px] truncate text-xs">
+                                  {item.sku_description || "—"}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-xs tabular-nums">
+                                  {item.accepted_qty}
+                                </TableCell>
+                                <TableCell
+                                  className={cn(
+                                    "text-right font-mono text-xs tabular-nums",
+                                    lineBooked > item.accepted_qty + 1e-6 && "text-destructive"
+                                  )}
+                                >
+                                  {lineBooked}
+                                  <span className="text-muted-foreground"> / {item.accepted_qty}</span>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex min-w-0 flex-col gap-1.5">
+                                    <select
+                                      disabled={binsLoading}
+                                      aria-label="Target bin"
+                                      value={selectValue}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        const next = [...receiptItems];
+                                        if (v === "__custom__") {
+                                          next[idx] = {
+                                            ...next[idx],
+                                            bin_entry_mode: "custom",
+                                            bin_id: "",
+                                          };
+                                        } else if (v === "") {
+                                          next[idx] = {
+                                            ...next[idx],
+                                            bin_entry_mode: "dropdown",
+                                            bin_id: "",
+                                          };
+                                        } else {
+                                          next[idx] = {
+                                            ...next[idx],
+                                            bin_entry_mode: "dropdown",
+                                            bin_id: v,
+                                          };
+                                        }
+                                        setReceiptItems(next);
+                                      }}
+                                      className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                    >
+                                      <option value="">
+                                        {binsLoading ? "Loading bins…" : "Select bin…"}
+                                      </option>
+                                      {skuBins.map((b) => (
+                                        <option key={`${b.bin_id}-${b.warehouse_id}`} value={b.bin_id}>
+                                          {b.bin_id} · WH {b.warehouse_id} · avail {b.available_quantity}
+                                        </option>
+                                      ))}
+                                      <option value="__custom__">Other (enter bin ID)…</option>
+                                    </select>
+                                    {effectiveCustom ? (
+                                      <Input
+                                        placeholder="Exact bin ID"
+                                        value={item.bin_id}
+                                        onChange={(e) => {
+                                          const next = [...receiptItems];
+                                          next[idx] = { ...next[idx], bin_id: e.target.value };
+                                          setReceiptItems(next);
+                                        }}
+                                        className="h-7 font-mono text-xs"
+                                      />
+                                    ) : null}
+                                    {!binsLoading && skuBins.length === 0 ? (
+                                      <p className="text-muted-foreground text-[11px] leading-snug">
+                                        No bins list for this SKU yet. Use &quot;Other&quot; if the bin already
+                                        exists in Bins.
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={maxQty}
+                                    value={item.quantity}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const n = Number(raw);
+                                      const next = [...receiptItems];
+                                      const clamped =
+                                        raw === "" || !Number.isFinite(n)
+                                          ? raw
+                                          : String(Math.min(Math.max(0, n), maxQty));
+                                      next[idx] = { ...next[idx], quantity: clamped };
+                                      setReceiptItems(next);
+                                    }}
+                                    className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs font-mono tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                  <p className="text-muted-foreground mt-0.5 text-[11px] tabular-nums">
+                                    max {maxQty}
+                                  </p>
+                                </TableCell>
+                                <TableCell className="text-center align-top pt-3">
+                                  <div className="flex flex-col items-center gap-1">
+                                    {lineRows.length > 1 && item.row_key !== lineRows[0]?.row_key ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 shrink-0"
+                                        title="Remove this bin row"
+                                        onClick={() => removeSplitRow(item.row_key)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                      </Button>
+                                    ) : null}
+                                    {isLastForLine && remainderLine > 0 ? (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 shrink-0"
+                                        title="Put remaining quantity in another bin"
+                                        onClick={() => addSplitRowForLine(item.line_index)}
+                                      >
+                                        <Plus className="h-3.5 w-3.5" aria-hidden />
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                       <div className="flex justify-end">

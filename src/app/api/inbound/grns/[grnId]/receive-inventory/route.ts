@@ -12,6 +12,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { receiveIntoInventory } from "@/server/services/grnInventoryReceiptService";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
@@ -27,6 +28,25 @@ export async function POST(request: Request, ctx: RouteContext) {
     }
 
     const results = await receiveIntoInventory(grnId, body.items, user.email);
+    const gid = Number(grnId);
+    if (Number.isFinite(gid)) {
+      await appendInboundGrnLogSafe({
+        grnId: gid,
+        logType: "INVENTORY",
+        operationPerformed: "Inventory booked from GRN receipt",
+        remarks: `${body.items.length} allocation(s)`,
+        createdBy: user.email,
+        raw: {
+          itemCount: body.items.length,
+          results: results.slice(0, 100).map((r) => ({
+            sku_id: r.sku_id,
+            bin_id: r.bin_id,
+            quantity: r.quantity,
+            new_quantity: r.new_quantity,
+          })),
+        },
+      });
+    }
     return NextResponse.json({ ok: true, results }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
