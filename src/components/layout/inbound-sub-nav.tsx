@@ -52,6 +52,11 @@ const tabs: { href: string; label: string; match: (p: string | null) => boolean 
     label: "Pending Debit & Credit Notes",
     match: (p) => !!p && p.startsWith("/inbound/pending-debit-credit"),
   },
+  {
+    href: "/inbound/flows",
+    label: "Process Flows",
+    match: (p) => !!p && p.startsWith("/inbound/flows"),
+  },
 ];
 
 /** Second-level nav for Inbound only (Vendors, POs, …). */

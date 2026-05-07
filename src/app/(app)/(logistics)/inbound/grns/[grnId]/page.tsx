@@ -1386,6 +1386,15 @@ export default function InboundGrnDetailPage() {
       .finally(() => setAssigningDnNumber(false));
   }
 
+  async function handleDownloadCnCopy(grnId: number) {
+    try {
+      const { url } = await apiFetch<{ url: string }>(`/api/inbound/grns/${grnId}/debit-note/cn-copy`);
+      window.open(url, "_blank");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    }
+  }
+
   function handleUploadCnCopy(grnId: number) {
     const file = cnCopyRef.current?.files?.[0];
     if (!file) { toast.error("Select a file first"); return; }
@@ -2730,6 +2739,11 @@ export default function InboundGrnDetailPage() {
                             {debitNote.cn_copy_uploaded_by ?? "—"}{debitNote.cn_copy_uploaded_at ? ` · ${formatDisplayDateTime(debitNote.cn_copy_uploaded_at)}` : ""}
                           </span>
                           <Badge variant="outline" className="border-violet-400 text-violet-600 dark:text-violet-400 text-xs font-semibold">CLOSED</Badge>
+                          {row && (
+                            <Button size="sm" variant="outline" onClick={() => void handleDownloadCnCopy(row.grn_id)}>
+                              Download CN Copy
+                            </Button>
+                          )}
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">

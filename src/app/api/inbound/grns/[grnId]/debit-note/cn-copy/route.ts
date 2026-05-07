@@ -3,16 +3,32 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import {
+  createSignedDownloadUrl,
   getInboundBucket,
   isZapStorageConfigured,
   uploadBufferToBucket,
 } from "@/server/zapStorage";
-import { uploadCnCopy } from "@/server/services/grnDebitNoteService";
+import { getDebitNoteForGrn, uploadCnCopy } from "@/server/services/grnDebitNoteService";
 
 type Ctx = { params: Promise<{ grnId: string }> };
 
 function safeObjectSegment(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 180);
+}
+
+export async function GET(request: Request, context: Ctx) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "purchase_orders", "read");
+    const { grnId } = await context.params;
+    const note = await getDebitNoteForGrn(grnId);
+    if (!note.cn_copy_file_path) throw new AppError("No CN copy uploaded yet", 404);
+    if (!isZapStorageConfigured()) throw new AppError("Storage not configured", 501);
+    const url = await createSignedDownloadUrl(getInboundBucket(), note.cn_copy_file_path);
+    return NextResponse.json({ url, filename: note.cn_copy_file_name });
+  } catch (err) {
+    return handleApiError(err);
+  }
 }
 
 export async function POST(request: Request, context: Ctx) {

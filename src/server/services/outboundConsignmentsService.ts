@@ -13,6 +13,7 @@ export type OutboundConsignmentRow = {
   invoice_number_status: string | null;
   invoice_number: string | null;
   invoice_upload_status: string | null;
+  invoice_file_path: string | null;
   invoice_file_name: string | null;
   invoice_uploaded_at: string | null;
   invoice_uploaded_by: string | null;
@@ -496,6 +497,7 @@ function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
     invoice_number_status: r.invoice_number_status as string | null,
     invoice_number: r.invoice_number as string | null,
     invoice_upload_status: r.invoice_upload_status as string | null,
+    invoice_file_path: r.invoice_file_path as string | null,
     invoice_file_name: r.invoice_file_name as string | null,
     invoice_uploaded_at: r.invoice_uploaded_at ? new Date(r.invoice_uploaded_at as string).toISOString() : null,
     invoice_uploaded_by: r.invoice_uploaded_by as string | null,
@@ -525,7 +527,7 @@ export async function getOutboundConsignmentById(
   const r = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
-            invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
+            invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments WHERE id = $1`,
@@ -598,7 +600,7 @@ export async function listOutboundConsignments(opts: {
   const listR = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
-            invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
+            invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments

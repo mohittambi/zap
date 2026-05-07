@@ -85,7 +85,7 @@ const DESCRIPTION_KEYS = [
 
 type JsonRecord = Record<string, unknown>;
 
-function pickNum(raw: JsonRecord, keys: string[]): number {
+export function pickNum(raw: JsonRecord, keys: string[]): number {
   for (const k of keys) {
     const v = raw[k];
     if (v != null && v !== "") {
@@ -96,7 +96,7 @@ function pickNum(raw: JsonRecord, keys: string[]): number {
   return 0;
 }
 
-function pickStr(raw: JsonRecord, keys: string[]): string {
+export function pickStr(raw: JsonRecord, keys: string[]): string {
   for (const k of keys) {
     const v = raw[k];
     if (typeof v === "string" && v.trim()) return v.trim();
@@ -349,6 +349,14 @@ export async function assignDnNumber(
   const trimmed = dnNumber.trim();
   if (!trimmed) throw new AppError("dn_number is required", 400);
 
+  const pre = await query(
+    `SELECT status FROM inbound_zap_debit_notes WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (pre.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  if (String(pre.rows[0].status) === "CLOSED")
+    throw new AppError("Cannot assign DN number to a closed debit note", 409);
+
   const res = await query(
     `UPDATE inbound_zap_debit_notes
      SET dn_number = $1, dn_number_assigned_by = $2, dn_number_assigned_at = NOW(),
@@ -372,6 +380,16 @@ export async function uploadCnCopy(
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
 
+  const pre = await query(
+    `SELECT status, dn_number FROM inbound_zap_debit_notes WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (pre.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  if (String(pre.rows[0].status) === "CLOSED")
+    throw new AppError("Debit note is already closed", 409);
+  if (!pre.rows[0].dn_number)
+    throw new AppError("Assign a DN number before uploading CN copy", 400);
+
   const res = await query(
     `UPDATE inbound_zap_debit_notes
      SET cn_copy_file_path = $1, cn_copy_file_name = $2,
@@ -394,6 +412,16 @@ export async function closeDnDemand(
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
 
+  const pre = await query(
+    `SELECT status, dn_number FROM inbound_zap_debit_notes WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (pre.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  if (String(pre.rows[0].status) === "CLOSED")
+    throw new AppError("Debit note is already closed", 409);
+  if (!pre.rows[0].dn_number)
+    throw new AppError("Assign a DN number before closing", 400);
+
   const res = await query(
     `UPDATE inbound_zap_debit_notes SET status = 'CLOSED'
      WHERE grn_id = $1
@@ -406,7 +434,7 @@ export async function closeDnDemand(
 
 // ── Tally CSV export ──────────────────────────────────────────────────────────
 
-function csvRow(cells: (string | number)[]): string {
+export function csvRow(cells: (string | number)[]): string {
   return cells
     .map((c) => {
       const s = String(c);

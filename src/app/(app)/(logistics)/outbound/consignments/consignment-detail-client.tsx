@@ -78,6 +78,15 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
   const invoiceFileRef = React.useRef<HTMLInputElement>(null);
   const [uploadingInvoice, setUploadingInvoice] = React.useState(false);
 
+  async function handleDownloadInvoice() {
+    try {
+      const { url } = await apiFetch<{ url: string }>(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice`);
+      window.open(url, "_blank");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    }
+  }
+
   function handleUploadInvoice() {
     const file = invoiceFileRef.current?.files?.[0];
     if (!file) { toast.error("Select a file first"); return; }
@@ -192,6 +201,9 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
                 {row.invoice_uploaded_at ? (
                   <span className="text-muted-foreground text-xs">{fmt(row.invoice_uploaded_at)}</span>
                 ) : null}
+                <Button size="sm" variant="outline" onClick={() => void handleDownloadInvoice()}>
+                  Download
+                </Button>
               </span>
             </div>
           ) : null}
