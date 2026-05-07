@@ -3,8 +3,8 @@
  * GET  /api/sync/sheets   — return the last sync log entry (status, counts, errors)
  *
  * Secured by one of two mechanisms (in priority order):
- *   1. CRON_SECRET header  — for Vercel Cron Jobs
- *      Vercel sends `Authorization: Bearer <CRON_SECRET>` automatically.
+ *   1. Static scheduler bearer token from config (`src/config/schedulers.ts`)
+ *      Trusted scheduler should send: `Authorization: Bearer <configured-token>`.
  *   2. requireAuth + bins:read permission — for manual triggers by logged-in users
  *
  * The POST is idempotent: calling it while another sync is RUNNING will still
@@ -16,10 +16,11 @@ import { requireAuth } from '@/server/auth';
 import { assertPermission } from '@/server/rbac';
 import { handleApiError } from '@/server/errors';
 import { runSync, getLastSyncLog } from '@/server/services/sheetsSyncService';
+import { sheetsSyncScheduler } from '@/config/schedulers';
 
 function isCronRequest(request: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) { return false; }
+  const cronSecret = sheetsSyncScheduler.bearerToken;
+  if (!cronSecret) return false;
   const auth = request.headers.get('authorization') ?? '';
   return auth === `Bearer ${cronSecret}`;
 }
