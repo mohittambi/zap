@@ -52,7 +52,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-muted/30 p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+    <div className="flex min-h-dvh flex-col items-center justify-start overflow-y-auto bg-muted/30 p-6 pt-8 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Zap</h1>
         <p className="text-sm text-muted-foreground">

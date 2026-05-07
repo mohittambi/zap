@@ -85,6 +85,8 @@ const DESCRIPTION_KEYS = [
 
 type JsonRecord = Record<string, unknown>;
 
+const TERMINAL_NOTE_STATUSES = new Set<DebitNote["status"]>(["ISSUED", "CLOSED"]);
+
 export function pickNum(raw: JsonRecord, keys: string[]): number {
   for (const k of keys) {
     const v = raw[k];
@@ -204,7 +206,8 @@ export async function getAuditPreview(grnIdRaw: unknown): Promise<AuditLine[]> {
 
 export async function generateDebitNote(
   grnIdRaw: unknown,
-  generatedBy: string
+  generatedBy: string,
+  opts?: { forceRegenerate?: boolean }
 ): Promise<DebitNote> {
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
@@ -226,6 +229,20 @@ export async function generateDebitNote(
       `GRN ${grnId} has no line items — refresh details from eAutomate first`,
       400
     );
+  }
+
+  const existingNoteRes = await query(
+    `SELECT id, status FROM inbound_zap_debit_notes WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (existingNoteRes.rows.length > 0) {
+    const existingStatus = String(existingNoteRes.rows[0].status ?? "") as DebitNote["status"];
+    if (TERMINAL_NOTE_STATUSES.has(existingStatus) && opts?.forceRegenerate !== true) {
+      throw new AppError(
+        `Cannot regenerate debit note while status is ${existingStatus}.`,
+        409
+      );
+    }
   }
 
   const candidateLines = itemRes.rows
@@ -488,12 +505,67 @@ export async function buildTallyCsv(
 
   const csv = lines.join("\r\n");
 
-  await query(
-    `UPDATE inbound_zap_debit_notes SET status='EXPORTED', exported_at=NOW() WHERE grn_id=$1`,
-    [Number(grnIdRaw)]
-  );
-
   return { csv, filename: `${note.note_reference}.csv` };
+}
+
+export async function markDebitNoteExported(
+  grnIdRaw: unknown
+): Promise<DebitNote> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+  const current = await query(
+    `SELECT id, status FROM inbound_zap_debit_notes WHERE grn_id = $1`,
+    [grnId]
+  );
+  if (current.rows.length === 0) throw new AppError(`No debit note found for GRN ${grnId}`, 404);
+  const status = String(current.rows[0].status ?? "") as DebitNote["status"];
+  if (status === "CLOSED" || status === "ISSUED") {
+    return fetchNoteById(toNum(current.rows[0].id));
+  }
+  if (status !== "DRAFT" && status !== "EXPORTED") {
+    throw new AppError(`Cannot export debit note in status ${status || "unknown"}`, 409);
+  }
+  await query(
+    `UPDATE inbound_zap_debit_notes
+     SET status = 'EXPORTED', exported_at = NOW()
+     WHERE grn_id = $1`,
+    [grnId]
+  );
+  return fetchNoteById(toNum(current.rows[0].id));
+}
+
+export async function assignDcnNumberForGrn(
+  grnIdRaw: unknown,
+  dcnNumber: string,
+  assignedBy: string
+): Promise<{ grn_id: number; note_id: number; credit_debit_note_number: string }> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+  const trimmed = dcnNumber.trim();
+  if (!trimmed) throw new AppError("dcn_number is required", 400);
+
+  const noteRes = await query(
+    `SELECT note_id
+     FROM inbound_grn_debit_credit_notes
+     WHERE grn_id = $1
+     ORDER BY updated_at DESC NULLS LAST, note_id DESC
+     LIMIT 1`,
+    [grnId]
+  );
+  if (noteRes.rows.length === 0) {
+    throw new AppError(`No debit/credit note row found for GRN ${grnId}`, 404);
+  }
+  const noteId = Number(noteRes.rows[0].note_id);
+  await query(
+    `UPDATE inbound_grn_debit_credit_notes
+     SET credit_debit_note_number = $1,
+         credit_debit_note_number_assignment_status = 'ASSIGNED',
+         updated_at = NOW(),
+         created_by = COALESCE(NULLIF(created_by, ''), $2)
+     WHERE grn_id = $3 AND note_id = $4`,
+    [trimmed, assignedBy, grnId, noteId]
+  );
+  return { grn_id: grnId, note_id: noteId, credit_debit_note_number: trimmed };
 }
 
 // ── Invoice Excel export ──────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { buildTallyCsv } from "@/server/services/grnDebitNoteService";
+import { buildTallyCsv, markDebitNoteExported } from "@/server/services/grnDebitNoteService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
@@ -28,6 +28,18 @@ export async function GET(request: Request, ctx: RouteContext) {
         "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function POST(request: Request, ctx: RouteContext) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "purchase_orders", "write");
+    const { grnId } = await ctx.params;
+    const note = await markDebitNoteExported(grnId);
+    return Response.json(note, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

@@ -112,7 +112,12 @@ export async function listPendingDebitCreditNotesPaginated(opts: {
     p += 1;
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const guards = [
+    `UPPER(COALESCE(credit_debit_note_status, '')) NOT IN ('CLOSED','COMPLETED','DONE','SETTLED')`,
+    `UPPER(COALESCE(credit_debit_note_upload_status, '')) NOT IN ('UPLOADED','COMPLETED','DONE')`,
+  ];
+  const allConditions = [...guards, ...conditions];
+  const where = allConditions.length ? `WHERE ${allConditions.join(" AND ")}` : "";
 
   const countR = await query(
     `SELECT COUNT(*)::int AS total FROM inbound_pending_debit_credit_notes ${where}`,

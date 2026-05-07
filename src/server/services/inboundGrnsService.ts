@@ -179,19 +179,21 @@ export async function listPendingAuditGrnsPaginated(opts) {
   }
 
   const whereExtra = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+  const pendingAuditGuard =
+    `AND UPPER(COALESCE(g.grn_audit_status, '')) NOT IN ('CLOSED','AUDITED','DONE','COMPLETED')`;
 
   const countR = await query(
     `SELECT COUNT(*)::int AS total
      FROM inbound_grns g
      INNER JOIN inbound_grn_pending_audit q ON q.grn_id = g.grn_id
-     WHERE 1=1 ${whereExtra}`,
+     WHERE 1=1 ${pendingAuditGuard} ${whereExtra}`,
     params
   );
   const total = countR.rows[0].total;
 
   const listSql = `${listSelect}
     INNER JOIN inbound_grn_pending_audit q ON q.grn_id = g.grn_id
-    WHERE 1=1 ${whereExtra}
+    WHERE 1=1 ${pendingAuditGuard} ${whereExtra}
     ORDER BY g.created_at DESC NULLS LAST, g.grn_id DESC
     LIMIT $${p} OFFSET $${p + 1}`;
 
@@ -259,19 +261,20 @@ export async function listPendingInvoiceCollectionGrnsPaginated(opts) {
   }
 
   const whereExtra = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+  const pendingStatusGuard = `AND UPPER(COALESCE(g.grn_invoice_collection_status, '')) <> 'COLLECTED'`;
 
   const countR = await query(
     `SELECT COUNT(*)::int AS total
      FROM inbound_grns g
      INNER JOIN inbound_grn_pending_invoice_collection q ON q.grn_id = g.grn_id
-     WHERE 1=1 ${whereExtra}`,
+     WHERE 1=1 ${pendingStatusGuard} ${whereExtra}`,
     params
   );
   const total = countR.rows[0].total;
 
   const listSql = `${listSelect}
     INNER JOIN inbound_grn_pending_invoice_collection q ON q.grn_id = g.grn_id
-    WHERE 1=1 ${whereExtra}
+    WHERE 1=1 ${pendingStatusGuard} ${whereExtra}
     ORDER BY g.created_at DESC NULLS LAST, g.grn_id DESC
     LIMIT $${p} OFFSET $${p + 1}`;
 
@@ -295,7 +298,29 @@ export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
   const grnId = Number(grnIdRaw);
   if (!Number.isFinite(grnId) || grnId === 0) throw new AppError("Invalid grn id", 400);
 
+  if (typeof fields.grn_audit_status === "string") {
+    const auditStatus = fields.grn_audit_status.trim().toUpperCase();
+    if (auditStatus === "AUDITED") {
+      // Canonicalize legacy AUDITED to CLOSED across inbound flows.
+      fields.grn_audit_status = "CLOSED";
+    }
+  }
+
   const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by"];
+  const auditDone =
+    String(fields.grn_audit_status ?? "").trim().toUpperCase() === "CLOSED";
+  const hasAuditBy = "grn_audit_by" in fields;
+  if (auditDone && hasAuditBy === false && actorEmail != null && String(actorEmail).trim() !== "") {
+    fields.grn_audit_by = String(actorEmail).trim();
+  }
+  const collectedNow =
+    String(fields.grn_invoice_collection_status ?? "").trim().toUpperCase() === "COLLECTED";
+  const hasInvoiceCollectionBy = "grn_invoice_collection_by" in fields;
+  if (collectedNow && hasInvoiceCollectionBy) {
+    // Caller already provided explicit actor; keep it.
+  } else if (collectedNow && actorEmail != null && String(actorEmail).trim() !== "") {
+    fields.grn_invoice_collection_by = String(actorEmail).trim();
+  }
   const setClauses = [];
   const params = [];
   let idx = 1;
@@ -316,6 +341,18 @@ export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
     params
   );
   if (result.rows.length === 0) throw new AppError("GRN not found", 404);
+  if (collectedNow) {
+    await query(
+      `DELETE FROM inbound_grn_pending_invoice_collection WHERE grn_id = $1`,
+      [grnId]
+    );
+  }
+  if (auditDone) {
+    await query(
+      `DELETE FROM inbound_grn_pending_audit WHERE grn_id = $1`,
+      [grnId]
+    );
+  }
   return getGrnById(grnId);
 }
 

@@ -85,6 +85,12 @@ function statusToneClass(value: string | null): string {
   return "";
 }
 
+function isAuditDone(value: string | null): boolean {
+  if (!value) return false;
+  const up = value.trim().toUpperCase();
+  return up === "CLOSED" || up === "AUDITED" || up === "DONE" || up === "COMPLETED";
+}
+
 function FilterableHead({
   label,
   className,
@@ -150,7 +156,7 @@ export default function InboundPendingAuditsPage() {
       await apiFetch(`/api/inbound/grns/${grnId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ grn_audit_status: "AUDITED" }),
+        body: JSON.stringify({ grn_audit_status: "CLOSED" }),
       });
       toast.success(`GRN ${grnId} marked as Audited`);
       void load();
@@ -273,6 +279,15 @@ export default function InboundPendingAuditsPage() {
                   </TableHeader>
                   <TableBody>
                     {data.content.map((row, idx) => (
+                      (() => {
+                        const audited = isAuditDone(row.grn_audit_status);
+                        const actionLabel =
+                          markingId === row.grn_id
+                            ? "Saving…"
+                            : audited
+                              ? "Audited"
+                              : "Mark Audited";
+                        return (
                       <TableRow
                         key={row.grn_id}
                         className={cn(
@@ -361,13 +376,15 @@ export default function InboundPendingAuditsPage() {
                             size="sm"
                             variant="outline"
                             className="h-7 whitespace-nowrap px-2 text-xs"
-                            disabled={markingId === row.grn_id}
+                            disabled={markingId === row.grn_id || audited}
                             onClick={() => void markAudited(row.grn_id)}
                           >
-                            {markingId === row.grn_id ? "Saving…" : "Mark Audited"}
+                            {actionLabel}
                           </Button>
                         </TableCell>
                       </TableRow>
+                        );
+                      })()
                     ))}
                   </TableBody>
                 </Table>

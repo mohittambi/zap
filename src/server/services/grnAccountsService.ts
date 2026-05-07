@@ -140,12 +140,14 @@ export async function listPendingAccountsGrnsPaginated(opts: {
   }
 
   const whereExtra = conditions.length ? `AND ${conditions.join(" AND ")}` : "";
+  const pendingGuard =
+    `AND UPPER(COALESCE(g.accounts_status, '')) NOT IN ('APPROVED','REJECTED')`;
 
   const countRes = await query(
     `SELECT COUNT(*)::int AS total
      FROM inbound_grns g
      INNER JOIN inbound_grn_pending_accounts_approval q ON q.grn_id = g.grn_id
-     WHERE 1=1 ${whereExtra}`,
+     WHERE 1=1 ${pendingGuard} ${whereExtra}`,
     params
   );
   const total = countRes.rows[0].total as number;
@@ -153,7 +155,7 @@ export async function listPendingAccountsGrnsPaginated(opts: {
   const listRes = await query(
     `${listSelect}
      INNER JOIN inbound_grn_pending_accounts_approval q ON q.grn_id = g.grn_id
-     WHERE 1=1 ${whereExtra}
+     WHERE 1=1 ${pendingGuard} ${whereExtra}
      ORDER BY g.created_at DESC NULLS LAST, g.grn_id DESC
      LIMIT $${p} OFFSET $${p + 1}`,
     [...params, perPage, offset]

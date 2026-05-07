@@ -1370,7 +1370,27 @@ export default function InboundGrnDetailPage() {
         setDebitNote(note);
         toast.success("Debit note generated");
       })
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to generate debit note"))
+      .catch(async (e: unknown) => {
+        const msg = e instanceof Error ? e.message : "Failed to generate debit note";
+        if (msg.includes("Cannot regenerate debit note while status is")) {
+          const confirmed = globalThis.confirm(
+            "This debit note is already progressed (ISSUED/CLOSED). Force regenerate and overwrite draft lines?"
+          );
+          if (confirmed) {
+            const forced = await apiFetch<ZapDebitNote>(
+              `/api/inbound/grns/${grnId}/debit-note`,
+              {
+                method: "POST",
+                body: JSON.stringify({ force_regenerate: true }),
+              }
+            );
+            setDebitNote(forced);
+            toast.success("Debit note regenerated");
+            return;
+          }
+        }
+        toast.error(msg);
+      })
       .finally(() => setGeneratingNote(false));
   }
 
@@ -1414,8 +1434,11 @@ export default function InboundGrnDetailPage() {
     a.href = token ? `${url}?token=${encodeURIComponent(token)}` : url;
     a.download = "";
     a.click();
-    // Mark note as exported locally
-    if (debitNote) setDebitNote({ ...debitNote, status: "EXPORTED" });
+    apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note/export`, { method: "POST" })
+      .then((note) => setDebitNote(note))
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Failed to mark export status")
+      );
   }
 
   function openGrnSkuSheet(line: LineRow) {
@@ -1461,7 +1484,7 @@ export default function InboundGrnDetailPage() {
     setAccountsSubmitting(true);
     apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}`, {
       method: "PATCH",
-      body: JSON.stringify({ accounts_status: action, accounts_by: "" }),
+      body: JSON.stringify({ accounts_status: action }),
     })
       .then((updated) => {
         if (bundle) setBundle({ ...bundle, header: updated });
@@ -2595,6 +2618,11 @@ export default function InboundGrnDetailPage() {
                       <CardDescription>
                         Auto-generated from lines where vendor overcharged. Export as Tally-compatible CSV.
                       </CardDescription>
+                      {debitNote?.status === "ISSUED" || debitNote?.status === "CLOSED" ? (
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          This note is already {debitNote.status.toLowerCase()}. Regenerate requires confirmation and can replace draft lines.
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -2604,12 +2632,19 @@ export default function InboundGrnDetailPage() {
                         disabled={generatingNote || !row}
                         onClick={() => row && handleGenerateDebitNote(row.grn_id)}
                       >
-                        {generatingNote ? "Generating…" : debitNote ? "Regenerate" : "Generate debit note"}
+                        {generatingNote
+                          ? "Generating…"
+                          : debitNote?.status === "ISSUED" || debitNote?.status === "CLOSED"
+                            ? "Force regenerate"
+                            : debitNote
+                              ? "Regenerate"
+                              : "Generate debit note"}
                       </Button>
                       {debitNote ? (
                         <Button
                           type="button"
                           size="sm"
+                          disabled={debitNote.status === "ISSUED" || debitNote.status === "CLOSED"}
                           onClick={() => row && handleExportTally(row.grn_id)}
                         >
                           <Download className="mr-1 h-4 w-4" />
