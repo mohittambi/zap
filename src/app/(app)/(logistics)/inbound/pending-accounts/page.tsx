@@ -32,6 +32,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
+import {
+  buildPendingGrnsListQuery,
+  formatInboundListDateTime as formatDisplayDateTime,
+  inboundPaginatedTotalPages,
+  statusToneClass,
+} from "@/lib/inboundPoGrnPendingUi";
 import { cn } from "@/lib/utils";
 
 type GrnRow = {
@@ -77,34 +83,6 @@ flowchart TD
   rejected --> doneRow
 `;
 
-const displayFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
-
-function formatDisplayDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return displayFormatter.format(d);
-}
-
-function statusToneClass(value: string | null): string {
-  if (!value) return "";
-  const up = value.trim().toUpperCase();
-  if (up === "APPROVED" || up === "DONE" || up === "COMPLETED") {
-    return "text-violet-600 dark:text-violet-400 font-medium";
-  }
-  if (up === "REJECTED") {
-    return "text-destructive font-medium";
-  }
-  return "";
-}
-
 function FilterableHead({
   label,
   className,
@@ -140,13 +118,13 @@ export default function InboundPendingAccountsPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({
-        page: String(page),
-        count: String(perPage),
-        search_keyword: searchApplied,
+      const qs = buildPendingGrnsListQuery({
+        page,
+        count: perPage,
+        searchKeyword: searchApplied,
       });
       const res = await apiFetch<GrnListResponse>(
-        `/api/inbound/pending-accounts/grns?${q}`
+        `/api/inbound/pending-accounts/grns?${qs}`
       );
       setData(res);
     } catch (e) {
@@ -183,10 +161,9 @@ export default function InboundPendingAccountsPage() {
     }
   }
 
-  const totalPages =
-    data && data.total > 0
-      ? Math.ceil(data.total / data.per_page_count)
-      : 1;
+  const totalPages = data
+    ? inboundPaginatedTotalPages(data.total, data.per_page_count)
+    : 1;
 
   return (
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">

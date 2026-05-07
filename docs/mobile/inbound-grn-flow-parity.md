@@ -35,10 +35,10 @@ Deeper inbound mechanics and bundle shape: [services/inbound/workflows.md](../se
 | 2 | Register operational id (drafts) | “Register operational GRN number” card | Register replaces draft id with positive id; status → OPEN where applicable |
 | 3 | Record receipt while OPEN | GRN Details tab, line table, GRN Section sheet | `PATCH .../items/{lineIndex}`; editable until closed |
 | 4 | Attach vendor invoice (JPG/JPEG/PDF, max 2 × 4MB) | GRN Documents tab **or** **Close GRN** dialog | `POST .../upload-zap` with `kind=invoice` |
-| 5 | Close GRN | Header **Close GRN** (only when `OPEN`); modal review | `POST .../close`; requires invoice on file |
-| 6 | Accounts (if used) | Accounts tab | `PATCH` / accounts flows per product rules |
+| 5 | Close GRN | Header **Close GRN** (only when `OPEN`); modal review | `POST .../close`; requires invoice on file. Server **auto-creates** a Zap rate-diff debit note (`DRAFT`) when any line has `received_price > audit_price`; see [inbound-grn-debit-credit-note-flows.md](../inbound-grn-debit-credit-note-flows.md) §2. |
+| 6 | Accounts (if used) | Accounts tab | `PATCH` / accounts flows per product rules. **Invoice Excel** (`GET …/invoice-export`) is **web-only** today: available after **`grn_invoice_collection_status === 'COLLECTED'`**, **operator-initiated** download — not auto-generated on mobile or by the mark-collected `PATCH`. |
 | 7 | Inventory to bins | Inventory receipt tab | Receive-inventory APIs; bins must exist for SKU |
-| 8 | Audit and debit note | Audit & Debit Note tab | Debit note CRUD, CN copy, Tally export |
+| 8 | Audit and debit note | Audit & Debit Note tab | Pending Audit queue verifies invoice and line **audit prices**. Zap DN: **`PATCH …/debit-note`** with **`dn_number`**, **`POST …/debit-note/cn-copy`** to **`CLOSED`**, Tally `…/export`; combined invoice + DN rows live in **`GET …/invoice-export`** (web); parity with web `POST …/debit-note` for manual regenerate. |
 
 Web register route: `POST /api/inbound/grns/{draftId}/register-operational` with `operational_grn_id` ([`register-operational/route.ts`](../../src/app/api/inbound/grns/[grnId]/register-operational/route.ts)).
 

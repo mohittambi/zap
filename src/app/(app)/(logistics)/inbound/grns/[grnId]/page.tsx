@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { filenameFromContentDisposition } from "@/lib/filenameFromContentDisposition";
+import { hasVendorInvoiceReadyToClose, showCloseGrnHeaderAction } from "@/lib/inboundGrnCloseUi";
+import { classifyVendorInvoicePick } from "@/lib/inboundVendorInvoiceUi";
 import { assertGrnLineQuantitiesAccountable } from "@/lib/grnLineQuantityValidation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -363,18 +365,17 @@ function invoiceCollectionClass(value: string | null | undefined): string {
 
 /** Max 2 vendor invoice files (JPG, JPEG, PDF; 4 MB each) — Close GRN modal and GRN Documents upload. */
 function filterVendorInvoiceFilesPicked(picked: File[]): File[] {
-  const maxBytes = 4 * 1024 * 1024;
   if (picked.length > 2) {
     toast.message("Only the first 2 files are used (max 2).");
   }
   const out: File[] = [];
   for (const f of picked.slice(0, 2)) {
-    if (f.size > maxBytes) {
+    const rej = classifyVendorInvoicePick(f.name, f.size);
+    if (rej === "oversize") {
       toast.error(`${f.name} exceeds 4MB`);
       continue;
     }
-    const lower = f.name.toLowerCase();
-    if (!/\.(jpg|jpeg|pdf)$/.test(lower)) {
+    if (rej === "bad_extension") {
       toast.error(`${f.name}: use JPG, JPEG, or PDF only`);
       continue;
     }
@@ -1976,7 +1977,12 @@ export default function InboundGrnDetailPage() {
   async function handleConfirmCloseGrn() {
     if (!bundle || !row) return;
     const gid = row.grn_id;
-    if (bundle.invoice_files.length === 0 && closeGrnFiles.length === 0) {
+    if (
+      !hasVendorInvoiceReadyToClose({
+        existingInvoiceFilesCount: bundle.invoice_files.length,
+        stagedInvoiceFilesCount: closeGrnFiles.length,
+      })
+    ) {
       toast.error("Upload the vendor invoice before closing.");
       return;
     }
@@ -2457,7 +2463,7 @@ export default function InboundGrnDetailPage() {
                 Inv. collection: {row.grn_invoice_collection_status}
               </Badge>
             ) : null}
-            {row.grn_status === "OPEN" ? (
+            {showCloseGrnHeaderAction(row.grn_status) ? (
               <Button
                 type="button"
                 size="sm"

@@ -24,6 +24,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import {
+  buildInboundPurchaseOrdersQuery,
+  displayPoStatus,
+  expiryTone,
+  formatExpiryDateDisplay,
+  formatInboundListDateTime as formatDisplayDateTime,
+  inboundPoRowsToCsv,
+} from "@/lib/inboundPoGrnPendingUi";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import { ChevronDown, Download } from "lucide-react";
 import {
@@ -177,135 +185,14 @@ function ColumnMultiSelect({
   );
 }
 
-const displayFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
-
-function formatDisplayDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return displayFormatter.format(d);
-}
-
-function parseExpectedDateOnly(s: string | null): Date | null {
-  if (!s) return null;
-  const m = s.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  return new Date(
-    Number(m[1]),
-    Number(m[2]) - 1,
-    Number(m[3]),
-    12,
-    0,
-    0,
-    0
-  );
-}
-
-/** Expiry: today … today+5 (inclusive) = "soon"; before today = expired; after = ok. */
-function expiryTone(
-  expected: string | null
-): "expired" | "soon" | "ok" | "unknown" {
-  const d = parseExpectedDateOnly(expected);
-  if (!d || Number.isNaN(d.getTime())) return "unknown";
-  const now = new Date();
-  const startToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate()
-  );
-  const lastSoonDay = new Date(startToday);
-  lastSoonDay.setDate(lastSoonDay.getDate() + 5);
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const t0 = startToday.getTime();
-  const t1 = lastSoonDay.getTime();
-  if (day < t0) return "expired";
-  if (day <= t1) return "soon";
-  return "ok";
-}
-
-const expiryDayFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
-
-function formatExpiryDateDisplay(raw: string | null): string {
-  const d = parseExpectedDateOnly(raw);
-  if (!d || Number.isNaN(d.getTime())) return raw ?? "—";
-  return expiryDayFormatter.format(d);
-}
-
-function csvEscape(v: unknown): string {
-  if (v == null) return "";
-  const s = String(v);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function rowsToCsv(rows: PoRow[]): string {
-  const headers = [
-    "po_id",
-    "vendor_id",
-    "vendor_name",
-    "expected_date",
-    "status",
-    "sku_count",
-    "total_quantity",
-    "number_of_grns",
-    "sku_fill_rate",
-    "quantity_fill_rate",
-    "po_remarks",
-    "created_at",
-    "updated_at",
-  ];
-  const lines = [headers.join(",")];
-  for (const row of rows) {
-    lines.push(
-      [
-        row.po_id,
-        row.vendor_id,
-        row.vendor_name,
-        row.expected_date,
-        row.status,
-        row.sku_count,
-        row.total_quantity,
-        row.number_of_grns,
-        row.sku_fill_rate,
-        row.quantity_fill_rate,
-        row.po_remarks,
-        row.created_at,
-        row.updated_at,
-      ]
-        .map(csvEscape)
-        .join(",")
-    );
-  }
-  return lines.join("\n");
-}
-
 function downloadSelectedCsv(rows: PoRow[]): void {
-  const csv = rowsToCsv(rows);
+  const csv = inboundPoRowsToCsv(rows);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `purchase_orders_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
-}
-
-function displayPoStatus(status: string | null): string {
-  if (!status) return "—";
-  if (status === "PENDING_PUBLISHED") return "Published";
-  if (status === "MARKED_CANCELLED") return "Cancelled";
-  if (status === "MARKED_MODIFICATION") return "Modification";
-  return status.replace(/_/g, " ");
 }
 
 export default function InboundPurchaseOrdersPage() {
@@ -343,19 +230,15 @@ export default function InboundPurchaseOrdersPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({
-        page: String(page),
-        count: "50",
-        search_keyword: searchApplied,
+      const qs = buildInboundPurchaseOrdersQuery({
+        page,
+        count: 50,
+        searchKeyword: searchApplied,
+        vendorIds: appliedVendorIds,
+        poIdFilter: poIdColApplied,
       });
-      if (appliedVendorIds.length > 0) {
-        q.set("vendor_ids", [...appliedVendorIds].sort((a, b) => a - b).join(","));
-      }
-      if (poIdColApplied.trim()) {
-        q.set("po_id_filter", poIdColApplied.trim());
-      }
       const res = await apiFetch<PoListResponse>(
-        `/api/inbound/purchase-orders?${q}`
+        `/api/inbound/purchase-orders?${qs}`
       );
       setData(res);
     } catch (e) {

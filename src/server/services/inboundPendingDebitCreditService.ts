@@ -1,3 +1,4 @@
+import { normalizeDcnDecisionStatus } from "@/lib/inboundWorkflowNormalization";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 
@@ -191,10 +192,11 @@ export async function decidePendingDebitCreditNote(opts: {
     throw new AppError("Invalid grn_id", 400);
   }
 
-  const statusRaw = String(opts.status ?? "").trim().toUpperCase();
-  if (statusRaw !== "APPROVED" && statusRaw !== "REJECTED") {
+  const decision = normalizeDcnDecisionStatus(opts.status);
+  if (!decision) {
     throw new AppError("status must be APPROVED or REJECTED", 400);
   }
+  const statusRaw = decision;
   const actor = str(opts.actorEmail, 255);
   if (!actor) {
     throw new AppError("actor email is required", 400);

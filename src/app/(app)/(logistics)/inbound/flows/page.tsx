@@ -234,8 +234,12 @@ export default function InboundFlowsPage() {
     <div className="mx-auto max-w-5xl space-y-8 px-2 py-6 md:px-4">
       <AppPageTitle
         title="GRN · Debit Note · Credit Note Flows"
-        description="End-to-end process flows for inbound goods receipt, Zap-generated debit notes, and eAutomate-originated debit/credit notes. All cases and decision branches included."
+        description="Reference diagrams for inbound goods receipt and debit/credit artefacts. Canonical operator narrative—including Zap-required order (invoice uploaded before Close GRN)—is in docs: web/docs/services/inbound/inbound-tab-process-notes.md."
       />
+
+      <p className="text-muted-foreground -mt-6 max-w-4xl px-2 text-xs leading-relaxed md:px-0">
+        Diagrams below are simplified; discrepancies versus live behaviour are resolved against the codebase and inbound-grn-debit-credit-note-flows.md (e.g., vendor invoice precedes POST /close).
+      </p>
 
       {/* ── GRN Lifecycle ─────────────────────────────────────────────────── */}
       <SectionCard
@@ -284,7 +288,10 @@ export default function InboundFlowsPage() {
           </TableHeader>
           <TableBody>
             {[
-              ["DRAFT", 'Auto-generated on "Generate debit note"; reference = DN-GRN-{id}-{YYYYMMDD}'],
+              [
+                "DRAFT",
+                'Often auto-created after GRN close when rate-diff lines exist, or via POST debit-note / Generate; reference = DN-GRN-{id}-{YYYYMMDD}',
+              ],
               ["ISSUED", "Accounts team assigns a real DN number in the Zap UI"],
               ["EXPORTED", "Tally CSV downloaded via debit-note/export"],
               ["CLOSED", "Vendor CN copy file uploaded via cn-copy endpoint"],
