@@ -19,6 +19,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  formatIstDate,
+  formatIstDateTime,
+  formatIstShortDay,
+  looksLikeIsoDay,
+  looksLikeIsoTimestamp,
+} from "@/lib/format-ist";
 import type { ResultShape } from "@/server/queries/homeSavedQueries";
 
 export type QueryResultData = {
@@ -30,6 +37,8 @@ export type QueryResultData = {
 function formatCell(v: unknown): string {
   if (v == null) return "—";
   if (typeof v === "number") return new Intl.NumberFormat("en-IN").format(v);
+  if (looksLikeIsoDay(v)) return formatIstDate(v);
+  if (looksLikeIsoTimestamp(v)) return formatIstDateTime(v);
   return String(v);
 }
 
@@ -73,6 +82,9 @@ export function SavedQueryResult({ result }: { result: QueryResultData }) {
     label: String(row[0]),
     value: Number(row[1]),
   }));
+  const labelsAreDays = data.length > 0 && data.every((d) => looksLikeIsoDay(d.label));
+  const formatLabel = labelsAreDays ? formatIstShortDay : (s: string) => s;
+  const formatTooltipLabel = labelsAreDays ? formatIstDate : (s: string) => s;
 
   if (result.resultShape === "line") {
     return (
@@ -80,9 +92,18 @@ export function SavedQueryResult({ result }: { result: QueryResultData }) {
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={28} />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11 }}
+              interval="preserveStartEnd"
+              minTickGap={28}
+              tickFormatter={formatLabel}
+            />
             <YAxis tick={{ fontSize: 11 }} width={48} />
-            <Tooltip contentStyle={{ fontSize: 12 }} />
+            <Tooltip
+              contentStyle={{ fontSize: 12 }}
+              labelFormatter={(label) => formatTooltipLabel(String(label))}
+            />
             <Line
               type="monotone"
               dataKey="value"

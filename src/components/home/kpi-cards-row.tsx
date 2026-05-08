@@ -11,6 +11,11 @@ export function KpiCardsRow({
   loading: boolean;
 }) {
   const k = data?.kpis;
+  const isFilteredByCompany = data?.scoped.company_id != null;
+  const inboundDescription = isFilteredByCompany
+    ? "GRN accepted (across vendors)"
+    : "GRN accepted";
+
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
       <KpiCard
@@ -38,25 +43,14 @@ export function KpiCardsRow({
         delta_yoy_pct={k?.fill_rate_pct.delta_yoy_pct ?? null}
         loading={loading}
       />
-      {k?.inbound_qty == null && !loading ? (
-        <KpiCard
-          title="Inbound received (qty)"
-          description="GRN accepted"
-          value={null}
-          delta_mom_pct={null}
-          delta_yoy_pct={null}
-          empty={{ hint: "Reported across all vendors" }}
-        />
-      ) : (
-        <KpiCard
-          title="Inbound received (qty)"
-          description="GRN accepted"
-          value={k?.inbound_qty?.value ?? null}
-          delta_mom_pct={k?.inbound_qty?.delta_mom_pct ?? null}
-          delta_yoy_pct={k?.inbound_qty?.delta_yoy_pct ?? null}
-          loading={loading}
-        />
-      )}
+      <KpiCard
+        title="Inbound received (qty)"
+        description={inboundDescription}
+        value={k?.inbound_qty.value ?? null}
+        delta_mom_pct={k?.inbound_qty.delta_mom_pct ?? null}
+        delta_yoy_pct={k?.inbound_qty.delta_yoy_pct ?? null}
+        loading={loading}
+      />
       <KpiCard
         title="SKUs below reorder"
         description="Live alert count"

@@ -10,6 +10,11 @@ export function TrendChartsRow({
   data: HomeSummary | null;
   loading: boolean;
 }) {
+  const isFilteredByCompany = data?.scoped.company_id != null;
+  const inboundDescription = isFilteredByCompany
+    ? "Daily GRN accepted (across vendors) vs same days last year"
+    : "Daily GRN accepted qty vs same days last year";
+
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <TrendChart
@@ -20,7 +25,7 @@ export function TrendChartsRow({
       />
       <TrendChart
         title="Inbound received (qty) — trailing 90 days"
-        description="Daily GRN accepted qty vs same days last year"
+        description={inboundDescription}
         data={data?.trends.inbound_qty_daily ?? null}
         loading={loading}
       />

@@ -16,11 +16,16 @@ export type TrendPoint = { day: string; v: number; v_prev_year: number };
 
 export type HomeSummary = {
   range: { from: string; to: string };
+  scoped: { company_id: number | null; company_name: string | null };
+  // inbound is currently never company-scoped — vendor purchase order lines and
+  // the company_secondary_sku map are sparsely populated, so true attribution
+  // would yield near-zero values. We always show it across all vendors.
+  inbound_scope: "all_vendors";
   kpis: {
     sales_qty: Delta;
     sales_pos: Delta;
     fill_rate_pct: Delta;
-    inbound_qty: Delta | null;
+    inbound_qty: Delta;
     skus_below_reorder: { value: number; prev_mom: null; prev_yoy: null };
   };
   trends: {
@@ -263,28 +268,27 @@ export async function getHomeSummary(opts: {
   const windows = buildWindows(now);
   const companyName = companyId == null ? null : await lookupCompanyName(companyId);
 
+  // Inbound is always company-agnostic — see HomeSummary.inbound_scope.
   const [salesQty, salesPos, fillRate, inboundQty, reorder, salesTrend, inboundTrend] =
     await Promise.all([
       sumWindow(salesQtySql(companyId, companyName), windows),
       sumWindow(salesPosSql(companyId, companyName), windows),
       sumWindow(fillRateSql(companyId, companyName), windows),
-      // Inbound is vendor-keyed — when a company filter is active we don't
-      // attribute it (would need a join via listing_order_details, deferred).
-      companyId == null ? sumWindow(inboundQtySql(), windows) : Promise.resolve(null),
+      sumWindow(inboundQtySql(), windows),
       getReorderMetrics({ alertsOnly: true, page: 1, limit: 8 }),
       dailyTrend("outbound_consignments", windows, companyId, companyName),
-      companyId == null
-        ? dailyTrend("inbound_grns", windows, null, null)
-        : Promise.resolve([] as TrendPoint[]),
+      dailyTrend("inbound_grns", windows, null, null),
     ]);
 
   return {
     range: { from: isoDay(windows.curStart), to: isoDay(windows.curEnd) },
+    scoped: { company_id: companyId, company_name: companyName },
+    inbound_scope: "all_vendors",
     kpis: {
       sales_qty: asDelta(salesQty),
       sales_pos: asDelta(salesPos),
       fill_rate_pct: asDelta(fillRate),
-      inbound_qty: inboundQty == null ? null : asDelta(inboundQty),
+      inbound_qty: asDelta(inboundQty),
       skus_below_reorder: { value: reorder.total, prev_mom: null, prev_yoy: null },
     },
     trends: {

@@ -17,12 +17,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatIstDate, formatIstShortDay } from "@/lib/format-ist";
 import type { TrendPoint } from "@/server/services/homeSummaryService";
-
-function shortDay(day: string): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  return `${d.getUTCDate()}/${d.getUTCMonth() + 1}`;
-}
 
 export function TrendChart({
   title,
@@ -56,7 +52,7 @@ export function TrendChart({
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis
                 dataKey="day"
-                tickFormatter={shortDay}
+                tickFormatter={formatIstShortDay}
                 tick={{ fontSize: 11 }}
                 interval="preserveStartEnd"
                 minTickGap={28}
@@ -64,7 +60,7 @@ export function TrendChart({
               <YAxis tick={{ fontSize: 11 }} width={48} />
               <Tooltip
                 contentStyle={{ fontSize: 12 }}
-                labelFormatter={(label) => `Day ${shortDay(String(label))}`}
+                labelFormatter={(label) => formatIstDate(String(label))}
               />
               <Line
                 type="monotone"

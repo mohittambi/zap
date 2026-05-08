@@ -194,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Sheet>
 
           <Link
-            href="/listings/warehouse"
+            href="/"
             className="shrink-0 text-lg font-semibold tracking-tight text-primary"
           >
             eCraft Zap
