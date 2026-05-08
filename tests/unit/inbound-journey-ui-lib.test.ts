@@ -24,6 +24,11 @@ describe("normalizeGrnAuditStatusForPatch", () => {
     assert.strictEqual(normalizeGrnAuditStatusForPatch("OPEN"), "OPEN");
     assert.strictEqual(normalizeGrnAuditStatusForPatch("CLOSED"), "CLOSED");
   });
+
+  it("passes through unknown values unchanged", () => {
+    assert.strictEqual(normalizeGrnAuditStatusForPatch("PENDING"), "PENDING");
+    assert.strictEqual(normalizeGrnAuditStatusForPatch(""), "");
+  });
 });
 
 describe("normalizeDcnDecisionStatus", () => {
@@ -57,6 +62,10 @@ describe("classifyVendorInvoicePick", () => {
     assert.strictEqual(classifyVendorInvoicePick("a.JPEG", 10), null);
   });
 
+  it("allows jpg extension", () => {
+    assert.strictEqual(classifyVendorInvoicePick("photo.jpg", 100), null);
+  });
+
   it("rejects oversize", () => {
     assert.strictEqual(
       classifyVendorInvoicePick("a.pdf", maxVendorInvoiceBytes() + 1),
@@ -64,8 +73,19 @@ describe("classifyVendorInvoicePick", () => {
     );
   });
 
+  it("allows file exactly at size cap", () => {
+    assert.strictEqual(
+      classifyVendorInvoicePick("a.pdf", maxVendorInvoiceBytes()),
+      null
+    );
+  });
+
   it("rejects bad extension", () => {
     assert.strictEqual(classifyVendorInvoicePick("x.png", 100), "bad_extension");
+  });
+
+  it("rejects doc extension", () => {
+    assert.strictEqual(classifyVendorInvoicePick("invoice.docx", 100), "bad_extension");
   });
 });
 

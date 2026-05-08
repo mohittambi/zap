@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon, Upload } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon, Upload, Download } from "lucide-react";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,11 +37,11 @@ function StatTile({
   label,
   value,
   highlight = false,
-}: {
+}: Readonly<{
   label: string;
   value: string | number | null | undefined;
   highlight?: boolean;
-}) {
+}>) {
   const display = value != null && value !== "" ? String(value) : "—";
   return (
     <div className={cn("rounded-lg border p-3", highlight ? "bg-primary/5" : "bg-muted/50")}>
@@ -52,12 +53,50 @@ function StatTile({
   );
 }
 
-function MetaRow({ label, value, mono = false }: { label: string; value: string | null | undefined; mono?: boolean }) {
+function MetaRow({ label, value, mono = false }: Readonly<{ label: string; value: string | null | undefined; mono?: boolean }>) {
   if (!value) return null;
   return (
     <div className="flex items-start justify-between gap-4 py-1.5 text-sm">
       <span className="text-muted-foreground shrink-0 text-xs font-medium">{label}</span>
       <span className={cn("text-right break-all", mono && "font-mono text-xs")}>{value}</span>
+    </div>
+  );
+}
+
+function InvoiceNumberRow({
+  current,
+  inputVal,
+  saving,
+  onChange,
+  onSave,
+}: Readonly<{
+  current: string | null;
+  inputVal: string;
+  saving: boolean;
+  onChange: (v: string) => void;
+  onSave: () => void;
+}>) {
+  if (current) return <MetaRow label="Invoice Number" value={current} mono />;
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice Number</span>
+      <div className="flex items-center gap-2">
+        <Input
+          value={inputVal}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter invoice number"
+          className="h-7 w-44 text-xs font-mono"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={saving || !inputVal.trim()}
+          onClick={onSave}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -71,12 +110,15 @@ function statusVariant(s: string | null): "default" | "secondary" | "destructive
   return "outline";
 }
 
-export function ConsignmentDetailClient({ id }: { id: string }) {
+export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [loading, setLoading] = React.useState(true);
   const [row, setRow] = React.useState<OutboundConsignmentRow | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const invoiceFileRef = React.useRef<HTMLInputElement>(null);
   const [uploadingInvoice, setUploadingInvoice] = React.useState(false);
+  const [invoiceNumInput, setInvoiceNumInput] = React.useState("");
+  const [savingInvoiceNum, setSavingInvoiceNum] = React.useState(false);
+  const [downloadingExcel, setDownloadingExcel] = React.useState(false);
 
   async function handleDownloadInvoice() {
     try {
@@ -102,6 +144,51 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
       .then((updated) => setRow(updated))
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Upload failed"))
       .finally(() => setUploadingInvoice(false));
+  }
+
+  async function handleSaveInvoiceNumber() {
+    const num = invoiceNumInput.trim();
+    setSavingInvoiceNum(true);
+    try {
+      await apiFetch(`/api/outbound/consignments/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ field: "invoice_number", value: num || null }),
+      });
+      toast.success(num ? "Invoice number saved" : "Invoice number cleared");
+      setInvoiceNumInput("");
+      const updated = await apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`);
+      setRow(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingInvoiceNum(false);
+    }
+  }
+
+  async function handleDownloadExcel() {
+    setDownloadingExcel(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice-excel`), { headers });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Consignment-${id}-invoice.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Excel downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingExcel(false);
+    }
   }
 
   React.useEffect(() => {
@@ -181,16 +268,34 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
       {/* PO & Invoice */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <FileTextIcon className="size-4" />
-            PO &amp; Invoice
+          <CardTitle className="flex items-center justify-between gap-2 text-sm">
+            <span className="flex items-center gap-2">
+              <FileTextIcon className="size-4" />
+              PO &amp; Invoice
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={downloadingExcel}
+              onClick={() => void handleDownloadExcel()}
+            >
+              <Download className="size-3.5" />
+              {downloadingExcel ? "Downloading…" : "Excel"}
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent className="divide-y">
           <MetaRow label="PO Number" value={row.po_number} mono />
           <MetaRow label="PO Type" value={row.po_type} />
           <MetaRow label="Sold via" value={row.sold_via} />
-          <MetaRow label="Invoice Number" value={row.invoice_number} mono />
+          <InvoiceNumberRow
+            current={row.invoice_number}
+            inputVal={invoiceNumInput}
+            saving={savingInvoiceNum}
+            onChange={setInvoiceNumInput}
+            onSave={() => void handleSaveInvoiceNumber()}
+          />
           <MetaRow label="Invoice status" value={row.invoice_number_status} />
           <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
           {row.invoice_file_name ? (

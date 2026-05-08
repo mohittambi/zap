@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
-import { handleApiError } from "@/server/errors";
-import { getOutboundConsignmentById } from "@/server/services/outboundConsignmentsService";
+import { AppError, handleApiError } from "@/server/errors";
+import {
+  getOutboundConsignmentById,
+  patchOutboundConsignmentInvoiceNumber,
+} from "@/server/services/outboundConsignmentsService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -20,6 +23,31 @@ export async function GET(request: Request, context: Ctx) {
       return NextResponse.json({ error: "Consignment not found" }, { status: 404 });
     }
     return NextResponse.json(row);
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function PATCH(request: Request, context: Ctx) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "purchase_orders", "write");
+    const { id: idStr } = await context.params;
+    const id = Number(idStr);
+    if (!Number.isFinite(id) || id < 1) {
+      return NextResponse.json({ error: "Invalid consignment id" }, { status: 400 });
+    }
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const field = typeof body.field === "string" ? body.field : null;
+
+    if (field === "invoice_number") {
+      const raw = body.value;
+      const value = typeof raw === "string" ? raw : null;
+      await patchOutboundConsignmentInvoiceNumber(id, value);
+      return NextResponse.json({ ok: true });
+    }
+
+    throw new AppError("field must be 'invoice_number'", 400);
   } catch (err) {
     return handleApiError(err);
   }

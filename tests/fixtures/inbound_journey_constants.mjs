@@ -18,3 +18,13 @@ export const INBOUND_JOURNEY_GRN_NO_RATE_DIFF_CLOSE = 988877112;
 export const INBOUND_JOURNEY_DRAFT_GRN_ID = -988877301;
 export const INBOUND_JOURNEY_REGISTER_PO_ID = 988877900;
 export const INBOUND_JOURNEY_OPERATIONAL_AFTER_REGISTER = 988877301;
+
+/** OPEN fixture with NO invoice files — used to verify POST /close is blocked (400) until invoice is uploaded. Non-destructive test (close fails). */
+export const INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN = 988877113;
+
+/** CLOSED fixture with a pre-seeded DRAFT Zap debit note (no dn_number yet) for DN assignment success tests. Re-seed after a successful PATCH. */
+export const INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN = 988877114;
+export const INBOUND_JOURNEY_ZAP_DN_DRAFT_ID = 988877601;
+
+/** CLOSED fixture with APPROVED accounts_status — used for inventory receipt success test. */
+export const INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS = 988877115;

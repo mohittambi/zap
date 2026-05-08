@@ -185,24 +185,54 @@ describe("statusToneClass (GRN pending queues)", () => {
 });
 
 describe("inboundPoRowsToCsv", () => {
+  const makeRow = (overrides = {}) => ({
+    po_id: 1,
+    vendor_id: 2,
+    vendor_name: "Vendor",
+    expected_date: null,
+    status: null,
+    sku_count: 0,
+    total_quantity: 0,
+    number_of_grns: 0,
+    sku_fill_rate: 0,
+    quantity_fill_rate: 0,
+    po_remarks: null,
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  });
+
   it("escapes commas and quotes in cells", () => {
-    const csv = inboundPoRowsToCsv([
-      {
-        po_id: 1,
-        vendor_id: 2,
-        vendor_name: 'Acme, "Ltd"',
-        expected_date: null,
-        status: null,
-        sku_count: 0,
-        total_quantity: 0,
-        number_of_grns: 0,
-        sku_fill_rate: 0,
-        quantity_fill_rate: 0,
-        po_remarks: null,
-        created_at: null,
-        updated_at: null,
-      },
-    ]);
+    const csv = inboundPoRowsToCsv([makeRow({ vendor_name: 'Acme, "Ltd"' })]);
     assert.ok(csv.includes('"Acme, ""Ltd"""'));
+  });
+
+  it("first line is the header row", () => {
+    const csv = inboundPoRowsToCsv([makeRow()]);
+    const firstLine = csv.split("\n")[0];
+    assert.ok(firstLine.startsWith("po_id,"), "header should start with po_id");
+    assert.ok(firstLine.includes("vendor_name"), "header should include vendor_name");
+    assert.ok(firstLine.includes("sku_count"), "header should include sku_count");
+  });
+
+  it("produces one data line per row", () => {
+    const csv = inboundPoRowsToCsv([makeRow({ po_id: 10 }), makeRow({ po_id: 20 })]);
+    const lines = csv.split("\n");
+    assert.strictEqual(lines.length, 3, "header + 2 data lines");
+    assert.ok(lines[1].startsWith("10,"), "first data line starts with po_id 10");
+    assert.ok(lines[2].startsWith("20,"), "second data line starts with po_id 20");
+  });
+
+  it("renders null fields as empty strings", () => {
+    const csv = inboundPoRowsToCsv([makeRow({ expected_date: null, status: null, po_remarks: null })]);
+    const dataLine = csv.split("\n")[1];
+    // null → "" so adjacent commas appear for those columns
+    assert.ok(dataLine.includes(",,"), "null fields produce empty cells");
+  });
+
+  it("returns only header when rows is empty", () => {
+    const csv = inboundPoRowsToCsv([]);
+    assert.strictEqual(csv.split("\n").length, 1, "only header line when no rows");
+    assert.ok(csv.startsWith("po_id,"));
   });
 });

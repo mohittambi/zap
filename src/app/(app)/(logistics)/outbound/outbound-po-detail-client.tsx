@@ -167,7 +167,8 @@ type SaveFieldKey =
   | "delivery_address"
   | "billing_address"
   | "expiry_date"
-  | "remarks";
+  | "remarks"
+  | "is_wip";
 
 type LabelRow = {
   po_secondary_sku: string;
@@ -497,6 +498,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [phase1EndBox, setPhase1EndBox] = React.useState("");
   const [phase1LabelSize, setPhase1LabelSize] = React.useState<"70x40" | "75x38">("70x40");
   const [phase1Generating, setPhase1Generating] = React.useState(false);
+  const [wipBusy, setWipBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -628,6 +630,28 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setStubBusy(null);
+    }
+  };
+
+  const toggleWip = async (newVal: "Y" | "N") => {
+    setWipBusy(true);
+    try {
+      const res = await authFetchRaw(
+        `/api/outbound/purchase-orders/${poId}/eautomate-actions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "save_field", field: "is_wip", value: newVal }),
+        }
+      );
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      toast.success(`WIP marked as ${newVal === "Y" ? "Yes" : "No"}`);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update WIP");
+    } finally {
+      setWipBusy(false);
     }
   };
 
@@ -1315,15 +1339,39 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                   {/* ── Row 1: Identity — most critical fields first ── */}
                   <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Field label="WIP status">
-                      <span
-                        className={cn(
-                          "font-semibold",
-                          wip === "NO" && "text-red-600 dark:text-red-400",
-                          wip === "YES" && "text-green-600 dark:text-green-500"
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "font-semibold",
+                            wip === "N" && "text-muted-foreground",
+                            wip === "Y" && "text-green-600 dark:text-green-500"
+                          )}
+                        >
+                          {wip === "Y" ? "Yes" : wip === "N" ? "No" : (po.is_wip ?? "—")}
+                        </span>
+                        {canMutate && (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant={wip === "Y" ? "default" : "outline"}
+                              className="h-6 px-2 text-xs"
+                              disabled={wipBusy || wip === "Y"}
+                              onClick={() => void toggleWip("Y")}
+                            >
+                              Y
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={wip === "N" ? "default" : "outline"}
+                              className="h-6 px-2 text-xs"
+                              disabled={wipBusy || wip === "N"}
+                              onClick={() => void toggleWip("N")}
+                            >
+                              N
+                            </Button>
+                          </div>
                         )}
-                      >
-                        {po.is_wip ?? "—"}
-                      </span>
+                      </div>
                     </Field>
                     <Field label="Sold Via">{po.sold_via ?? "—"}</Field>
                     <EditableRow

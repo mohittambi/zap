@@ -55,6 +55,7 @@ function rowToListItem(r) {
     updated_at: r.updated_at
       ? new Date(r.updated_at).toISOString().replace(/\.\d{3}Z$/, ".000000Z")
       : null,
+    zap_receipt_exception: r.zap_receipt_exception === true,
     id: vendorId,
   };
 }
@@ -69,7 +70,8 @@ const listSelect = `
          g.grn_sku_count, g.grn_invoice_quantity, g.grn_accepted_quantity,
          g.grn_rejected_quantity, g.grn_shortage_quantity,
          g.po_sku_count, g.po_total_quantity,
-         g.created_by, g.created_at, g.updated_at
+         g.created_by, g.created_at, g.updated_at,
+         g.zap_receipt_exception
   FROM inbound_grns g`;
 
 /**
@@ -567,6 +569,19 @@ export async function updateInboundGrnItemRaw(grnIdRaw, lineIndexRaw, body) {
        WHERE grn_id = $2 AND line_index = $3
        RETURNING line_index, sku_id, raw`,
       [JSON.stringify(base), grnId, lineIndex]
+    );
+
+    await client.query(
+      `UPDATE inbound_grns
+       SET zap_receipt_exception = (
+         SELECT BOOL_OR(
+           COALESCE((i.raw->>'shortage_quantity')::numeric, 0) > 0
+           OR COALESCE((i.raw->>'rejected_quantity')::numeric, 0) > 0
+         )
+         FROM inbound_grn_items i WHERE i.grn_id = $1
+       )
+       WHERE grn_id = $1`,
+      [grnId]
     );
 
     await client.query("COMMIT");

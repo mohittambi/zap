@@ -322,6 +322,79 @@ describe("CN copy download", () => {
   });
 });
 
+// ── DN number assignment — success path ──────────────────────────────────────
+
+describe("DN number assignment — success", () => {
+  it("PATCH dn_number on DRAFT note moves status to ISSUED (re-seed to repeat)", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/inbound/grns?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list GRNs");
+    const list = await listR.json();
+    const grns = list.content ?? list ?? [];
+
+    for (const grn of grns) {
+      const noteR = await api(`/api/inbound/grns/${grn.grn_id}/debit-note`);
+      if (noteR.status === 200) {
+        const note = await noteR.json();
+        if (note.status === "DRAFT" && !note.dn_number) {
+          const r = await api(`/api/inbound/grns/${grn.grn_id}/debit-note`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dn_number: "DN-FLOW-TEST-001" }),
+          });
+          if (r.status === 503) return skip("server unreachable");
+          assert.strictEqual(r.status, 200);
+          const updated = await r.json();
+          assert.strictEqual(updated.status, "ISSUED");
+          assert.ok(updated.dn_number, "dn_number should be set after assignment");
+          return;
+        }
+      }
+    }
+    skip("no DRAFT debit note without DN number found (re-seed fixture or run after close test)");
+  });
+});
+
+// ── CN copy upload — success path ─────────────────────────────────────────────
+
+async function findIssuedDebitNote(grns) {
+  for (const grn of grns) {
+    const noteR = await api(`/api/inbound/grns/${grn.grn_id}/debit-note`);
+    if (noteR.status !== 200) continue;
+    const note = await noteR.json();
+    if ((note.status === "ISSUED" || note.status === "EXPORTED") && note.dn_number) {
+      return { grnId: grn.grn_id, note };
+    }
+  }
+  return null;
+}
+
+describe("CN copy upload — success", () => {
+  it("POST cn-copy on ISSUED note moves status to CLOSED (storage required, re-seed to repeat)", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/inbound/grns?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list GRNs");
+    const grns = (await listR.json()).content ?? [];
+
+    const found = await findIssuedDebitNote(grns);
+    if (!found) return skip("no ISSUED debit note with dn_number found");
+
+    const fd = new FormData();
+    fd.append("file", new Blob(["cn-copy-content"], { type: "application/pdf" }), "cn.pdf");
+    const r = await api(`/api/inbound/grns/${found.grnId}/debit-note/cn-copy`, {
+      method: "POST",
+      body: fd,
+    });
+    if (r.status === 501) return skip("storage not configured in test env");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+
+    const confirmR = await api(`/api/inbound/grns/${found.grnId}/debit-note`);
+    assert.strictEqual(confirmR.status, 200);
+    assert.strictEqual((await confirmR.json()).status, "CLOSED");
+  });
+});
+
 // ── Tally CSV export ──────────────────────────────────────────────────────────
 
 describe("Tally CSV export", () => {

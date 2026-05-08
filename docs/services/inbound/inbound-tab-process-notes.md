@@ -110,7 +110,7 @@ Training narratives that describe “close **then** upload” should be reversed
 
 ## Summary Flow
 
-Vendor Selection → Item Selection → PO Generation → GRN Open → Quantity Update → DN *(if receipt issue)* → GRN Close → Invoice Upload → Audit → DN *(if rate issue)* → Accounts → Physical Copy → DN Assignment → Excel Download
+Vendor Selection → Item Selection → PO Generation → GRN Open → Quantity Update → DN *(if receipt issue)* → Invoice Upload → GRN Close → Audit → DN *(if rate issue)* → Accounts → Physical Copy → DN Assignment → Excel Download
 
 ### Zap execution order reminders
 

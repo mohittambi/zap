@@ -572,7 +572,38 @@ export type OutboundPoEditableField =
   | "delivery_address"
   | "billing_address"
   | "expiry_date"
-  | "remarks";
+  | "remarks"
+  | "is_wip";
+
+const PO_FIELD_COLUMN: Record<OutboundPoEditableField, string> = {
+  po_type: "po_type",
+  delivery_city: "delivery_city",
+  delivery_address: "delivery_address",
+  billing_address: "billing_address",
+  expiry_date: "expiry_date",
+  remarks: "remarks",
+  is_wip: "is_wip",
+};
+
+function normalizePatchValue(field: OutboundPoEditableField, value: string | null): unknown {
+  if (field === "expiry_date") {
+    if (!value?.trim()) return null;
+    const d = new Date(value.trim());
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (field === "is_wip") {
+    if (!value?.trim()) return null;
+    const upper = value.trim().toUpperCase();
+    if (upper !== "Y" && upper !== "N") throw new AppError("is_wip must be 'Y', 'N', or null", 400);
+    return upper;
+  }
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (field === "delivery_address" || field === "billing_address") return s.slice(0, 20_000);
+  if (field === "po_type") return s.slice(0, 80);
+  if (field === "delivery_city") return s.slice(0, 120);
+  return s;
+}
 
 /** Patch a single editable PO column (Zap DB); does not call eAutomate. */
 export async function patchOutboundPurchaseOrderField(
@@ -580,43 +611,9 @@ export async function patchOutboundPurchaseOrderField(
   field: OutboundPoEditableField,
   value: string | null
 ): Promise<void> {
-  if (!Number.isFinite(id) || id < 1) {
-    throw new AppError("Invalid PO id", 400);
-  }
-  let sqlVal: unknown;
-  if (field === "expiry_date") {
-    if (value == null || !String(value).trim()) {
-      sqlVal = null;
-    } else {
-      const d = new Date(String(value).trim());
-      sqlVal = Number.isNaN(d.getTime()) ? null : d;
-    }
-  } else if (value != null) {
-    const s = String(value).trim();
-    if (field === "remarks") {
-      sqlVal = s;
-    } else if (field === "delivery_address" || field === "billing_address") {
-      sqlVal = s.slice(0, 20_000);
-    } else if (field === "po_type") {
-      sqlVal = s.slice(0, 80);
-    } else if (field === "delivery_city") {
-      sqlVal = s.slice(0, 120);
-    } else {
-      sqlVal = s;
-    }
-  } else {
-    sqlVal = null;
-  }
-
-  const colSql: Record<OutboundPoEditableField, string> = {
-    po_type: "po_type",
-    delivery_city: "delivery_city",
-    delivery_address: "delivery_address",
-    billing_address: "billing_address",
-    expiry_date: "expiry_date",
-    remarks: "remarks",
-  };
-  const column = colSql[field];
+  if (!Number.isFinite(id) || id < 1) throw new AppError("Invalid PO id", 400);
+  const sqlVal = normalizePatchValue(field, value);
+  const column = PO_FIELD_COLUMN[field];
   await query(
     `UPDATE outbound_purchase_orders SET ${column} = $2, updated_at = NOW() WHERE id = $1`,
     [id, sqlVal]

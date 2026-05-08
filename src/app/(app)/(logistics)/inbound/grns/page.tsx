@@ -48,6 +48,7 @@ type GrnRow = {
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+  zap_receipt_exception: boolean;
   id: number;
 };
 
@@ -192,6 +193,9 @@ export default function InboundGrnsPage() {
                         GRN Id
                       </TableHead>
                       <TableHead className="whitespace-nowrap">
+                        Exception
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap">
                         PO Number
                       </TableHead>
                       <TableHead>GRN status</TableHead>
@@ -264,6 +268,16 @@ export default function InboundGrnsPage() {
                           >
                             {row.grn_id}
                           </Link>
+                        </TableCell>
+                        <TableCell>
+                          {row.zap_receipt_exception && (
+                            <span
+                              title="Receipt exception — shortage or rejection recorded"
+                              className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                            >
+                              ⚠ Exception
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           <Link

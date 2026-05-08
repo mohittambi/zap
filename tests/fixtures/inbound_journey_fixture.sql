@@ -5,8 +5,17 @@
 -- re-run this script to reset that flow.
 -- GRN 988877111 is OPEN with invoice + rate diff: integration test POST /close consumes it — re-seed to repeat.
 -- GRN 988877112 is OPEN with invoice + matched prices: close succeeds with no Zap DN (422 path).
+-- GRN 988877113 is OPEN with zero invoice files: POST /close must return 400 (non-destructive).
+-- GRN 988877114 is CLOSED with a seeded DRAFT Zap DN (988877601) — re-seed after successful DN assignment test.
+-- GRN 988877115 is CLOSED with APPROVED accounts_status for inventory receipt success test.
 
 BEGIN;
+
+DELETE FROM inbound_zap_debit_note_lines
+  WHERE debit_note_id = 988877601;
+
+DELETE FROM inbound_zap_debit_notes
+  WHERE id = 988877601 OR grn_id IN (988877113, 988877114, 988877115);
 
 DELETE FROM inbound_grn_debit_credit_note_files
   WHERE grn_id IN (988877104, 988877301);
@@ -19,32 +28,32 @@ DELETE FROM inbound_pending_debit_credit_notes
 
 DELETE FROM inbound_grn_items
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_invoice_files
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_detail_snapshot
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_audit
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_invoice_collection
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_accounts_approval
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_po_detail_grns
@@ -55,7 +64,7 @@ DELETE FROM inbound_po_detail_lines
 
 DELETE FROM inbound_grns
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
   );
 
 DELETE FROM inbound_po_detail_snapshot
@@ -583,6 +592,278 @@ VALUES (
   988877001,
   'Inbound Journey Test Vendor',
   '{}'::jsonb
+);
+
+-- GRN 988877113: OPEN with zero invoice files — POST /close must return 400 (non-destructive test)
+
+INSERT INTO inbound_grns (
+  grn_id,
+  po_id,
+  vendor_id,
+  vendor_name,
+  grn_status,
+  grn_audit_status,
+  vendor_invoice_number,
+  box_count_invoice,
+  actual_box_count_received,
+  grn_sku_count,
+  grn_invoice_quantity,
+  grn_accepted_quantity,
+  grn_rejected_quantity,
+  grn_shortage_quantity,
+  po_sku_count,
+  po_total_quantity,
+  accounts_status,
+  accounts_by
+)
+VALUES (
+  988877113,
+  988877016,
+  988877001,
+  'Inbound Journey Test Vendor',
+  'OPEN',
+  'OPEN',
+  NULL,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  10,
+  NULL,
+  NULL
+);
+
+INSERT INTO inbound_grn_detail_snapshot (
+  grn_id,
+  po_id,
+  vendor_id,
+  po_raw,
+  vendor_raw,
+  grn_header_raw
+)
+VALUES (
+  988877113,
+  988877016,
+  988877001,
+  '{}'::jsonb,
+  '{}'::jsonb,
+  '{}'::jsonb
+);
+
+INSERT INTO inbound_grn_items (grn_id, line_index, sku_id, raw)
+VALUES (
+  988877113,
+  0,
+  'FIXTURE_SKU_NO_INV',
+  jsonb_build_object(
+    'invoice_quantity', 5,
+    'accepted_quantity', 5,
+    'rejected_quantity', 0,
+    'shortage_quantity', 0,
+    'received_price', 50,
+    'audit_price', 50,
+    'tax_rate', 0
+  )
+);
+
+-- GRN 988877114: CLOSED with a pre-seeded DRAFT Zap debit note (id 988877601, no dn_number)
+-- Re-seed after a successful DN assignment test.
+
+INSERT INTO inbound_grns (
+  grn_id,
+  po_id,
+  vendor_id,
+  vendor_name,
+  grn_status,
+  grn_audit_status,
+  grn_audit_by,
+  grn_invoice_collection_status,
+  grn_invoice_collection_by,
+  vendor_invoice_number,
+  box_count_invoice,
+  actual_box_count_received,
+  grn_sku_count,
+  grn_invoice_quantity,
+  grn_accepted_quantity,
+  grn_rejected_quantity,
+  grn_shortage_quantity,
+  po_sku_count,
+  po_total_quantity,
+  accounts_status,
+  accounts_by
+)
+VALUES (
+  988877114,
+  988877017,
+  988877001,
+  'Inbound Journey Test Vendor',
+  'CLOSED',
+  'CLOSED',
+  'fixture',
+  'COLLECTED',
+  'fixture',
+  NULL,
+  0,
+  0,
+  1,
+  10,
+  10,
+  0,
+  0,
+  1,
+  10,
+  NULL,
+  NULL
+);
+
+INSERT INTO inbound_grn_invoice_files (
+  grn_id,
+  file_id,
+  file_type,
+  file_name,
+  uploaded_at,
+  uploaded_by,
+  raw
+)
+VALUES (
+  988877114,
+  1,
+  'invoice',
+  'fixture-dn-assign.pdf',
+  NOW(),
+  'fixture',
+  '{}'::jsonb
+);
+
+INSERT INTO inbound_grn_items (grn_id, line_index, sku_id, raw)
+VALUES (
+  988877114,
+  0,
+  'FIXTURE_SKU_DN_ASSIGN',
+  jsonb_build_object(
+    'invoice_quantity', 10,
+    'accepted_quantity', 10,
+    'rejected_quantity', 0,
+    'shortage_quantity', 0,
+    'received_price', 120,
+    'audit_price', 100,
+    'tax_rate', 0
+  )
+);
+
+INSERT INTO inbound_zap_debit_notes (
+  id,
+  grn_id,
+  note_reference,
+  vendor_id,
+  vendor_name,
+  po_id,
+  total_debit_amount,
+  line_count,
+  status,
+  generated_by,
+  generated_at
+)
+VALUES (
+  988877601,
+  988877114,
+  'DN-GRN-988877114-FIXTURE',
+  988877001,
+  'Inbound Journey Test Vendor',
+  988877017,
+  200.0000,
+  1,
+  'DRAFT',
+  'fixture',
+  NOW()
+);
+
+-- GRN 988877115: CLOSED with APPROVED accounts_status for inventory receipt success test
+
+INSERT INTO inbound_grns (
+  grn_id,
+  po_id,
+  vendor_id,
+  vendor_name,
+  grn_status,
+  grn_audit_status,
+  grn_audit_by,
+  grn_invoice_collection_status,
+  grn_invoice_collection_by,
+  vendor_invoice_number,
+  box_count_invoice,
+  actual_box_count_received,
+  grn_sku_count,
+  grn_invoice_quantity,
+  grn_accepted_quantity,
+  grn_rejected_quantity,
+  grn_shortage_quantity,
+  po_sku_count,
+  po_total_quantity,
+  accounts_status,
+  accounts_by
+)
+VALUES (
+  988877115,
+  988877018,
+  988877001,
+  'Inbound Journey Test Vendor',
+  'CLOSED',
+  'CLOSED',
+  'fixture',
+  'COLLECTED',
+  'fixture',
+  NULL,
+  0,
+  0,
+  1,
+  10,
+  10,
+  0,
+  0,
+  1,
+  10,
+  'APPROVED',
+  'fixture'
+);
+
+INSERT INTO inbound_grn_invoice_files (
+  grn_id,
+  file_id,
+  file_type,
+  file_name,
+  uploaded_at,
+  uploaded_by,
+  raw
+)
+VALUES (
+  988877115,
+  1,
+  'invoice',
+  'fixture-approved-accounts.pdf',
+  NOW(),
+  'fixture',
+  '{}'::jsonb
+);
+
+INSERT INTO inbound_grn_items (grn_id, line_index, sku_id, raw)
+VALUES (
+  988877115,
+  0,
+  'FIXTURE_SKU_APPROVED',
+  jsonb_build_object(
+    'invoice_quantity', 10,
+    'accepted_quantity', 10,
+    'rejected_quantity', 0,
+    'shortage_quantity', 0,
+    'received_price', 80,
+    'audit_price', 80,
+    'tax_rate', 0
+  )
 );
 
 -- Draft GRN registration (needs PO snapshot + linkage row)

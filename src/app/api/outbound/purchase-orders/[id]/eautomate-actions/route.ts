@@ -45,6 +45,7 @@ const EDITABLE_FIELDS = new Set<OutboundPoEditableField>([
   "billing_address",
   "expiry_date",
   "remarks",
+  "is_wip",
 ]);
 
 function safeFilename(name: string): string {

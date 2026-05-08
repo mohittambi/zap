@@ -48,11 +48,56 @@ describe("Consignment invoice auth guard", () => {
     if (r.status === 503) return skip("server unreachable");
     assert.strictEqual(r.status, 401);
   });
+
+  it("GET /consignments without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments`);
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+});
+
+// ── Consignment listing ───────────────────────────────────────────────────────
+
+describe("Consignment listing", () => {
+  it("GET /consignments returns 200 with paginated JSON when authorized", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments?page=1&count=5");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+    const body = await r.json();
+    assert.ok("content" in body || Array.isArray(body), "should return paginated content or array");
+  });
+
+  it("GET /consignments/filters returns 200 with filter options", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/filters");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+  });
+
+  it("GET /consignments/[id] returns 404 on non-existent consignment", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/999999999");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 404);
+  });
 });
 
 // ── Invoice upload preconditions ──────────────────────────────────────────────
 
 describe("Consignment invoice upload", () => {
+  it("POST /invoice-upload with no file returns 400", async () => {
+    if (!token) return skip("login failed");
+    const fd = new FormData();
+    const r = await api("/api/outbound/consignments/1/invoice-upload", {
+      method: "POST",
+      body: fd,
+    });
+    if (r.status === 503) return skip("server unreachable");
+    if (r.status === 501) return skip("storage not configured");
+    assert.ok(r.status === 400 || r.status === 404, `expected 400 (no file) or 404 (no consignment), got ${r.status}`);
+  });
+
   it("POST /invoice-upload on non-existent consignment returns 404", async () => {
     if (!token) return skip("login failed");
     const fd = new FormData();

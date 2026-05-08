@@ -15,6 +15,9 @@ import {
   INBOUND_JOURNEY_GRN_NO_RATE_DIFF_CLOSE,
   INBOUND_JOURNEY_DRAFT_GRN_ID,
   INBOUND_JOURNEY_OPERATIONAL_AFTER_REGISTER,
+  INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN,
+  INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN,
+  INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS,
 } from "../fixtures/inbound_journey_constants.mjs";
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
@@ -377,5 +380,99 @@ describe("Inbound journey — with SQL fixture loaded", () => {
       body: JSON.stringify({ accounts_status: "APPROVED" }),
     });
     assert.strictEqual(r.status, 200);
+  });
+
+  it("POST close returns 400 when GRN has no invoice files", async () => {
+    if (!(await requireFixture())) return;
+    const probe = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN}`);
+    if (probe.status !== 200) {
+      skip(`GRN ${INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN} missing — re-run inbound_journey_fixture.sql`);
+      return;
+    }
+    const h = await probe.json();
+    if (String(h.grn_status ?? "").toUpperCase() !== "OPEN") {
+      skip(`GRN ${INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN} is not OPEN`);
+      return;
+    }
+    const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN}/close`, {
+      method: "POST",
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.ok(
+      r.status === 400 || r.status === 409,
+      `expected 400 (no invoice) or 409 (already closed), got ${r.status}`
+    );
+  });
+
+  it("PATCH grn audit_status CLOSED succeeds on fixture GRN", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grn_audit_status: "CLOSED" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+  });
+
+  it("PATCH grn invoice_collection_status COLLECTED succeeds on fixture GRN", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_INVOICE}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grn_invoice_collection_status: "COLLECTED" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+  });
+
+  it("PATCH debit-note dn_number assignment succeeds on fixture DRAFT note (re-seed to repeat)", async () => {
+    if (!(await requireFixture())) return;
+    const dnR = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN}/debit-note`);
+    if (dnR.status !== 200) {
+      skip(`No Zap debit note on GRN ${INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN} — re-run fixture`);
+      return;
+    }
+    const note = await dnR.json();
+    if (note.status !== "DRAFT" || note.dn_number) {
+      skip("Note is not DRAFT without dn_number — re-run inbound_journey_fixture.sql");
+      return;
+    }
+    const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN}/debit-note`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dn_number: "DN-FIXTURE-TEST-001" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+    const updated = await r.json();
+    assert.strictEqual(updated.status, "ISSUED");
+    assert.strictEqual(updated.dn_number, "DN-FIXTURE-TEST-001");
+  });
+
+  it("POST receive-inventory returns 200 when accounts is APPROVED (re-seed to repeat)", async () => {
+    if (!(await requireFixture())) return;
+    const probe = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS}`);
+    if (probe.status !== 200) {
+      skip(`GRN ${INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS} missing — re-run fixture`);
+      return;
+    }
+    const h = await probe.json();
+    if (String(h.accounts_status ?? "").toUpperCase() !== "APPROVED") {
+      skip("GRN accounts_status is not APPROVED — re-run inbound_journey_fixture.sql");
+      return;
+    }
+    const r = await api(
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS}/receive-inventory`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: [{ sku_id: "FIXTURE_SKU_APPROVED", bin_id: "BIN-TEST-01", quantity: 5 }],
+        }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.ok(r.status === 200 || r.status === 422, `expected 200 or 422, got ${r.status}`);
   });
 });

@@ -150,6 +150,12 @@ Used for individual product units. Each label includes:
 
 ---
 
+## See also (operator & technical)
+
+- [Outbound Tab – Process Notes (ZAP Website)](../../services/outbound/outbound-tab-process-notes.md) — step-by-step checklist aligned to live routes and APIs
+
+---
+
 ## How Zap connects with the channel's system
 
 Zap syncs PO data from eAutomate automatically. The sync runs on demand or can be triggered by the ops team. This means:
