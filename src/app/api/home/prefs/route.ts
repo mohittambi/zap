@@ -4,7 +4,6 @@ import { handleApiError, AppError } from "@/server/errors";
 import {
   getDashboardPrefs,
   setDashboardPrefs,
-  DEFAULT_LAYOUT,
 } from "@/server/services/homeDashboardPrefsService";
 
 export async function GET(request: Request) {
@@ -26,10 +25,7 @@ export async function PUT(request: Request) {
     if (typeof body.layout !== "object" || body.layout == null) {
       throw new AppError("layout is required", 400);
     }
-    const next = await setDashboardPrefs(
-      user.id,
-      body.layout as typeof DEFAULT_LAYOUT
-    );
+    const next = await setDashboardPrefs(user.id, body.layout);
     return NextResponse.json({ layout: next });
   } catch (err) {
     return handleApiError(err);

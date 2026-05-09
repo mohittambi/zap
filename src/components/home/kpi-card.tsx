@@ -2,21 +2,20 @@
 
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export type KpiCardProps = {
-  title: string;
-  description?: string;
   value: number | null;
   format?: "number" | "percent";
   delta_mom_pct: number | null;
   delta_yoy_pct: number | null;
   loading?: boolean;
   empty?: { hint: string };
-  /** When set, the card body becomes a link; an arrow icon shows top-right. */
+  /** When set, the value becomes a link → drill-down. */
   href?: string;
+  /** Optional sparkline data — shown next to the number when chart-type is "sparkline". */
+  sparkline?: { day: string; v: number }[];
 };
 
 function formatValue(v: number | null, format: "number" | "percent"): string {
@@ -44,9 +43,32 @@ function DeltaBadge({ pct, label }: { pct: number | null; label: string }) {
   );
 }
 
-export function KpiCard({
-  title,
-  description,
+/** Inline 80×24 sparkline using bare SVG — no Recharts overhead per KPI tile. */
+function Sparkline({ data }: { data: { day: string; v: number }[] }) {
+  if (data.length < 2) return null;
+  const W = 80;
+  const H = 24;
+  const max = Math.max(1, ...data.map((p) => p.v));
+  const min = Math.min(...data.map((p) => p.v));
+  const range = max - min || 1;
+  const stepX = W / (data.length - 1);
+  const points = data
+    .map((p, i) => `${i * stepX},${H - ((p.v - min) / range) * H}`)
+    .join(" ");
+  return (
+    <svg width={W} height={H} className="opacity-80">
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        points={points}
+        className="text-primary"
+      />
+    </svg>
+  );
+}
+
+export function KpiCardBody({
   value,
   format = "number",
   delta_mom_pct,
@@ -54,47 +76,46 @@ export function KpiCard({
   loading,
   empty,
   href,
+  sparkline,
 }: KpiCardProps) {
-  const inner = (
-    <Card
-      size="sm"
-      className={href ? "relative hover:border-primary/40 cursor-pointer transition-colors" : undefined}
-    >
-      <CardHeader>
-        <CardTitle className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-          {title}
-        </CardTitle>
-        {description ? <CardDescription className="text-[11px]">{description}</CardDescription> : null}
-        {href ? (
-          <ArrowUpRight className="text-muted-foreground absolute right-3 top-3 size-3" />
-        ) : null}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1.5">
-        {loading ? (
-          <Skeleton className="h-8 w-24" />
-        ) : empty ? (
-          <div className="flex flex-col gap-1">
-            <span className="text-2xl font-semibold tabular-nums">—</span>
-            <span className="text-muted-foreground text-[11px]">{empty.hint}</span>
-          </div>
-        ) : (
-          <>
-            <span className="font-heading text-2xl font-semibold tabular-nums">
-              {formatValue(value, format)}
-            </span>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-              <DeltaBadge pct={delta_mom_pct} label="MoM" />
-              <DeltaBadge pct={delta_yoy_pct} label="YoY" />
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+  if (loading) {
+    return <Skeleton className="h-8 w-24" />;
+  }
+  if (empty) {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="text-2xl font-semibold tabular-nums">—</span>
+        <span className="text-muted-foreground text-[11px]">{empty.hint}</span>
+      </div>
+    );
+  }
+  const valueEl = (
+    <span className="font-heading text-2xl font-semibold tabular-nums">
+      {formatValue(value, format)}
+    </span>
   );
-  if (!href) return inner;
   return (
-    <Link href={href} className="relative block">
-      {inner}
-    </Link>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        {href ? (
+          <Link
+            href={href}
+            className="hover:text-primary inline-flex items-center gap-1 transition-colors"
+          >
+            {valueEl}
+            <ArrowUpRight className="text-muted-foreground size-3" />
+          </Link>
+        ) : (
+          valueEl
+        )}
+        {sparkline && sparkline.length > 1 ? (
+          <Sparkline data={sparkline} />
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <DeltaBadge pct={delta_mom_pct} label="MoM" />
+        <DeltaBadge pct={delta_yoy_pct} label="YoY" />
+      </div>
+    </div>
   );
 }

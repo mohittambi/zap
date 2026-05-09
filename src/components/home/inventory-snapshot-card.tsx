@@ -2,13 +2,6 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InventorySnapshot } from "@/server/services/homeSummaryService";
 
@@ -55,47 +48,34 @@ function StatRow({
   );
 }
 
-export function InventorySnapshotCard({
+export function InventorySnapshotBody({
   snapshot,
-  scopedToCompany,
   loading,
 }: {
   snapshot: InventorySnapshot | undefined;
-  scopedToCompany: boolean;
   loading: boolean;
 }) {
+  if (loading || !snapshot) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-5 w-28" />
+      </div>
+    );
+  }
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-          Inventory snapshot
-        </CardTitle>
-        <CardDescription className="text-[11px]">
-          {scopedToCompany ? "Across catalogue" : "Live, point-in-time"}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1">
-        {loading || !snapshot ? (
-          <>
-            <Skeleton className="h-7 w-24" />
-            <Skeleton className="h-5 w-28" />
-          </>
-        ) : (
-          <>
-            <StatRow
-              value={fmt.format(snapshot.units_on_hand)}
-              label="Units on hand"
-              href="/listings/warehouse?stock_state=in_stock"
-            />
-            <StatRow
-              value={fmt.format(snapshot.skus_at_zero)}
-              label="SKUs at zero"
-              emphasised={snapshot.skus_at_zero > 0}
-              href="/listings/warehouse?stock_state=out_of_stock"
-            />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-1">
+      <StatRow
+        value={fmt.format(snapshot.units_on_hand)}
+        label="Units on hand"
+        href="/listings/warehouse?stock_state=in_stock"
+      />
+      <StatRow
+        value={fmt.format(snapshot.skus_at_zero)}
+        label="SKUs at zero"
+        emphasised={snapshot.skus_at_zero > 0}
+        href="/listings/warehouse?stock_state=out_of_stock"
+      />
+    </div>
   );
 }

@@ -135,3 +135,29 @@
     @apply font-sans;
   }
 }
+
+/* react-grid-layout theme overrides — match shadcn primary + radius. */
+.dashboard-grid .react-grid-item.react-grid-placeholder {
+  background: color-mix(in oklch, var(--primary) 25%, transparent) !important;
+  border: 1px dashed color-mix(in oklch, var(--primary) 60%, transparent);
+  border-radius: var(--radius-xl);
+  opacity: 1 !important;
+}
+.dashboard-grid .react-grid-item.react-draggable-dragging {
+  z-index: 10;
+  cursor: grabbing;
+}
+.dashboard-grid .react-grid-item > .react-resizable-handle {
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.dashboard-grid .react-grid-item:hover > .react-resizable-handle {
+  opacity: 0.6;
+}
+.dashboard-grid .react-grid-item > .react-resizable-handle::after {
+  border-color: var(--muted-foreground);
+}
+.dashboard-grid-item {
+  min-width: 0;
+  min-height: 0;
+}

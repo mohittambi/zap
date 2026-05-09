@@ -3,13 +3,6 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -102,55 +95,47 @@ export function SavedQueryPanel() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Saved queries</CardTitle>
-        <CardDescription className="text-xs">
-          Pick a curated query, fill the parameters, and run.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {queries == null ? (
-          <Skeleton className="h-9 w-72" />
-        ) : (
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-                Query
-              </span>
-              <select
-                value={selectedId}
-                onChange={(e) => handleSelect(e.target.value)}
-                className="h-9 min-w-72 rounded-md border border-input bg-background px-2 text-sm"
-              >
-                {queries.map((q) => (
-                  <option key={q.id} value={q.id}>
-                    {q.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        )}
+    <div className="flex flex-col gap-4">
+      {queries == null ? (
+        <Skeleton className="h-9 w-72" />
+      ) : (
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+              Query
+            </span>
+            <select
+              value={selectedId}
+              onChange={(e) => handleSelect(e.target.value)}
+              className="h-9 min-w-72 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {queries.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
 
-        {selected ? (
-          <>
-            <p className="text-muted-foreground text-xs">{selected.description}</p>
-            <DynamicParamForm specs={selected.params} values={params} onChange={setParams} />
-            <div>
-              <Button onClick={run} disabled={running} size="sm">
-                {running ? "Running…" : "Run"}
-              </Button>
-            </div>
-          </>
-        ) : null}
-
-        {result ? (
-          <div className="rounded-lg border">
-            <SavedQueryResult result={result} />
+      {selected ? (
+        <>
+          <p className="text-muted-foreground text-xs">{selected.description}</p>
+          <DynamicParamForm specs={selected.params} values={params} onChange={setParams} />
+          <div>
+            <Button onClick={run} disabled={running} size="sm">
+              {running ? "Running…" : "Run"}
+            </Button>
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
+        </>
+      ) : null}
+
+      {result ? (
+        <div className="rounded-lg border">
+          <SavedQueryResult result={result} />
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -2,13 +2,6 @@
 
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { OpsQueues } from "@/server/services/homeSummaryService";
 
@@ -29,36 +22,27 @@ function Row({ label, value, href }: { label: string; value: number; href: strin
   );
 }
 
-export function OpsQueuesCard({
+export function OpsQueuesBody({
   queues,
   loading,
 }: {
   queues: OpsQueues | undefined;
   loading: boolean;
 }) {
+  if (loading || !queues) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-6 w-full" />
+      </div>
+    );
+  }
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-          Ops queues
-        </CardTitle>
-        <CardDescription className="text-[11px]">Pending action</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-0.5">
-        {loading || !queues ? (
-          <>
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-6 w-full" />
-          </>
-        ) : (
-          <>
-            <Row label="GRN audit" value={queues.audit_pending} href="/inbound" />
-            <Row label="Invoice collection" value={queues.invoice_collection_pending} href="/inbound" />
-            <Row label="Debit/credit notes" value={queues.debit_credit_notes_pending} href="/inbound" />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex flex-col gap-0.5">
+      <Row label="GRN audit" value={queues.audit_pending} href="/inbound" />
+      <Row label="Invoice collection" value={queues.invoice_collection_pending} href="/inbound" />
+      <Row label="Debit/credit notes" value={queues.debit_credit_notes_pending} href="/inbound" />
+    </div>
   );
 }
