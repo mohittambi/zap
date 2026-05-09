@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,6 +13,47 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { InventorySnapshot } from "@/server/services/homeSummaryService";
 
 const fmt = new Intl.NumberFormat("en-IN");
+
+function StatRow({
+  value,
+  label,
+  href,
+  emphasised,
+}: {
+  value: string;
+  label: string;
+  href?: string;
+  emphasised?: boolean;
+}) {
+  const inner = (
+    <div className="flex items-baseline gap-2">
+      <span
+        className={
+          emphasised
+            ? "text-amber-700 dark:text-amber-400 font-mono text-sm font-semibold tabular-nums"
+            : "font-heading text-2xl font-semibold tabular-nums"
+        }
+      >
+        {value}
+      </span>
+      <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
+        {label}
+      </span>
+      {href ? (
+        <ArrowUpRight className="text-muted-foreground ml-auto size-3" />
+      ) : null}
+    </div>
+  );
+  if (!href) return inner;
+  return (
+    <Link
+      href={href}
+      className="hover:bg-muted -mx-2 block rounded px-2 py-1 transition-colors"
+    >
+      {inner}
+    </Link>
+  );
+}
 
 export function InventorySnapshotCard({
   snapshot,
@@ -31,7 +74,7 @@ export function InventorySnapshotCard({
           {scopedToCompany ? "Across catalogue" : "Live, point-in-time"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-col gap-1">
         {loading || !snapshot ? (
           <>
             <Skeleton className="h-7 w-24" />
@@ -39,28 +82,17 @@ export function InventorySnapshotCard({
           </>
         ) : (
           <>
-            <div className="flex items-baseline gap-2">
-              <span className="font-heading text-2xl font-semibold tabular-nums">
-                {fmt.format(snapshot.units_on_hand)}
-              </span>
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
-                Units on hand
-              </span>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span
-                className={
-                  snapshot.skus_at_zero > 0
-                    ? "text-amber-700 dark:text-amber-400 font-mono text-sm font-semibold tabular-nums"
-                    : "font-mono text-sm font-semibold tabular-nums"
-                }
-              >
-                {fmt.format(snapshot.skus_at_zero)}
-              </span>
-              <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
-                SKUs at zero
-              </span>
-            </div>
+            <StatRow
+              value={fmt.format(snapshot.units_on_hand)}
+              label="Units on hand"
+              href="/listings/warehouse?stock_state=in_stock"
+            />
+            <StatRow
+              value={fmt.format(snapshot.skus_at_zero)}
+              label="SKUs at zero"
+              emphasised={snapshot.skus_at_zero > 0}
+              href="/listings/warehouse?stock_state=out_of_stock"
+            />
           </>
         )}
       </CardContent>

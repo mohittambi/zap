@@ -17,6 +17,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  SortableTableHead,
+  SORT_PAIRS,
+} from "@/components/listings/sortable-table-head";
 
 type PackRow = { pack_combo_sku_id: string };
 
@@ -38,6 +42,7 @@ export default function PacksCombosPage() {
   const [draft, setDraft] = React.useState("");
   const [keyword, setKeyword] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [sort, setSort] = React.useState<"sku_asc" | "sku_desc">("sku_asc");
   const [list, setList] = React.useState<{
     total: number;
     content: PackRow[];
@@ -50,7 +55,11 @@ export default function PacksCombosPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), count: "50" });
+      const q = new URLSearchParams({
+        page: String(page),
+        count: "50",
+        sort,
+      });
       if (keyword.trim()) q.set("search_keyword", keyword.trim());
       const res = await apiFetch<{ total: number; content: PackRow[] }>(
         `/api/inventory/secondary_listings/packs_and_combos/paginated?${q}`
@@ -62,7 +71,7 @@ export default function PacksCombosPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [keyword, page, sort]);
 
   React.useEffect(() => {
     void load();
@@ -133,7 +142,16 @@ export default function PacksCombosPage() {
               <TableHeader>
                 <TableRow className="bg-muted/60 hover:bg-muted/60">
                   <TableHead className="w-12">sr_no.</TableHead>
-                  <TableHead>pack_combo_sku</TableHead>
+                  <SortableTableHead
+                    pair={SORT_PAIRS.sku}
+                    current={sort}
+                    onChange={(v) => {
+                      setSort(v === "sku_desc" ? "sku_desc" : "sku_asc");
+                      setPage(1);
+                    }}
+                  >
+                    pack_combo_sku
+                  </SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

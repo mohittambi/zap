@@ -24,9 +24,12 @@ const fmt = new Intl.NumberFormat("en-IN");
 export function ChannelMixCard({
   rows,
   loading,
+  onCompanyClick,
 }: {
   rows: ChannelMixRow[] | null | undefined;
   loading: boolean;
+  /** Click handler when a bar is clicked. Passes the company name. */
+  onCompanyClick?: (companyName: string) => void;
 }) {
   return (
     <Card>
@@ -61,7 +64,20 @@ export function ChannelMixCard({
                 contentStyle={{ fontSize: 12 }}
                 formatter={(v) => [fmt.format(Number(v)), "Qty"]}
               />
-              <Bar dataKey="qty" name="Qty" fill="var(--primary)" />
+              <Bar
+                dataKey="qty"
+                name="Qty"
+                fill="var(--primary)"
+                cursor={onCompanyClick ? "pointer" : undefined}
+                onClick={
+                  onCompanyClick
+                    ? ((d: unknown) => {
+                        const company = (d as { payload?: { company?: string } })?.payload?.company;
+                        if (company) onCompanyClick(company);
+                      }) as never
+                    : undefined
+                }
+              />
             </BarChart>
           </ResponsiveContainer>
         )}

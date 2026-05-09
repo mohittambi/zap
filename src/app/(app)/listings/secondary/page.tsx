@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
+import { ListingsFilters } from "@/components/listings/listings-filters";
+import { ListingsSort } from "@/components/listings/listings-sort";
+import type { ListSort, ListStockState } from "@/hooks/use-list-query-state";
 import { cn } from "@/lib/utils";
 import { skuDisplay, hasRealSku } from "@/lib/sku-display";
 import { Pencil, Trash2, Maximize2, ChevronDown, ChevronRight } from "lucide-react";
@@ -369,6 +372,10 @@ function PageJump({
 export default function ListingsSecondaryPage() {
   const [draft, setDraft] = React.useState("");
   const [keyword, setKeyword] = React.useState("");
+  const [serverCategory, setServerCategory] = React.useState<string | null>(null);
+  const [serverStockState, setServerStockState] = React.useState<ListStockState | null>(null);
+  const [serverTagIds, setServerTagIds] = React.useState<number[]>([]);
+  const [serverSort, setServerSort] = React.useState<ListSort>("sku_asc");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(2000);
   const [data, setData] = React.useState<PaginatedRows | null>(null);
@@ -524,6 +531,10 @@ export default function ListingsSecondaryPage() {
         count: String(pageSize),
       });
       if (keyword.trim()) q.set("search_keyword", keyword.trim());
+      if (serverCategory) q.set("category", serverCategory);
+      if (serverStockState) q.set("stock_state", serverStockState);
+      if (serverTagIds.length) q.set("tag_ids", serverTagIds.join(","));
+      q.set("sort", serverSort);
       const res = await apiFetch<PaginatedRows>(
         `/api/inventory/secondary_listings/paginated?${q}`
       );
@@ -541,7 +552,7 @@ export default function ListingsSecondaryPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page, pageSize]);
+  }, [keyword, page, pageSize, serverCategory, serverStockState, serverTagIds, serverSort]);
 
   React.useEffect(() => {
     void load();
@@ -770,6 +781,38 @@ export default function ListingsSecondaryPage() {
                   Search
                 </Button>
               </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+              <ListingsFilters
+                state={{
+                  search: keyword,
+                  category: serverCategory,
+                  stockState: serverStockState,
+                  tagIds: serverTagIds,
+                  skuType: null,
+                  sort: serverSort,
+                  page: 1,
+                }}
+                onChange={(patch) => {
+                  if (patch.category !== undefined) setServerCategory(patch.category);
+                  if (patch.stockState !== undefined) setServerStockState(patch.stockState);
+                  if (patch.tagIds !== undefined) setServerTagIds(patch.tagIds);
+                  setPage(1);
+                }}
+                onClearAll={() => {
+                  setServerCategory(null);
+                  setServerStockState(null);
+                  setServerTagIds([]);
+                  setPage(1);
+                }}
+              />
+              <ListingsSort
+                value={serverSort}
+                onChange={(v) => {
+                  setServerSort(v);
+                  setPage(1);
+                }}
+              />
             </div>
             {!loading && data != null && data.content.length > 0 ? (
               <p className="text-muted-foreground text-sm">

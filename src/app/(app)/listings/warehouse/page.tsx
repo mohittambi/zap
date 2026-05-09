@@ -13,12 +13,16 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
+import { useListQueryState } from "@/hooks/use-list-query-state";
+import { ListingsFilters } from "@/components/listings/listings-filters";
+import { ListingsSort } from "@/components/listings/listings-sort";
 
 type Row = {
   sku_id: string;
   description?: string;
   category?: string;
   available_quantity?: number;
+  live_bin_qty?: number;
   img_hd?: string | null;
 };
 
@@ -29,26 +33,29 @@ type PageResponse = {
   content: Row[];
 };
 
+const PAGE_SIZE = 24;
+
 export default function WarehouseListingsPage() {
-  const [keyword, setKeyword] = React.useState("");
-  const [draft, setDraft] = React.useState("");
-  const [page, setPage] = React.useState(1);
+  const { state, set, toApiParams, clearAll } = useListQueryState();
+  const [draft, setDraft] = React.useState(state.search);
   const [data, setData] = React.useState<PageResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [selected, setSelected] = React.useState<Row | null>(null);
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
   const [focusLoading, setFocusLoading] = React.useState(false);
 
+  // Keep the local draft in sync if the URL search param changes externally.
+  React.useEffect(() => {
+    setDraft(state.search);
+  }, [state.search]);
+
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({
-        page: String(page),
-        count: "24",
-      });
-      if (keyword.trim()) q.set("search_keyword", keyword.trim());
+      const sp = toApiParams();
+      sp.set("count", String(PAGE_SIZE));
       const res = await apiFetch<PageResponse>(
-        `/api/listings/by_page_v4?${q.toString()}`
+        `/api/listings/by_page_v4?${sp.toString()}`
       );
       setData(res);
     } catch (e) {
@@ -57,7 +64,7 @@ export default function WarehouseListingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [toApiParams]);
 
   React.useEffect(() => {
     void load();
@@ -133,10 +140,7 @@ export default function WarehouseListingsPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setPage(1);
-                  setKeyword(draft);
-                }
+                if (e.key === "Enter") set({ search: draft });
               }}
               placeholder="Search…"
               className="min-h-11"
@@ -144,16 +148,22 @@ export default function WarehouseListingsPage() {
             <Button
               type="button"
               className="min-h-11 shrink-0"
-              onClick={() => {
-                setPage(1);
-                setKeyword(draft);
-              }}
+              onClick={() => set({ search: draft })}
             >
               <Search className="mr-2 size-4" />
               Search
             </Button>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+        <ListingsFilters
+          state={state}
+          onChange={set}
+          onClearAll={clearAll}
+        />
+        <ListingsSort value={state.sort} onChange={(v) => set({ sort: v })} />
       </div>
 
       <p className="text-sm text-muted-foreground">
@@ -169,13 +179,14 @@ export default function WarehouseListingsPage() {
               ))}
             </div>
           ) : !data?.content?.length ? (
-            <EmptyState title="No listings" description="Try another search." />
+            <EmptyState title="No listings" description="Try another search or clear filters." />
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                 {data.content.map((row) => {
                   const img = row.img_hd || "";
                   const active = selected?.sku_id === row.sku_id;
+                  const qty = row.live_bin_qty ?? row.available_quantity ?? "—";
                   return (
                     <button
                       key={row.sku_id}
@@ -205,7 +216,7 @@ export default function WarehouseListingsPage() {
                       <div className="p-2">
                         <p className="font-mono text-xs font-semibold">{row.sku_id}</p>
                         <p className="text-muted-foreground text-xs">
-                          Quantity: {row.available_quantity ?? "—"}
+                          Quantity: {qty}
                         </p>
                       </div>
                     </button>
@@ -215,8 +226,8 @@ export default function WarehouseListingsPage() {
               <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
                 <Button
                   variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={state.page <= 1}
+                  onClick={() => set({ page: Math.max(1, state.page - 1) })}
                 >
                   Load previous
                 </Button>
@@ -226,7 +237,7 @@ export default function WarehouseListingsPage() {
                 <Button
                   variant="outline"
                   disabled={data.current_page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => set({ page: state.page + 1 })}
                 >
                   Load more
                 </Button>

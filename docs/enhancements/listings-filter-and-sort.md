@@ -60,10 +60,11 @@ Highest-traffic surface and the API already supports tag/price filters. This pha
 |---|---|
 | `src/components/listings/listings-filters.tsx` | Toolbar of pill chips: category picker, stock-state segmented control, tags multi-select, "Clear all" |
 | `src/components/listings/listings-sort.tsx` | Single `<select>` dropdown — SKU A→Z / Z→A / Qty ↓ / Qty ↑ / Recently added |
+| `src/components/listings/sortable-table-head.tsx` | Clickable `<TableHead>` wrapper — toggles asc/desc and reflects current sort with arrow icon. Pages with table layouts use this instead of (or alongside) the dropdown. |
 | `src/components/listings/category-picker.tsx` | Combobox-ish picker (search + select) hitting `/api/listings/categories` |
 | `src/components/listings/tag-picker.tsx` | Multi-select chip group from `/api/sku-tags` |
 | `src/components/listings/stock-state-control.tsx` | Three-button segmented control (Any / In stock / Out / Below reorder) |
-| `src/hooks/use-list-query-state.ts` | Hook that syncs filter+sort+page state with URL `?` params via `useSearchParams` + `router.replace` |
+| `src/hooks/use-list-query-state.ts` | Hook that syncs filter+sort+page state with URL `?` params via `useSearchParams` + `router.replace`. Same `sort` field powers both the dropdown and the `<SortableTableHead>` clicks. |
 
 **Frontend — `/listings/warehouse/page.tsx`:**
 - Add `<ListingsFilters>` + `<ListingsSort>` above the grid.

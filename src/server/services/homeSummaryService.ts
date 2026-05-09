@@ -12,7 +12,39 @@ export type Delta = {
   delta_yoy_pct: number | null;
 };
 
-export type TrendPoint = { day: string; v: number; v_prev_year: number };
+export type TrendPoint = {
+  day: string;
+  v: number;
+  v_prev_year: number;
+  // Signed z-score over a trailing 30-day window when |z| >= ANOMALY_Z_THRESHOLD,
+  // null otherwise. Renders as a red dot on the chart.
+  anomaly_z: number | null;
+};
+
+const ANOMALY_Z_THRESHOLD = 2.5;
+const ANOMALY_WINDOW_DAYS = 30;
+
+/**
+ * Flag points that are >|2.5σ| from the trailing-30-day mean. Returns z-score
+ * keyed by `day`. Points before the warmup are never flagged (insufficient
+ * history to be statistically meaningful).
+ */
+export function flagAnomalies(
+  series: { day: string; v: number }[]
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (let i = ANOMALY_WINDOW_DAYS; i < series.length; i++) {
+    const win = series.slice(i - ANOMALY_WINDOW_DAYS, i);
+    const mean = win.reduce((s, p) => s + p.v, 0) / ANOMALY_WINDOW_DAYS;
+    const variance =
+      win.reduce((s, p) => s + (p.v - mean) ** 2, 0) / ANOMALY_WINDOW_DAYS;
+    const sd = Math.sqrt(variance);
+    if (sd === 0) continue;
+    const z = (series[i].v - mean) / sd;
+    if (Math.abs(z) >= ANOMALY_Z_THRESHOLD) out.set(series[i].day, z);
+  }
+  return out;
+}
 
 // ── Phase 2 additions ────────────────────────────────────────────────────────
 
@@ -364,15 +396,20 @@ async function dailyTrend(
     prevMap.set(isoDay(aligned), Number(r.v));
   }
 
-  const out: TrendPoint[] = [];
+  const dense: { day: string; v: number; v_prev_year: number }[] = [];
   for (let t = trendStart.getTime(); t < trendEnd.getTime(); t += DAY_MS) {
     const day = isoDay(new Date(t));
-    out.push({
+    dense.push({
       day,
       v: curMap.get(day) ?? 0,
       v_prev_year: prevMap.get(day) ?? 0,
     });
   }
+  const anomalies = flagAnomalies(dense.map((p) => ({ day: p.day, v: p.v })));
+  const out: TrendPoint[] = dense.map((p) => ({
+    ...p,
+    anomaly_z: anomalies.get(p.day) ?? null,
+  }));
   return out;
 }
 

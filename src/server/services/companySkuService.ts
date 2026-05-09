@@ -9,14 +9,38 @@ export type CompanyAssociationDetail = {
   company_code_primary: string | null;
 };
 
+export type CompanySkuSort =
+  | "sku_asc"
+  | "sku_desc"
+  | "company_asc"
+  | "company_desc";
+
+function companySkuOrderBy(sort?: CompanySkuSort | null): string {
+  switch (sort) {
+    case "sku_desc":
+      return "css.secondary_sku DESC";
+    case "company_asc":
+      return "c.name ASC NULLS LAST, css.secondary_sku ASC";
+    case "company_desc":
+      return "c.name DESC NULLS LAST, css.secondary_sku ASC";
+    case "sku_asc":
+    default:
+      return "css.secondary_sku ASC";
+  }
+}
+
 export async function listCompanySkuRelations({
   search_keyword,
   page,
   limit,
+  company_id,
+  sort,
 }: {
   search_keyword: string;
   page: number;
   limit: number;
+  company_id?: number | null;
+  sort?: CompanySkuSort | null;
 }) {
   const offset = (page - 1) * limit;
   let where = "WHERE 1=1";
@@ -29,6 +53,11 @@ export async function listCompanySkuRelations({
       OR c.code_primary ILIKE $${n} OR css.secondary_sku ILIKE $${n}
     )`;
   }
+  if (company_id != null && Number.isFinite(company_id)) {
+    params.push(company_id);
+    where += ` AND c.id = $${params.length}`;
+  }
+  const orderBy = companySkuOrderBy(sort);
   const countR = await query(
     `SELECT COUNT(*)::int AS total
      FROM company_secondary_sku css
@@ -45,7 +74,7 @@ export async function listCompanySkuRelations({
      FROM company_secondary_sku css
      JOIN companies c ON c.id = css.company_id
      ${where}
-     ORDER BY c.id, css.secondary_sku
+     ORDER BY ${orderBy}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );

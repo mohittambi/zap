@@ -1,7 +1,19 @@
 // @ts-nocheck
 import { query } from "@/server/db";
 
-export async function listLabelsMaster({ search_keyword, page, limit }) {
+function labelsOrderBy(sort) {
+  switch (sort) {
+    case 'sku_desc':
+      return 'secondary_sku DESC';
+    case 'created_desc':
+      return 'updated_at DESC NULLS LAST, secondary_sku ASC';
+    case 'sku_asc':
+    default:
+      return 'secondary_sku ASC';
+  }
+}
+
+export async function listLabelsMaster({ search_keyword, page, limit, sort }) {
   const offset = (page - 1) * limit;
   let where = "WHERE 1=1";
   const params = [];
@@ -13,6 +25,7 @@ export async function listLabelsMaster({ search_keyword, page, limit }) {
       OR color ILIKE $${n} OR material ILIKE $${n} OR one_set_contains ILIKE $${n}
     )`;
   }
+  const orderBy = labelsOrderBy(sort);
   const countR = await query(
     `SELECT COUNT(*)::int AS total FROM labels_master_data ${where}`,
     params
@@ -23,7 +36,7 @@ export async function listLabelsMaster({ search_keyword, page, limit }) {
     `SELECT id, secondary_sku, ean_code, size, color, one_set_contains, material, mrp, created_at, updated_at
      FROM labels_master_data
      ${where}
-     ORDER BY secondary_sku
+     ORDER BY ${orderBy}
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );

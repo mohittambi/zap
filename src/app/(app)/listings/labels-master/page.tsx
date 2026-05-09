@@ -16,6 +16,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  SortableTableHead,
+  SORT_PAIRS,
+} from "@/components/listings/sortable-table-head";
+import type { ListSort } from "@/hooks/use-list-query-state";
+
 type Row = {
   id: number;
   secondary_sku: string;
@@ -38,13 +44,18 @@ export default function LabelsMasterPage() {
   const [draft, setDraft] = React.useState("");
   const [keyword, setKeyword] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [sort, setSort] = React.useState<ListSort>("sku_asc");
   const [data, setData] = React.useState<PageData | null>(null);
   const [loading, setLoading] = React.useState(true);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), count: "100" });
+      const q = new URLSearchParams({
+        page: String(page),
+        count: "100",
+        sort,
+      });
       if (keyword.trim()) q.set("search_keyword", keyword.trim());
       const res = await apiFetch<PageData>(`/api/labels-master?${q}`);
       setData(res);
@@ -54,7 +65,7 @@ export default function LabelsMasterPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [keyword, page, sort]);
 
   React.useEffect(() => {
     void load();
@@ -100,7 +111,16 @@ export default function LabelsMasterPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/60 hover:bg-muted/60">
-                  <TableHead>Secondary SKU</TableHead>
+                  <SortableTableHead
+                    pair={SORT_PAIRS.sku}
+                    current={sort}
+                    onChange={(v) => {
+                      setSort(v);
+                      setPage(1);
+                    }}
+                  >
+                    Secondary SKU
+                  </SortableTableHead>
                   <TableHead>EAN</TableHead>
                   <TableHead>size</TableHead>
                   <TableHead>color</TableHead>

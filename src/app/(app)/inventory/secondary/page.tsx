@@ -17,6 +17,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ListingsFilters } from "@/components/listings/listings-filters";
+import { ListingsSort } from "@/components/listings/listings-sort";
+import {
+  SortableTableHead,
+  SORT_PAIRS,
+} from "@/components/listings/sortable-table-head";
+import { useListQueryState } from "@/hooks/use-list-query-state";
+
 type Row = {
   id: number;
   secondary_sku: string;
@@ -26,23 +34,25 @@ type Row = {
   available_quantity?: number;
 };
 
+const PAGE_SIZE = 100;
+
 export default function InventorySecondaryPage() {
-  const [draft, setDraft] = React.useState("");
-  const [keyword, setKeyword] = React.useState("");
-  const [page, setPage] = React.useState(1);
-  const [data, setData] = React.useState<{
-    total: number;
-    content: Row[];
-  } | null>(null);
+  const { state, set, toApiParams, clearAll } = useListQueryState();
+  const [draft, setDraft] = React.useState(state.search);
+  const [data, setData] = React.useState<{ total: number; content: Row[] } | null>(null);
   const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    setDraft(state.search);
+  }, [state.search]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), count: "100" });
-      if (keyword.trim()) q.set("search_keyword", keyword.trim());
+      const sp = toApiParams();
+      sp.set("count", String(PAGE_SIZE));
       const res = await apiFetch<{ total: number; content: Row[] }>(
-        `/api/inventory/secondary_listings/paginated?${q}`
+        `/api/inventory/secondary_listings/paginated?${sp}`
       );
       setData(res);
     } catch (e) {
@@ -51,7 +61,7 @@ export default function InventorySecondaryPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [toApiParams]);
 
   React.useEffect(() => {
     void load();
@@ -70,41 +80,52 @@ export default function InventorySecondaryPage() {
         </p>
       </div>
       <Card>
-        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-2">
-            <Label>Search</Label>
-            <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setPage(1);
-                  setKeyword(draft);
-                }
-              }}
-              className="min-h-11"
-            />
+        <CardHeader className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-2">
+              <Label>Search</Label>
+              <Input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") set({ search: draft });
+                }}
+                className="min-h-11"
+              />
+            </div>
+            <Button className="min-h-11" onClick={() => set({ search: draft })}>
+              Search
+            </Button>
           </div>
-          <Button
-            className="min-h-11"
-            onClick={() => {
-              setPage(1);
-              setKeyword(draft);
-            }}
-          >
-            Search
-          </Button>
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+            <ListingsFilters state={state} onChange={set} onClearAll={clearAll} />
+            <ListingsSort value={state.sort} onChange={(v) => set({ sort: v })} />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/60 hover:bg-muted/60">
-                  <TableHead className="font-mono">secondary_sku</TableHead>
+                  <SortableTableHead
+                    pair={SORT_PAIRS.sku}
+                    current={state.sort}
+                    onChange={(v) => set({ sort: v })}
+                    className="font-mono"
+                  >
+                    secondary_sku
+                  </SortableTableHead>
                   <TableHead>master</TableHead>
                   <TableHead className="font-mono">inventory_sku</TableHead>
                   <TableHead className="font-mono">pack_combo_sku</TableHead>
-                  <TableHead className="text-right">Available</TableHead>
+                  <SortableTableHead
+                    pair={SORT_PAIRS.qty}
+                    current={state.sort}
+                    onChange={(v) => set({ sort: v })}
+                    className="text-right"
+                  >
+                    Available
+                  </SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -120,7 +141,7 @@ export default function InventorySecondaryPage() {
                   ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-muted-foreground py-10 text-center text-sm">
-                        No secondary listings match the current search.
+                        No secondary listings match the current filters.
                       </TableCell>
                     </TableRow>
                   )
@@ -149,8 +170,21 @@ export default function InventorySecondaryPage() {
           </div>
           {!loading && data && data.content.length > 0 ? (
             <div className="flex justify-between border-t px-4 py-3">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>Next</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={state.page <= 1}
+                onClick={() => set({ page: Math.max(1, state.page - 1) })}
+              >
+                Prev
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => set({ page: state.page + 1 })}
+              >
+                Next
+              </Button>
             </div>
           ) : null}
         </CardContent>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import {
   Card,
@@ -43,17 +44,25 @@ function Delta({
 export function VendorQualityCard({
   vq,
   loading,
+  href,
 }: {
   vq: VendorQuality | undefined;
   loading: boolean;
+  href?: string;
 }) {
-  return (
-    <Card size="sm">
+  const card = (
+    <Card
+      size="sm"
+      className={href ? "relative hover:border-primary/40 cursor-pointer transition-colors" : undefined}
+    >
       <CardHeader>
         <CardTitle className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
           Vendor quality
         </CardTitle>
         <CardDescription className="text-[11px]">GRN ratios, 30 days</CardDescription>
+        {href ? (
+          <ArrowUpRight className="text-muted-foreground absolute right-3 top-3 size-3" />
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         {loading || !vq ? (
@@ -96,4 +105,6 @@ export function VendorQualityCard({
       </CardContent>
     </Card>
   );
+  if (!href) return card;
+  return <Link href={href} className="block">{card}</Link>;
 }

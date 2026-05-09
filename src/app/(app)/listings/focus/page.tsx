@@ -63,6 +63,47 @@ export default function FocusListPage() {
   const [items, setItems] = React.useState<FocusItem[]>([]);
   const [itemsLoading, setItemsLoading] = React.useState(false);
   const [removingItemId, setRemovingItemId] = React.useState<number | null>(null);
+  const [itemsSortDesc, setItemsSortDesc] = React.useState(false);
+
+  // Sort for the list cards (client-side, lists already fully loaded)
+  const [listsSort, setListsSort] = React.useState<
+    "created_desc" | "created_asc" | "title_asc" | "title_desc" | "items_desc" | "items_asc"
+  >("created_desc");
+
+  const sortLists = React.useCallback(
+    (arr: FocusList[] | null): FocusList[] | null => {
+      if (!arr) return arr;
+      const out = [...arr];
+      out.sort((a, b) => {
+        switch (listsSort) {
+          case "created_asc":
+            return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          case "title_asc":
+            return a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+          case "title_desc":
+            return b.title.localeCompare(a.title, undefined, { sensitivity: "base" });
+          case "items_desc":
+            return (b.item_count ?? 0) - (a.item_count ?? 0);
+          case "items_asc":
+            return (a.item_count ?? 0) - (b.item_count ?? 0);
+          case "created_desc":
+          default:
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        }
+      });
+      return out;
+    },
+    [listsSort]
+  );
+
+  const sortedItems = React.useMemo(() => {
+    const out = [...items];
+    out.sort((a, b) => {
+      const cmp = a.sku_id.localeCompare(b.sku_id, undefined, { sensitivity: "base" });
+      return itemsSortDesc ? -cmp : cmp;
+    });
+    return out;
+  }, [items, itemsSortDesc]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -232,14 +273,34 @@ export default function FocusListPage() {
         </CardContent>
       </Card>
 
+      <div className="flex items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            Sort lists
+          </span>
+          <select
+            value={listsSort}
+            onChange={(e) => setListsSort(e.target.value as typeof listsSort)}
+            className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="created_desc">Recently added</option>
+            <option value="created_asc">Oldest first</option>
+            <option value="title_asc">Title A–Z</option>
+            <option value="title_desc">Title Z–A</option>
+            <option value="items_desc">Items (high → low)</option>
+            <option value="items_asc">Items (low → high)</option>
+          </select>
+        </label>
+      </div>
+
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Private</h2>
-        {renderSection("Private", privateLists, "No private lists yet.")}
+        {renderSection("Private", sortLists(privateLists), "No private lists yet.")}
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Public</h2>
-        {renderSection("Public", publicLists, "No public lists yet.")}
+        {renderSection("Public", sortLists(publicLists), "No public lists yet.")}
       </section>
 
       <EditFocusListDialog
@@ -283,7 +344,18 @@ export default function FocusListPage() {
             <p className="text-sm text-muted-foreground py-4 text-center">No items in this list.</p>
           ) : (
             <div className="space-y-2">
-              {items.map((item) => (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setItemsSortDesc((v) => !v)}
+                >
+                  Sort SKU {itemsSortDesc ? "Z–A" : "A–Z"}
+                </Button>
+              </div>
+              {sortedItems.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 rounded border px-3 py-2">
                   <div>
                     <p className="font-mono text-sm font-medium">{item.sku_id}</p>

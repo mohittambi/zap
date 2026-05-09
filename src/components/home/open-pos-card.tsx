@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -15,12 +17,17 @@ const fmt = new Intl.NumberFormat("en-IN");
 export function OpenPosCard({
   stat,
   loading,
+  href,
 }: {
   stat: OpenPosStat | undefined;
   loading: boolean;
+  href?: string;
 }) {
-  return (
-    <Card size="sm">
+  const card = (
+    <Card
+      size="sm"
+      className={href ? "relative hover:border-primary/40 cursor-pointer transition-colors" : undefined}
+    >
       <CardHeader>
         <CardTitle className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
           Open sales POs
@@ -28,6 +35,9 @@ export function OpenPosCard({
         <CardDescription className="text-[11px]">
           OPEN + ACKNOWLEDGEMENT PENDING
         </CardDescription>
+        {href ? (
+          <ArrowUpRight className="text-muted-foreground absolute right-3 top-3 size-3" />
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-1.5">
         {loading || !stat ? (
@@ -51,4 +61,6 @@ export function OpenPosCard({
       </CardContent>
     </Card>
   );
+  if (!href) return card;
+  return <Link href={href} className="block">{card}</Link>;
 }
