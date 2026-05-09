@@ -1,4 +1,4 @@
-import XLSX from "xlsx";
+import * as XLSX from "xlsx";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 
