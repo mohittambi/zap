@@ -14,6 +14,26 @@ export type Delta = {
 
 export type TrendPoint = { day: string; v: number; v_prev_year: number };
 
+// ── Phase 2 additions ────────────────────────────────────────────────────────
+
+export type OpsQueues = {
+  audit_pending: number;
+  invoice_collection_pending: number;
+  debit_credit_notes_pending: number;
+};
+
+export type OpenPosStat = { open: number; aged_over_7d: number };
+
+export type VendorQuality = {
+  // Both rates are 0–100; deltas computed against the 30-day trailing window.
+  acceptance_rate_pct: Delta;
+  shortage_rate_pct: Delta;
+};
+
+export type InventorySnapshot = { units_on_hand: number; skus_at_zero: number };
+
+export type ChannelMixRow = { company: string; qty: number };
+
 export type HomeSummary = {
   range: { from: string; to: string };
   scoped: { company_id: number | null; company_name: string | null };
@@ -28,6 +48,12 @@ export type HomeSummary = {
     inbound_qty: Delta;
     skus_below_reorder: { value: number; prev_mom: null; prev_yoy: null };
   };
+  ops_queues: OpsQueues;
+  open_pos: OpenPosStat;
+  vendor_quality: VendorQuality;
+  inventory_snapshot: InventorySnapshot;
+  // null when a company filter is active — channel-mix is only meaningful unfiltered.
+  channel_mix: ChannelMixRow[] | null;
   trends: {
     sales_qty_daily: TrendPoint[];
     inbound_qty_daily: TrendPoint[];
@@ -191,6 +217,99 @@ function inboundQtySql() {
   });
 }
 
+// ── Phase 2 aggregations ─────────────────────────────────────────────────────
+
+async function getOpsQueues(): Promise<OpsQueues> {
+  // All three are "pending" tables by definition — the upstream sync truncates
+  // and repopulates with rows that still need action. No status filter needed.
+  const r = await query(
+    `SELECT
+       (SELECT COUNT(*)::int FROM inbound_grn_pending_audit)              AS audit_pending,
+       (SELECT COUNT(*)::int FROM inbound_grn_pending_invoice_collection) AS invoice_collection_pending,
+       (SELECT COUNT(*)::int FROM inbound_pending_debit_credit_notes)     AS debit_credit_notes_pending`
+  );
+  const row = r.rows[0] as {
+    audit_pending: number;
+    invoice_collection_pending: number;
+    debit_credit_notes_pending: number;
+  };
+  return {
+    audit_pending: Number(row.audit_pending),
+    invoice_collection_pending: Number(row.invoice_collection_pending),
+    debit_credit_notes_pending: Number(row.debit_credit_notes_pending),
+  };
+}
+
+async function getOpenPos(
+  companyId: number | null,
+  companyName: string | null
+): Promise<OpenPosStat> {
+  const filter = buildCompanyFilter("", companyId, companyName, 1);
+  const params = filter.params;
+  const r = await query(
+    `SELECT
+       COUNT(*)::int                                                   AS open,
+       COUNT(*) FILTER (WHERE po_issue_date < NOW() - INTERVAL '7 days')::int AS aged_over_7d
+     FROM   outbound_purchase_orders
+     WHERE  calculated_po_status IN ('OPEN', 'ACKNOWLEDGEMENT PENDING')${filter.sql}`,
+    params
+  );
+  const row = r.rows[0] as { open: number; aged_over_7d: number };
+  return { open: Number(row.open), aged_over_7d: Number(row.aged_over_7d) };
+}
+
+function vendorRateSql(rateColumn: "grn_accepted_quantity" | "grn_shortage_quantity") {
+  return (start: string, end: string) => ({
+    text: `SELECT COALESCE(
+              SUM(${rateColumn})::numeric / NULLIF(SUM(grn_invoice_quantity), 0) * 100,
+              0)::numeric AS v
+           FROM inbound_grns
+           WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz`,
+    params: [start, end],
+  });
+}
+
+async function getInventorySnapshot(): Promise<InventorySnapshot> {
+  const r = await query(
+    `SELECT
+       (SELECT COALESCE(SUM(available_quantity), 0)::bigint
+          FROM bins WHERE is_deleted = false)                                AS units_on_hand,
+       (SELECT COUNT(*)::int FROM (
+          SELECT 1
+          FROM   listings l
+          LEFT   JOIN bins b ON b.sku_id = l.sku_id AND b.is_deleted = false
+          GROUP  BY l.sku_id
+          HAVING COALESCE(SUM(b.available_quantity), 0) = 0
+        ) x)                                                                 AS skus_at_zero`
+  );
+  const row = r.rows[0] as { units_on_hand: string | number; skus_at_zero: number };
+  return {
+    units_on_hand: Number(row.units_on_hand),
+    skus_at_zero: Number(row.skus_at_zero),
+  };
+}
+
+async function getChannelMix(windows: Windows): Promise<ChannelMixRow[]> {
+  const r = await query(
+    `SELECT COALESCE(c.name, oc.company_name) AS company,
+            SUM(oc.total_quantity)::bigint     AS qty
+     FROM   outbound_consignments oc
+     LEFT   JOIN companies c
+            ON c.id = oc.company_id OR c.name = oc.company_name
+     WHERE  oc.marked_rtd_at >= $1::timestamptz
+       AND  oc.marked_rtd_at < $2::timestamptz
+       AND  COALESCE(c.name, oc.company_name) IS NOT NULL
+     GROUP  BY 1
+     ORDER  BY qty DESC NULLS LAST
+     LIMIT  5`,
+    [isoDay(windows.curStart), isoDay(windows.curEnd)]
+  );
+  return r.rows.map((row) => ({
+    company: String(row.company),
+    qty: Number(row.qty),
+  }));
+}
+
 // ── Daily trend series ───────────────────────────────────────────────────────
 
 async function dailyTrend(
@@ -269,16 +388,36 @@ export async function getHomeSummary(opts: {
   const companyName = companyId == null ? null : await lookupCompanyName(companyId);
 
   // Inbound is always company-agnostic — see HomeSummary.inbound_scope.
-  const [salesQty, salesPos, fillRate, inboundQty, reorder, salesTrend, inboundTrend] =
-    await Promise.all([
-      sumWindow(salesQtySql(companyId, companyName), windows),
-      sumWindow(salesPosSql(companyId, companyName), windows),
-      sumWindow(fillRateSql(companyId, companyName), windows),
-      sumWindow(inboundQtySql(), windows),
-      getReorderMetrics({ alertsOnly: true, page: 1, limit: 8 }),
-      dailyTrend("outbound_consignments", windows, companyId, companyName),
-      dailyTrend("inbound_grns", windows, null, null),
-    ]);
+  const [
+    salesQty,
+    salesPos,
+    fillRate,
+    inboundQty,
+    reorder,
+    salesTrend,
+    inboundTrend,
+    opsQueues,
+    openPos,
+    acceptanceRate,
+    shortageRate,
+    inventorySnapshot,
+    channelMix,
+  ] = await Promise.all([
+    sumWindow(salesQtySql(companyId, companyName), windows),
+    sumWindow(salesPosSql(companyId, companyName), windows),
+    sumWindow(fillRateSql(companyId, companyName), windows),
+    sumWindow(inboundQtySql(), windows),
+    getReorderMetrics({ alertsOnly: true, page: 1, limit: 8 }),
+    dailyTrend("outbound_consignments", windows, companyId, companyName),
+    dailyTrend("inbound_grns", windows, null, null),
+    getOpsQueues(),
+    getOpenPos(companyId, companyName),
+    sumWindow(vendorRateSql("grn_accepted_quantity"), windows),
+    sumWindow(vendorRateSql("grn_shortage_quantity"), windows),
+    getInventorySnapshot(),
+    // channel-mix only when no company filter — otherwise the breakdown is meaningless.
+    companyId == null ? getChannelMix(windows) : Promise.resolve(null),
+  ]);
 
   return {
     range: { from: isoDay(windows.curStart), to: isoDay(windows.curEnd) },
@@ -291,6 +430,14 @@ export async function getHomeSummary(opts: {
       inbound_qty: asDelta(inboundQty),
       skus_below_reorder: { value: reorder.total, prev_mom: null, prev_yoy: null },
     },
+    ops_queues: opsQueues,
+    open_pos: openPos,
+    vendor_quality: {
+      acceptance_rate_pct: asDelta(acceptanceRate),
+      shortage_rate_pct: asDelta(shortageRate),
+    },
+    inventory_snapshot: inventorySnapshot,
+    channel_mix: channelMix,
     trends: {
       sales_qty_daily: salesTrend,
       inbound_qty_daily: inboundTrend,

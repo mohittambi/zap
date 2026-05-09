@@ -4,6 +4,8 @@ import * as React from "react";
 import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { HomeFilters } from "@/components/home/home-filters";
 import { KpiCardsRow } from "@/components/home/kpi-cards-row";
+import { PhaseTwoOpsRow } from "@/components/home/phase-two-ops-row";
+import { ChannelMixCard } from "@/components/home/channel-mix-card";
 import { TrendChartsRow } from "@/components/home/trend-charts-row";
 import { ReorderAlertsStrip } from "@/components/home/reorder-alerts-strip";
 import { SavedQueryPanel } from "@/components/home/saved-query-panel";
@@ -24,7 +26,11 @@ export function HomeContent() {
       <div className="flex flex-col gap-6">
         <HomeFilters companyId={companyId} onCompanyChange={setCompanyId} />
         <KpiCardsRow data={data} loading={loading} />
+        <PhaseTwoOpsRow data={data} loading={loading} />
         <TrendChartsRow data={data} loading={loading} />
+        {companyId == null ? (
+          <ChannelMixCard rows={data?.channel_mix ?? null} loading={loading} />
+        ) : null}
         <ReorderAlertsStrip data={data} loading={loading} />
         <SavedQueryPanel />
       </div>
