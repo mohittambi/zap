@@ -1683,7 +1683,7 @@ export default function InboundGrnDetailPage() {
       setLoading(true);
       try {
         const data = await apiFetch<GrnDetailsBundle>(
-          `/api/inbound/grns/${grnId}/details?refresh=1`
+          `/api/inbound/grns/${grnId}/details`
         );
         if (!cancelled) setBundle(data);
       } catch (e) {
@@ -1959,7 +1959,7 @@ export default function InboundGrnDetailPage() {
         });
       }
       const refreshed = await apiFetch<GrnDetailsBundle>(
-        `/api/inbound/grns/${grnId}/details?refresh=1`
+        `/api/inbound/grns/${grnId}/details`
       );
       setBundle(refreshed);
       toast.success(
@@ -2029,7 +2029,7 @@ export default function InboundGrnDetailPage() {
       await apiFetch<GrnHeader>(`/api/inbound/grns/${gid}/close`, { method: "POST" });
 
       const refreshed = await apiFetch<GrnDetailsBundle>(
-        `/api/inbound/grns/${grnId}/details?refresh=1`
+        `/api/inbound/grns/${grnId}/details`
       );
       setBundle(refreshed);
       toast.success("GRN closed");

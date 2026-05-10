@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { eautomateConfigured } from "@/server/eautomate-proxy";
-import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
 import {
   getSkuReportItemsByPoNumber,
   getProductLabelRowsByPoNumber,
@@ -225,11 +223,7 @@ export async function POST(request: Request, context: Ctx) {
             ? rawVal
             : String(rawVal);
       await patchOutboundPurchaseOrderField(id, field, value);
-      if (eautomateConfigured()) {
-        await syncOutboundPurchaseOrderDetailFromEautomate(po.po_number).catch(
-          () => undefined
-        );
-      }
+      /** No inline sync-back to eAutomate; run `npm run sync:outbound-po-detail` separately. */
       return NextResponse.json({ ok: true });
     }
 
@@ -248,14 +242,10 @@ export async function POST(request: Request, context: Ctx) {
           },
         });
       }
-      // No consignment items — try syncing listings_snapshot from eAutomate, then check again.
-      if (eautomateConfigured()) {
-        await syncOutboundPurchaseOrderDetailFromEautomate(pn).catch(() => undefined);
-      }
-      const fresh = (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
-      const snapshotRows = extractListingsRowsFromSnapshot(fresh.listings_snapshot);
+      /** No inline eAutomate sync; fall back to the locally-cached listings_snapshot. */
+      const snapshotRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
       if (snapshotRows.length > 0) {
-        const csv = outboundPoListingsSnapshotToCsv(fresh.listings_snapshot, fresh);
+        const csv = outboundPoListingsSnapshotToCsv(po.listings_snapshot, po);
         const fname = `sku-report-${safeFilename(pn)}.csv`;
         return new NextResponse(csv, {
           status: 200,
@@ -268,7 +258,7 @@ export async function POST(request: Request, context: Ctx) {
       return NextResponse.json(
         {
           error: "No SKU line items found for this purchase order.",
-          hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items, or wait for the PO to be synced from eAutomate once SKUs are entered.",
+          hint: "Run `npm run sync:outbound-po-detail` to refresh from eAutomate, or upload the received PO spreadsheet (XLSX/CSV) via the Attachments section to populate line items.",
         },
         { status: 422 }
       );

@@ -2,16 +2,14 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { eautomateConfigured } from "@/server/eautomate-proxy";
 import { parsePagination } from "@/server/validators/pagination";
-import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * Paginated PO line items from `listings_snapshot` (same source as web line-items table).
- * Triggers eAutomate sync when configured so mobile does not need to open PO detail first.
+ * Paginated PO line items from zap's `listings_snapshot` column.
+ * zap DB only. Sync from eAutomate is run via `npm run sync:outbound-po-detail`.
  */
 export async function GET(request: Request, context: Ctx) {
   try {
@@ -32,24 +30,15 @@ export async function GET(request: Request, context: Ctx) {
     });
     const search = typeof q.search === "string" ? q.search : undefined;
 
-    let po = await outboundPoService.getOutboundPurchaseOrderById(id);
+    const po = await outboundPoService.getOutboundPurchaseOrderById(id);
     if (!po) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
     }
 
-    if (eautomateConfigured()) {
-      const syncResult = await syncOutboundPurchaseOrderDetailFromEautomate(po.po_number);
-      if (syncResult.ok) {
-        po = (await outboundPoService.getOutboundPurchaseOrderById(id)) ?? po;
-      }
-    }
-
-    const snapshot = po.listings_snapshot;
-    const payload = outboundPoService.buildOutboundPoItemsPayloadFromSnapshot(snapshot, {
-      page,
-      limit,
-      search,
-    });
+    const payload = outboundPoService.buildOutboundPoItemsPayloadFromSnapshot(
+      po.listings_snapshot,
+      { page, limit, search }
+    );
 
     return NextResponse.json(payload);
   } catch (err) {

@@ -18,7 +18,6 @@ import {
   poWorkflowJsonBody,
   workflowCreateConsignmentUrl,
 } from "@/server/eautomate-outbound-po-workflow";
-import { syncOutboundPurchaseOrderDetailFromEautomate } from "@/server/services/eautomateOutboundPoDetailSyncService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -151,8 +150,7 @@ export async function POST(request: Request, context: Ctx) {
       await upsertOutboundConsignmentFromEautomate(cons);
     }
 
-    await syncOutboundPurchaseOrderDetailFromEautomate(po.po_number);
-
+    /** PO detail is not re-synced inline; run `npm run sync:outbound-po-detail` to refresh. */
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);

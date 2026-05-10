@@ -3,9 +3,6 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
-import { buildEautomateGrnFileUrl } from "@/server/eautomate-grn-files";
-import { fetchEautomate } from "@/server/eautomate-proxy";
-import { eautomateConfigured } from "@/server/eautomate-proxy";
 import {
   downloadBufferFromBucket,
   getInboundBucket,
@@ -101,62 +98,14 @@ export async function GET(request: Request, context: RouteContext) {
       }
     }
 
-    if (!eautomateConfigured()) {
-      return NextResponse.json(
-        {
-          message:
-            "File is not in Zap Storage and legacy file fetch is not configured",
-        },
-        { status: 503 }
-      );
-    }
-
-    const target = buildEautomateGrnFileUrl(
-      kind === "invoice" ? "invoice" : "debit_note",
-      grnId,
-      fileId,
-      kind === "debit_note" ? Number(url.searchParams.get("noteId")) : undefined
-    );
-    if (!target) {
-      return NextResponse.json(
-        {
-          message:
-            "File download URL is not configured. Set EAUTOMATE_GRN_INVOICE_FILE_URL_PATH or EAUTOMATE_GRN_DCN_FILE_URL_PATH (placeholders {fileId}, {grnId}, {noteId}).",
-        },
-        { status: 501 }
-      );
-    }
-
-    const upstream = await fetchEautomate(target.toString(), {
-      headers: { Accept: "*/*" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    if (!upstream.ok) {
-      const text = await upstream.text().catch(() => "");
-      return NextResponse.json(
-        {
-          message: `eAutomate file fetch failed (${upstream.status})`,
-          detail: text.slice(0, 200),
-        },
-        { status: upstream.status >= 500 ? 502 : upstream.status }
-      );
-    }
-
-    const blob = await upstream.arrayBuffer();
-    const contentType =
-      upstream.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream";
-    const fn = safeFilename(displayName);
-
-    return new NextResponse(blob, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${fn}"`,
-        "Cache-Control": "private, no-store",
+    /** zap UI never reaches eAutomate. Mirror missing files via the inbound file-sync job. */
+    return NextResponse.json(
+      {
+        message:
+          "File is not in Zap Storage. Run the inbound file sync job to mirror eAutomate files into Zap Storage.",
       },
-    });
+      { status: 404 }
+    );
   } catch (err) {
     return handleApiError(err);
   }

@@ -15,6 +15,14 @@ import {
   Plus,
 } from "lucide-react";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import {
+  deriveDisplayName,
+  deriveFillPct,
+  deriveLocation,
+  derivePoDisplayStatus,
+  isZapCancelled as deriveIsZapCancelled,
+  numberStringOrDash,
+} from "@/lib/inboundPoDetailUi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
@@ -72,7 +80,32 @@ function parseNonNegativeInt(s: string): number | null {
   return n;
 }
 
+type PoDetailHeader = {
+  po_id: number;
+  vendor_id: number;
+  vendor_name: string | null;
+  vendor_city: string | null;
+  vendor_state: string | null;
+  expected_date: string | null;
+  status: string | null;
+  po_remarks: string | null;
+  created_by: string | null;
+  modified_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  date_published: string | null;
+  sku_count: number;
+  total_quantity: number;
+  number_of_grns: number;
+  total_invoice_quantity: number;
+  total_accepted_quantity: number;
+  total_rejected_quantity: number;
+  sku_fill_rate: number;
+  quantity_fill_rate: number;
+};
+
 type PoDetailBundle = {
+  header: PoDetailHeader;
   snapshot: {
     po_id: number;
     vendor_id: number;
@@ -241,7 +274,7 @@ export default function InboundPoDetailPage() {
     setLoading(true);
     try {
       const data = await apiFetch<PoDetailBundle>(
-        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details?refresh=1`
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details`
       );
       setBundle(data);
     } catch (e) {
@@ -262,7 +295,7 @@ export default function InboundPoDetailPage() {
       setLoading(true);
       try {
         const data = await apiFetch<PoDetailBundle>(
-          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details?refresh=1`
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details`
         );
         if (!c) setBundle(data);
       } catch (e) {
@@ -428,8 +461,8 @@ export default function InboundPoDetailPage() {
   };
 
   const snap = bundle?.snapshot;
+  const header = bundle?.header;
   const poRaw = snap?.po_raw ?? {};
-  const vendorRaw = snap?.vendor_raw ?? {};
   const nameBySku = React.useMemo(
     () => buildSkuNameMap(snap?.sku_names_raw),
     [snap?.sku_names_raw]
@@ -439,52 +472,27 @@ export default function InboundPoDetailPage() {
     [snap?.vendor_listings_raw]
   );
 
-  const isZapCancelled =
-    String(poRaw.zap_status ?? "").trim().toUpperCase() === "CANCELLED";
-  const poStatus = isZapCancelled
-    ? "Cancelled"
-    : pick(poRaw, ["status", "po_status", "Status"]);
-  const totalSkus = pick(poRaw, ["sku_count", "skuCount"]);
-  const totalReq = pick(poRaw, ["total_quantity", "totalQuantity"]);
-  const totalInv = pick(poRaw, [
-    "total_invoice_quantity",
-    "totalInvoiceQuantity",
-  ]);
-  const totalAcc = pick(poRaw, [
-    "total_accepted_quantity",
-    "totalAcceptedQuantity",
-  ]);
-  const totalRej = pick(poRaw, [
-    "total_rejected_quantity",
-    "totalRejectedQuantity",
-  ]);
-  const skuFill = pick(poRaw, ["sku_fill_rate", "skuFillRate"]);
-  const qtyFill = pick(poRaw, ["quantity_fill_rate", "quantityFillRate"]);
+  const isZapCancelled = deriveIsZapCancelled(poRaw.zap_status);
+  const poStatus = derivePoDisplayStatus(isZapCancelled, header?.status ?? null);
+  const totalSkus = numberStringOrDash(header?.sku_count);
+  const totalReq = numberStringOrDash(header?.total_quantity);
+  const totalInv = numberStringOrDash(header?.total_invoice_quantity);
+  const totalRej = numberStringOrDash(header?.total_rejected_quantity);
+  const skuFill = numberStringOrDash(header?.sku_fill_rate);
+  const qtyFill = numberStringOrDash(header?.quantity_fill_rate);
 
-  const invN = Number(totalInv) || 0;
-  const accN = Number(totalAcc) || 0;
-  const rejN = Number(totalRej) || 0;
-  const acceptPct =
-    invN > 0 ? Math.round((accN / invN) * 1000) / 10 : null;
-  const rejectPct =
-    invN > 0 ? Math.round((rejN / invN) * 1000) / 10 : null;
+  const invN = header?.total_invoice_quantity ?? 0;
+  const accN = header?.total_accepted_quantity ?? 0;
+  const rejN = header?.total_rejected_quantity ?? 0;
+  const acceptPct = deriveFillPct(accN, invN);
+  const rejectPct = deriveFillPct(rejN, invN);
 
-  const vendorName = pick(vendorRaw, [
-    "vendor_name",
-    "vendorName",
-    "name",
-  ]);
-  const vendorCity = pick(vendorRaw, ["vendor_city", "vendorCity", "city"]);
-  const vendorState = pick(vendorRaw, ["vendor_state", "vendorState", "state"]);
-  const location =
-    vendorCity !== "—" || vendorState !== "—"
-      ? [vendorCity, vendorState].filter((x) => x !== "—").join(", ")
-      : "—";
+  const vendorName = deriveDisplayName(header?.vendor_name);
+  const location = deriveLocation(header?.vendor_city, header?.vendor_state);
 
-  const expiryRaw =
-    poRaw.expected_date ?? poRaw.expectedDate ?? poRaw.expiry_date;
-  const expiryStr =
-    expiryRaw != null && expiryRaw !== "" ? String(expiryRaw) : null;
+  const expiryStr = header?.expected_date ?? null;
+  const createdBy = deriveDisplayName(header?.created_by);
+  const createdAtStr = header?.created_at ?? null;
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
@@ -563,16 +571,8 @@ export default function InboundPoDetailPage() {
               </p>
               <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>PO expiry: {formatDt(expiryStr)}</span>
-                <span>
-                  PO created by:{" "}
-                  {pick(poRaw, ["created_by", "createdBy"])}
-                </span>
-                <span>
-                  Creation time:{" "}
-                  {formatDt(
-                    String(poRaw.created_at ?? poRaw.createdAt ?? "") || null
-                  )}
-                </span>
+                <span>PO created by: {createdBy}</span>
+                <span>Creation time: {formatDt(createdAtStr)}</span>
               </div>
             </div>
           </div>

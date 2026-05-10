@@ -79,29 +79,6 @@ function normalizeVendorListingsPayload(raw: unknown): unknown[] {
   return extractArray(raw);
 }
 
-function unwrapEntity(raw: unknown): Record<string, unknown> | null {
-  const o = asRecord(raw);
-  if (!o) return null;
-  const inner = pick(o, ["data", "purchase_order", "po", "vendor", "result"]);
-  if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-    return { ...o, ...(inner as Record<string, unknown>) };
-  }
-  return o;
-}
-
-/** Resolve vendor id from eAutomate PO JSON (top-level or nested purchase_order). */
-function vendorIdFromPoPayload(po: Record<string, unknown>): number | null {
-  const top = num(pick(po, ["vendor_id", "vendorId"]), null);
-  if (top != null && top > 0) return top;
-  for (const key of ["purchase_order", "purchaseOrder", "po"] as const) {
-    const nested = asRecord(po[key]);
-    if (!nested) continue;
-    const n = num(pick(nested, ["vendor_id", "vendorId"]), null);
-    if (n != null && n > 0) return n;
-  }
-  return null;
-}
-
 async function fetchEautomateJson(pathSuffix: string): Promise<unknown> {
   if (!eautomateConfigured()) {
     throw new AppError(
@@ -199,27 +176,31 @@ export async function ingestPoDetailsByVendorAndPo(
     throw new AppError("Invalid po id", 400);
   }
 
-  const [skuNamesJson, poJson, addedJson, grnsJson] = await Promise.all([
-    fetchEautomateJson(`/listings/sku/names`).catch(() => null),
-    fetchEautomateJson(`/purchase_orders/${poId}`).catch(() => null),
-    fetchEautomateJson(`/purchase_orders/addedItems/withListing/${poId}`).catch(
-      () => null
-    ),
-    fetchEautomateJson(`/purchase_orders/grn/get_by_po_id/${poId}`).catch(
-      () => null
-    ),
-  ]);
+  /** zap is the source of truth for the PO and its vendor binding; eAutomate provides only line/GRN/listing data. */
+  const poRow = await query(
+    `SELECT vendor_id FROM vendor_purchase_orders WHERE po_id = $1`,
+    [poId]
+  );
+  if (poRow.rows.length === 0) {
+    throw new AppError("PO not found", 404);
+  }
+  const canonicalVendorId = Number(poRow.rows[0].vendor_id);
 
-  const po = unwrapEntity(poJson) ?? asRecord(poJson) ?? {};
-  const vidFromPo = vendorIdFromPoPayload(po);
-  /** eAutomate PO payload is canonical; path vendor may differ (stale links, list drift). */
-  const effectiveVendorId =
-    vidFromPo != null && vidFromPo > 0 ? vidFromPo : vendorId;
-
-  const [vendorJson, listingsJson] = await Promise.all([
-    fetchEautomateJson(`/vendors/${effectiveVendorId}`).catch(() => null),
-    fetchEautomateJson(`/vendors/listings/${effectiveVendorId}`).catch(() => null),
-  ]);
+  const [skuNamesJson, poJson, addedJson, grnsJson, vendorJson, listingsJson] =
+    await Promise.all([
+      fetchEautomateJson(`/listings/sku/names`).catch(() => null),
+      fetchEautomateJson(`/purchase_orders/${poId}`).catch(() => null),
+      fetchEautomateJson(
+        `/purchase_orders/addedItems/withListing/${poId}`
+      ).catch(() => null),
+      fetchEautomateJson(`/purchase_orders/grn/get_by_po_id/${poId}`).catch(
+        () => null
+      ),
+      fetchEautomateJson(`/vendors/${canonicalVendorId}`).catch(() => null),
+      fetchEautomateJson(`/vendors/listings/${canonicalVendorId}`).catch(
+        () => null
+      ),
+    ]);
 
   const vendorListingsArr = normalizeVendorListingsPayload(listingsJson);
   const skuNamesArr = normalizeSkuNamesPayload(skuNamesJson);
@@ -253,7 +234,7 @@ export async function ingestPoDetailsByVendorAndPo(
         po_raw = EXCLUDED.po_raw`,
       [
         poId,
-        effectiveVendorId,
+        canonicalVendorId,
         toJsonbString(vendorJson ?? {}),
         toJsonbString(vendorListingsArr),
         toJsonbString(skuNamesArr),
@@ -308,6 +289,73 @@ export async function snapshotExists(poId: number): Promise<boolean> {
   return r.rows.length > 0;
 }
 
+export function isoOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "string") return v;
+  return null;
+}
+
+export function toNullableNumber(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function toNumberOrZero(v: unknown): number {
+  return toNullableNumber(v) ?? 0;
+}
+
+export type PoDetailHeader = {
+  po_id: number;
+  vendor_id: number;
+  vendor_name: string | null;
+  vendor_city: string | null;
+  vendor_state: string | null;
+  expected_date: string | null;
+  status: string | null;
+  po_remarks: string | null;
+  created_by: string | null;
+  modified_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  date_published: string | null;
+  sku_count: number;
+  total_quantity: number;
+  number_of_grns: number;
+  total_invoice_quantity: number;
+  total_accepted_quantity: number;
+  total_rejected_quantity: number;
+  sku_fill_rate: number;
+  quantity_fill_rate: number;
+};
+
+export function rowToHeader(r: Record<string, unknown>): PoDetailHeader {
+  return {
+    po_id: Number(r.po_id),
+    vendor_id: Number(r.vendor_id),
+    vendor_name: (r.vendor_name as string | null) ?? null,
+    vendor_city: (r.vendor_city as string | null) ?? null,
+    vendor_state: (r.vendor_state as string | null) ?? null,
+    expected_date: isoOrNull(r.expected_date),
+    status: (r.status as string | null) ?? null,
+    po_remarks: (r.po_remarks as string | null) ?? null,
+    created_by: (r.created_by as string | null) ?? null,
+    modified_by: (r.modified_by as string | null) ?? null,
+    created_at: isoOrNull(r.created_at),
+    updated_at: isoOrNull(r.updated_at),
+    date_published: isoOrNull(r.date_published),
+    sku_count: toNumberOrZero(r.sku_count),
+    total_quantity: toNumberOrZero(r.total_quantity),
+    number_of_grns: toNumberOrZero(r.number_of_grns),
+    total_invoice_quantity: toNumberOrZero(r.total_invoice_quantity),
+    total_accepted_quantity: toNumberOrZero(r.total_accepted_quantity),
+    total_rejected_quantity: toNumberOrZero(r.total_rejected_quantity),
+    sku_fill_rate: toNumberOrZero(r.sku_fill_rate),
+    quantity_fill_rate: toNumberOrZero(r.quantity_fill_rate),
+  };
+}
+
 export async function getPoDetailsBundle(vendorId: number, poId: number) {
   if (!Number.isFinite(vendorId) || vendorId < 1) {
     throw new AppError("Invalid vendor id", 400);
@@ -316,16 +364,42 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
     throw new AppError("Invalid po id", 400);
   }
 
+  /** Header is canonical from zap DB; eAutomate snapshot is only for line/GRN/listing data. */
+  const headerR = await query(
+    `SELECT po.po_id, po.vendor_id, v.vendor_name, v.vendor_city, v.vendor_state,
+            po.expected_date, po.status, po.po_remarks,
+            po.created_by, po.modified_by, po.created_at, po.updated_at, po.date_published,
+            po.sku_count, po.total_quantity, po.number_of_grns,
+            po.total_invoice_quantity, po.total_accepted_quantity, po.total_rejected_quantity,
+            po.sku_fill_rate, po.quantity_fill_rate
+       FROM vendor_purchase_orders po
+       JOIN vendors v ON v.id = po.vendor_id
+      WHERE po.po_id = $1`,
+    [poId]
+  );
+  if (headerR.rows.length === 0) {
+    throw new AppError("PO not found", 404);
+  }
+  const header = rowToHeader(headerR.rows[0] as Record<string, unknown>);
+
   const snapR = await query(
     `SELECT po_id, vendor_id, synced_at, vendor_raw, vendor_listings_raw, sku_names_raw, po_raw
      FROM inbound_po_detail_snapshot WHERE po_id = $1`,
     [poId]
   );
-  if (snapR.rows.length === 0) {
-    throw new AppError("PO detail not found; run sync or open with refresh=1", 404);
-  }
-  const snap = snapR.rows[0] as Record<string, unknown>;
-  // Snapshot is keyed by po_id; canonical vendor is snapshot.vendor_id (path vendor may differ).
+  /** Snapshot is the eAutomate-sourced supplement; absence is normal for locally-created POs. */
+  const snap: Record<string, unknown> =
+    snapR.rows.length > 0
+      ? (snapR.rows[0] as Record<string, unknown>)
+      : {
+          po_id: poId,
+          vendor_id: header.vendor_id,
+          synced_at: null,
+          vendor_raw: {},
+          vendor_listings_raw: [],
+          sku_names_raw: [],
+          po_raw: {},
+        };
 
   const linesR = await query(
     `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,
@@ -337,6 +411,7 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
   );
 
   return {
+    header,
     snapshot: snap,
     lines: linesR.rows,
     grns: grnsR.rows,

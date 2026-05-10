@@ -81,15 +81,69 @@ function toRglLayout(layout: DashboardLayoutV2): RglLayoutItem[] {
   return out;
 }
 
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = React.useState(false);
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isMobile;
+}
+
+/**
+ * On phones, react-grid-layout's touch handlers eat link taps and disrupt
+ * vertical scroll. The plan called for a flat fallback on small viewports —
+ * here it is: a vertical stack ordered by the saved `pos.y, pos.x` so the
+ * layout authoring done on desktop carries over.
+ */
+function MobileFlatStack({
+  layout,
+  renderers,
+}: {
+  layout: DashboardLayoutV2;
+  renderers: Partial<Record<DashboardCardId, React.ReactNode>>;
+}) {
+  const ordered = React.useMemo(() => {
+    const visible = DASHBOARD_CARD_IDS.filter((id) => {
+      const c = layout.cards.find((x) => x.id === id);
+      return !c?.hidden && renderers[id];
+    });
+    return visible.sort((a, b) => {
+      const pa = layout.cards.find((c) => c.id === a)?.pos ?? defaultPositionFor(a);
+      const pb = layout.cards.find((c) => c.id === b)?.pos ?? defaultPositionFor(b);
+      if (pa.y !== pb.y) return pa.y - pb.y;
+      return pa.x - pb.x;
+    });
+  }, [layout, renderers]);
+  return (
+    <div className="flex flex-col gap-3">
+      {ordered.map((id) => (
+        <div key={id} className="dashboard-grid-item">
+          {renderers[id]}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function DashboardGrid({
   layout,
   renderers,
   onPositionsChange,
   readOnly,
 }: DashboardGridProps) {
+  const isMobile = useIsMobile();
   const rglLayout = React.useMemo(() => toRglLayout(layout), [layout]);
   const { width, containerRef, mounted } = useContainerWidth();
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  if (isMobile) {
+    return <MobileFlatStack layout={layout} renderers={renderers} />;
+  }
 
   const handleLayoutChange = React.useCallback(
     (next: RglLayoutItem[]) => {
