@@ -19,12 +19,19 @@ export async function GET(request: Request) {
       .map(Number)
       .filter((n) => Number.isFinite(n) && n > 0);
 
+    const sortBy = typeof q.sort_by === "string" ? q.sort_by.trim() || undefined : undefined;
+    let sortDir: "asc" | "desc" | undefined;
+    if (q.sort_dir === "asc") sortDir = "asc";
+    else if (q.sort_dir === "desc") sortDir = "desc";
+
     const data = await vendorPoService.listAllPurchaseOrdersWithFilters({
       searchKeyword: search_keyword,
       page,
       count,
       filterPoId: q.po_id_filter,
       filterVendorIds: vendorIds.length ? vendorIds : undefined,
+      sortBy,
+      sortDir,
     });
     return NextResponse.json(data);
   } catch (err) {

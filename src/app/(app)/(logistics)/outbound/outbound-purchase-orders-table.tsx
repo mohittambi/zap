@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +11,9 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { OUTBOUND_PO_TYPES } from "@/lib/outbound-po-types";
+import { cn } from "@/lib/utils";
 
 type Analytics = {
   sku_count?: number;
@@ -103,17 +107,66 @@ function wipStatus(v: string | null | undefined): string | null {
   return v ?? null;
 }
 
-function statusClass(status: string | null | undefined): string {
-  const s = (status ?? "").toUpperCase();
-  if (s.includes("ACKNOWLEDGEMENT") || s.includes("PENDING")) return "text-orange-600 dark:text-orange-400";
-  return "";
+type SortableColumn =
+  | "po_number"
+  | "po_type"
+  | "company_name"
+  | "delivery_city"
+  | "calculated_po_status"
+  | "is_wip"
+  | "remarks"
+  | "po_issue_date"
+  | "expiry_date"
+  | "created_at"
+  | "created_by"
+  | "sku_count"
+  | "total_demand"
+  | "total_dispatched"
+  | "total_packed"
+  | "total_pending"
+  | "quantity_fill_rate"
+  | "sku_fill_rate"
+  | "total_consignments"
+  | "boxes_dispatched"
+  | "boxes_packed";
+
+type SortState = { col: SortableColumn; dir: "asc" | "desc" } | null;
+
+function SortHeader({
+  label,
+  col,
+  sort,
+  onSort,
+}: Readonly<{
+  label: string;
+  col: SortableColumn;
+  sort: SortState;
+  onSort: (col: SortableColumn) => void;
+}>) {
+  const active = sort?.col === col;
+  let Icon = ChevronsUpDown;
+  if (active) Icon = sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(col)}
+      className={cn(
+        "inline-flex items-center gap-1 font-semibold whitespace-nowrap",
+        "hover:text-primary",
+        active ? "text-primary" : "text-foreground"
+      )}
+    >
+      {label}
+      <Icon className={cn("size-3", active ? "opacity-100" : "opacity-50")} />
+    </button>
+  );
 }
 
 export function OutboundPurchaseOrdersTable({
   wipOnly,
-}: {
+}: Readonly<{
   wipOnly?: boolean;
-}) {
+}>) {
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
   const [applied, setApplied] = React.useState("");
@@ -123,9 +176,31 @@ export function OutboundPurchaseOrdersTable({
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
   const [companies, setCompanies] = React.useState<FilterCompanyOption[]>([]);
   const [deliveryLocations, setDeliveryLocations] = React.useState<FilterDeliveryLocationOption[]>([]);
-  const [companyId, setCompanyId] = React.useState("");
-  const [deliveryCity, setDeliveryCity] = React.useState("");
-  const [poStatus, setPoStatus] = React.useState("");
+  const [companyIds, setCompanyIds] = React.useState<string[]>([]);
+  const [deliveryCities, setDeliveryCities] = React.useState<string[]>([]);
+  const [poStatuses, setPoStatuses] = React.useState<string[]>([]);
+  const [poTypes, setPoTypes] = React.useState<string[]>([]);
+  const [poNumberQuery, setPoNumberQuery] = React.useState("");
+  const [poNumberApplied, setPoNumberApplied] = React.useState("");
+  const [sort, setSort] = React.useState<SortState>(null);
+
+  /** Cycle: none → desc → asc → none. */
+  const handleSort = React.useCallback((col: SortableColumn) => {
+    setPage(1);
+    setSort((prev) => {
+      if (prev?.col !== col) return { col, dir: "desc" };
+      if (prev.dir === "desc") return { col, dir: "asc" };
+      return null;
+    });
+  }, []);
+
+  const updateMulti = React.useCallback(
+    (setter: React.Dispatch<React.SetStateAction<string[]>>) => (next: string[]) => {
+      setPage(1);
+      setter(next);
+    },
+    []
+  );
 
   React.useEffect(() => {
     void (async () => {
@@ -153,9 +228,15 @@ export function OutboundPurchaseOrdersTable({
       q.set("count", "100");
       if (applied.trim()) q.set("search", applied.trim());
       if (wipOnly) q.set("wip", "1");
-      if (companyId) q.set("company_id", companyId);
-      if (deliveryCity) q.set("delivery_city", deliveryCity);
-      if (poStatus) q.set("po_status", poStatus);
+      if (poNumberApplied.trim()) q.set("po_number", poNumberApplied.trim());
+      if (companyIds.length > 0) q.set("company_ids", companyIds.join(","));
+      if (deliveryCities.length > 0) q.set("delivery_cities", deliveryCities.join(","));
+      if (poStatuses.length > 0) q.set("po_statuses", poStatuses.join(","));
+      if (poTypes.length > 0) q.set("po_types", poTypes.join(","));
+      if (sort) {
+        q.set("sort_by", sort.col);
+        q.set("sort_dir", sort.dir);
+      }
       const res = await apiFetch<Paginated>(`/api/outbound/purchase-orders?${q}`);
       setData(res);
     } catch (e) {
@@ -164,7 +245,10 @@ export function OutboundPurchaseOrdersTable({
     } finally {
       setLoading(false);
     }
-  }, [page, applied, wipOnly, companyId, deliveryCity, poStatus]);
+  }, [
+    page, applied, wipOnly, poNumberApplied,
+    companyIds, deliveryCities, poStatuses, poTypes, sort,
+  ]);
 
   React.useEffect(() => {
     void load();
@@ -215,14 +299,35 @@ export function OutboundPurchaseOrdersTable({
     toast.success(`Exported ${selectedRows.length} rows`);
   }
 
+  const companyOptions = React.useMemo(
+    () =>
+      companies.map((c) => ({
+        value: String(c.id),
+        label: c.name?.trim() ? c.name : `Company ${c.id}`,
+      })),
+    [companies]
+  );
+  const deliveryLocationOptions = React.useMemo(
+    () => deliveryLocations.map((loc) => ({ value: loc.name, label: loc.name })),
+    [deliveryLocations]
+  );
+  const poStatusOptions = React.useMemo(
+    () => PO_STATUS_FILTER_OPTIONS.map((s) => ({ value: s, label: s })),
+    []
+  );
+  const poTypeOptions = React.useMemo(
+    () => OUTBOUND_PO_TYPES.map((t) => ({ value: t, label: t })),
+    []
+  );
+
   return (
     <Card className="border-primary/10 shadow-sm">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex w-full flex-col gap-2">
-          <label className="text-muted-foreground text-xs font-medium" htmlFor="po-search">
-            Search
-          </label>
-          <div className="flex gap-2">
+      <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex items-end gap-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs font-medium" htmlFor="po-search">
+              Search
+            </label>
             <Input
               id="po-search"
               placeholder="PO number, company, city…"
@@ -231,67 +336,12 @@ export function OutboundPurchaseOrdersTable({
               onKeyDown={(e) => {
                 if (e.key === "Enter") setApplied(search);
               }}
+              className="h-9 w-72"
             />
-            <Button type="button" variant="secondary" onClick={() => setApplied(search)}>
-              Apply
-            </Button>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label className="text-muted-foreground text-xs">
-              <span className="mb-1 block font-medium">Company</span>
-              <select
-                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                value={companyId}
-                onChange={(e) => {
-                  setPage(1);
-                  setCompanyId(e.target.value);
-                }}
-              >
-                <option value="">All companies</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name ?? `Company ${c.id}`}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-muted-foreground text-xs">
-              <span className="mb-1 block font-medium">Delivery Location</span>
-              <select
-                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                value={deliveryCity}
-                onChange={(e) => {
-                  setPage(1);
-                  setDeliveryCity(e.target.value);
-                }}
-              >
-                <option value="">All locations</option>
-                {deliveryLocations.map((loc) => (
-                  <option key={loc.id} value={loc.name}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-muted-foreground text-xs">
-              <span className="mb-1 block font-medium">Status</span>
-              <select
-                className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
-                value={poStatus}
-                onChange={(e) => {
-                  setPage(1);
-                  setPoStatus(e.target.value);
-                }}
-              >
-                <option value="">All statuses</option>
-                {PO_STATUS_FILTER_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          <Button type="button" variant="secondary" onClick={() => setApplied(search)}>
+            Apply
+          </Button>
         </div>
         {someSelected ? (
           <div className="flex items-center gap-2">
@@ -328,7 +378,7 @@ export function OutboundPurchaseOrdersTable({
             <table className="w-max min-w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="bg-muted/50 border-b">
-                  <th className="sticky left-0 z-10 bg-muted/50 px-2 py-2">
+                  <th rowSpan={2} className="sticky left-0 z-10 bg-muted/50 px-2 py-2 align-middle">
                     <input
                       type="checkbox"
                       className="accent-primary cursor-pointer"
@@ -338,27 +388,94 @@ export function OutboundPurchaseOrdersTable({
                       onChange={toggleAll}
                     />
                   </th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">PO Number</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">PO Type</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Company Name</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Delivery Location</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">PO status</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Is WIP?</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Remarks</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">SKU Count</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Demand Quantity</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Dispatched Quantity</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Packed Quantity</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Pending Quantity</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Quantity Fill Rate</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">SKU Fill Rate</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Consignment Count</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Boxes Dispatched</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Boxes Packed</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Po Release Date</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">Expiry Date</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">PO addition Date</th>
-                  <th className="whitespace-nowrap px-2 py-2 font-semibold">PO added By</th>
+                  <th className="px-2 py-2 min-w-[140px]"><SortHeader label="PO Number" col="po_number" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2 min-w-[140px]"><SortHeader label="PO Type" col="po_type" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2 min-w-[160px]"><SortHeader label="Company Name" col="company_name" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2 min-w-[160px]"><SortHeader label="Delivery Location" col="delivery_city" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2 min-w-[160px]"><SortHeader label="PO status" col="calculated_po_status" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Is WIP?" col="is_wip" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Remarks" col="remarks" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="SKU Count" col="sku_count" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Demand Quantity" col="total_demand" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Dispatched Quantity" col="total_dispatched" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Packed Quantity" col="total_packed" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Pending Quantity" col="total_pending" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Quantity Fill Rate" col="quantity_fill_rate" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="SKU Fill Rate" col="sku_fill_rate" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Consignment Count" col="total_consignments" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Boxes Dispatched" col="boxes_dispatched" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Boxes Packed" col="boxes_packed" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="PO Release Date" col="po_issue_date" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Expiry Date" col="expiry_date" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="PO Addition Date" col="created_at" sort={sort} onSort={handleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="PO Added By" col="created_by" sort={sort} onSort={handleSort} /></th>
+                </tr>
+                <tr className="bg-muted/30 border-b">
+                  <th className="px-2 py-1.5">
+                    <input
+                      aria-label="Filter by PO number"
+                      type="text"
+                      placeholder="Filter…"
+                      className="border-input bg-background h-7 w-full rounded border px-1.5 text-[11px]"
+                      value={poNumberQuery}
+                      onChange={(e) => setPoNumberQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setPage(1);
+                          setPoNumberApplied(poNumberQuery);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (poNumberQuery !== poNumberApplied) {
+                          setPage(1);
+                          setPoNumberApplied(poNumberQuery);
+                        }
+                      }}
+                    />
+                  </th>
+                  <th className="px-2 py-1.5">
+                    <MultiSelect
+                      ariaLabel="Filter by PO type"
+                      placeholder="All types"
+                      options={poTypeOptions}
+                      selected={poTypes}
+                      onChange={updateMulti(setPoTypes)}
+                    />
+                  </th>
+                  <th className="px-2 py-1.5">
+                    <MultiSelect
+                      ariaLabel="Filter by company"
+                      placeholder="All companies"
+                      options={companyOptions}
+                      selected={companyIds}
+                      onChange={updateMulti(setCompanyIds)}
+                    />
+                  </th>
+                  <th className="px-2 py-1.5">
+                    <MultiSelect
+                      ariaLabel="Filter by delivery location"
+                      placeholder="All locations"
+                      options={deliveryLocationOptions}
+                      selected={deliveryCities}
+                      onChange={updateMulti(setDeliveryCities)}
+                    />
+                  </th>
+                  <th className="px-2 py-1.5">
+                    <MultiSelect
+                      ariaLabel="Filter by status"
+                      placeholder="All statuses"
+                      options={poStatusOptions}
+                      selected={poStatuses}
+                      onChange={updateMulti(setPoStatuses)}
+                    />
+                  </th>
+                  {[
+                    "wip", "remarks", "sku_count", "demand", "dispatched", "packed", "pending",
+                    "qty_fill", "sku_fill", "consignments", "boxes_dispatched", "boxes_packed",
+                    "release_date", "expiry_date", "addition_date", "added_by",
+                  ].map((k) => (
+                    <th key={`spacer-${k}`} className="px-2 py-1.5"></th>
+                  ))}
                 </tr>
               </thead>
               <tbody>

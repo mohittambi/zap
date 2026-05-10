@@ -183,4 +183,14 @@ describe("rowToHeader", () => {
     assert.strictEqual(h.vendor_name, "VK Creation");
     assert.notStrictEqual(h.vendor_name, "ROUXIE (SMART SHOP)");
   });
+
+  it("source defaults to 'eautomate' when missing or unrecognised", () => {
+    assert.strictEqual(rowToHeader(rawRow()).source, "eautomate");
+    assert.strictEqual(rowToHeader(rawRow({ source: undefined })).source, "eautomate");
+    assert.strictEqual(rowToHeader(rawRow({ source: "garbage" })).source, "eautomate");
+  });
+
+  it("source is 'zap' when the column is set to 'zap' (zap-created PO)", () => {
+    assert.strictEqual(rowToHeader(rawRow({ source: "zap" })).source, "zap");
+  });
 });

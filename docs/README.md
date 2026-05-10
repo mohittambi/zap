@@ -2,6 +2,8 @@
 
 This folder is the **single entry point** for understanding the Zap system: web app (Next.js + Postgres), mobile client, integrations, and operations.
 
+> **Start with the doctrine:** [**../../docs/zap-doctrine.md**](../../docs/zap-doctrine.md) — 9 architectural rules every change in this repo must respect (zap DB is canonical, sync is explicit, source separation, non-colliding ID namespace, etc.).
+
 ## How to read these docs
 
 | Audience | Start here |

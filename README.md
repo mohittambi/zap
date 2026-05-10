@@ -4,6 +4,8 @@ eautomate API mirror — listings, inventory, analytics. Data from PostgreSQL. R
 
 **Documentation index:** [docs/README.md](docs/README.md) (architecture, services, deployment, enhancements)
 
+> **Architectural rules:** before changing anything that crosses the zap ↔ eAutomate boundary, read [**docs/zap-doctrine.md**](../docs/zap-doctrine.md) (9 principles, learned from production incidents). AI coding assistants: see [CLAUDE.md](CLAUDE.md).
+
 ## Setup
 
 ```bash

@@ -204,10 +204,31 @@ export async function seedGrnItemsFromPoDetailLinesIfEmpty(
   const poId = Number(grn.rows[0].po_id);
   if (!Number.isFinite(poId) || poId < 1) return 0;
 
-  const lines = await query(
+  /** Snapshot lines (inbound_po_detail_lines) for eAutomate-source POs.
+   * For zap-source POs the snapshot is empty by design (doctrine #3); fall back
+   * to the canonical vendor_purchase_order_lines so newly-created drafts on
+   * zap POs get their SKU rows populated immediately. */
+  let lines = await query(
     `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,
     [poId]
   );
+  if (lines.rows.length === 0) {
+    const poSrc = await query(
+      `SELECT source FROM vendor_purchase_orders WHERE po_id = $1`,
+      [poId]
+    );
+    if (poSrc.rows[0]?.source === "zap") {
+      lines = await query(
+        `SELECT (row_number() OVER (ORDER BY id) - 1)::int AS line_index,
+                sku_id,
+                jsonb_build_object('sku_id', sku_id, 'quantity', quantity) AS raw
+           FROM vendor_purchase_order_lines
+          WHERE po_id = $1
+          ORDER BY id`,
+        [poId]
+      );
+    }
+  }
   if (lines.rows.length === 0) return 0;
 
   const pool = getPool();

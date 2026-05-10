@@ -26,6 +26,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { ThemeToggle } from "./theme-toggle";
+import { AppFooter } from "./app-footer";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 
@@ -251,6 +252,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="flex-1 pb-[max(1.5rem,env(safe-area-inset-bottom))]">{children}</main>
+      <AppFooter />
     </div>
   );
 }

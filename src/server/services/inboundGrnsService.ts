@@ -57,6 +57,8 @@ function rowToListItem(r) {
       : null,
     zap_receipt_exception: r.zap_receipt_exception === true,
     id: vendorId,
+    /** Drives display label: 'zap' → ZG-{grn_id}, 'eautomate' → bare. Doctrine #5. */
+    source: r.source === "zap" ? "zap" : "eautomate",
   };
 }
 
@@ -71,7 +73,7 @@ const listSelect = `
          g.grn_rejected_quantity, g.grn_shortage_quantity,
          g.po_sku_count, g.po_total_quantity,
          g.created_by, g.created_at, g.updated_at,
-         g.zap_receipt_exception
+         g.zap_receipt_exception, g.source
   FROM inbound_grns g`;
 
 /**
@@ -607,8 +609,9 @@ export async function updateInboundGrnItemRaw(grnIdRaw, lineIndexRaw, body) {
 }
 
 /**
- * Create a draft GRN row in Zap for a vendor + PO (negative grn_id space reserved for Zap-created drafts).
- * Optional vendor_invoice_number, box_count_invoice, actual_box_count_received (defaults 0 / null).
+ * Create a draft GRN row in Zap for a vendor + PO. Allocates the new id from
+ * `inbound_grns_zap_id_seq` (10^10+) so it cannot collide with eAutomate's
+ * id space, and tags `source = 'zap'`. See docs/zap-doctrine.md rules #3, #4.
  */
 export async function createDraftGrnForPo({
   vendorId,
@@ -628,32 +631,50 @@ export async function createDraftGrnForPo({
   }
   if (!Number.isFinite(pid) || pid < 1) throw new AppError("Invalid PO id", 400);
 
-  const poSnap = await query(
-    `SELECT vendor_id FROM inbound_po_detail_snapshot WHERE po_id = $1`,
+  /** Vendor lookup: prefer the canonical zap PO row (works for both zap-source
+   * and eAutomate-source POs); fall back to the snapshot for legacy paths.
+   * The snapshot is empty for zap-source POs, which is now expected. */
+  const canonicalPo = await query(
+    `SELECT vendor_id FROM vendor_purchase_orders WHERE po_id = $1`,
     [pid]
   );
-  if (poSnap.rows.length === 0) {
-    throw new AppError(
-      "PO snapshot not found for this PO. Ensure PO data exists in ZAP (seed or open the purchase order in the app to cache lines).",
-      404
+  let vid: number;
+  if (canonicalPo.rows.length > 0) {
+    vid = Number(canonicalPo.rows[0].vendor_id);
+  } else {
+    const poSnap = await query(
+      `SELECT vendor_id FROM inbound_po_detail_snapshot WHERE po_id = $1`,
+      [pid]
     );
+    if (poSnap.rows.length === 0) {
+      throw new AppError(
+        "PO not found in zap. Ensure the PO exists (sync it from eAutomate or create it locally).",
+        404
+      );
+    }
+    vid = Number(poSnap.rows[0].vendor_id);
   }
-  /** Canonical vendor from ingested PO (URL/client vendor_id may be stale). */
-  const vid = Number(poSnap.rows[0].vendor_id);
   if (!Number.isFinite(vid) || vid < 1) {
-    throw new AppError("Invalid vendor on PO snapshot", 500);
+    throw new AppError("Invalid vendor on PO", 500);
   }
 
   const v = await query(`SELECT id, vendor_name FROM vendors WHERE id = $1`, [vid]);
   if (v.rows.length === 0) throw new AppError("Vendor not found", 404);
 
-  const negR = await query(
-    `SELECT COALESCE(MIN(grn_id), 0) - 1 AS next_id
-     FROM inbound_grns
-     WHERE grn_id < 0`
+  /** Inherit demand totals from the parent PO so the GRN's "Purchase order"
+   * panel shows the right counts immediately on open (otherwise both render
+   * as 0 until the user fills line items). */
+  const poTotalsR = await query(
+    `SELECT sku_count, total_quantity FROM vendor_purchase_orders WHERE po_id = $1`,
+    [pid]
   );
-  let grnId = Number(negR.rows[0].next_id);
-  if (!Number.isFinite(grnId) || grnId > -1) grnId = -1;
+  const poSkuCount = Number(poTotalsR.rows[0]?.sku_count ?? 0);
+  const poTotalQty = Number(poTotalsR.rows[0]?.total_quantity ?? 0);
+
+  const seqR = await query(
+    `SELECT nextval('inbound_grns_zap_id_seq')::bigint AS grn_id`
+  );
+  const grnId = Number(seqR.rows[0].grn_id);
 
   const vendorName =
     v.rows[0].vendor_name != null ? String(v.rows[0].vendor_name) : null;
@@ -690,13 +711,13 @@ export async function createDraftGrnForPo({
       vendor_invoice_number,
       box_count_invoice, actual_box_count_received, grn_sku_count,
       grn_invoice_quantity, grn_accepted_quantity, grn_rejected_quantity, grn_shortage_quantity,
-      po_sku_count, po_total_quantity, created_by, created_at, updated_at
+      po_sku_count, po_total_quantity, source, created_by, created_at, updated_at
     ) VALUES (
       $1, $2, $3, $4, $5,
       $6,
       $7, $8, 0,
       0, 0, 0, 0,
-      0, 0, $9, NOW(), NOW()
+      $9, $10, 'zap', $11, NOW(), NOW()
     )`,
     [
       grnId,
@@ -707,9 +728,26 @@ export async function createDraftGrnForPo({
       invoiceNum,
       boxInv,
       boxActual,
+      poSkuCount,
+      poTotalQty,
       createdBy ?? null,
     ]
   );
+
+  /** Seed the activity log so the GRN detail page shows a creation entry
+   * immediately (instead of an empty list). Failure is non-blocking. */
+  await appendInboundGrnLogSafe({
+    grnId,
+    logType: "STATUS",
+    operationPerformed: "GRN draft created in zap",
+    remarks: invoiceNum
+      ? `Invoice: ${invoiceNum}; boxes invoice/actual: ${boxInv}/${boxActual}`
+      : `boxes invoice/actual: ${boxInv}/${boxActual}`,
+    poId: pid,
+    vendorId: vid,
+    createdBy: String(createdBy ?? "unknown"),
+    raw: { grn_status: "DRAFT_ZAP", source: "zap" },
+  });
 
   await seedGrnItemsFromPoDetailLinesIfEmpty(grnId);
   return getGrnById(grnId);

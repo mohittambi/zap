@@ -16,7 +16,7 @@ import {
 
 type Setter = (next: DashboardLayoutV2) => void;
 
-function patchCard(
+export function patchCard(
   layout: DashboardLayoutV2,
   id: DashboardCardId,
   patch: Partial<CardConfig>
@@ -55,6 +55,11 @@ export function useDashboardPrefs() {
   }, []);
 
   const persist = React.useCallback(async (next: DashboardLayoutV2) => {
+    /** Optimistic update: render the new layout immediately so clear-filter,
+     * hide, chart-type changes etc. don't appear stuck while the PUT is in flight.
+     * Migrating client-side keeps undefined keys (e.g. cleared filters) from
+     * leaking back through the round-trip. */
+    setLayout(migrateLayout(next));
     setSaving(true);
     try {
       const res = await apiFetch<{ layout: unknown }>("/api/home/prefs", {

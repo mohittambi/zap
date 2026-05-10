@@ -121,20 +121,59 @@ function rowToApi(r: Record<string, unknown>): OutboundPoRow {
   };
 }
 
+/** Sortable columns and their SQL expressions. Allowlisted to prevent injection. */
+const OUTBOUND_PO_SORT_COLUMNS: Record<string, string> = {
+  po_number: "o.po_number",
+  po_type: "o.po_type",
+  company_name: "COALESCE(o.company_name, c.name)",
+  delivery_city: "o.delivery_city",
+  calculated_po_status: "o.calculated_po_status",
+  is_wip: "o.is_wip",
+  remarks: "o.remarks",
+  po_issue_date: "o.po_issue_date",
+  expiry_date: "o.expiry_date",
+  created_at: "o.created_at",
+  created_by: "o.created_by",
+  sku_count: "(o.analytics_object->>'sku_count')::numeric",
+  total_demand: "(o.analytics_object->>'total_demand')::numeric",
+  total_dispatched: "(o.analytics_object->>'total_dispatched')::numeric",
+  total_packed: "(o.analytics_object->>'total_packed')::numeric",
+  total_pending: "(o.analytics_object->>'total_pending')::numeric",
+  quantity_fill_rate: "(o.analytics_object->>'quantity_fill_rate')::numeric",
+  sku_fill_rate: "(o.analytics_object->>'sku_fill_rate')::numeric",
+  total_consignments: "(o.analytics_object->>'total_consignments')::numeric",
+  boxes_dispatched: "(o.analytics_object->>'boxes_dispatched')::numeric",
+  boxes_packed: "(o.analytics_object->>'boxes_packed')::numeric",
+};
+
+export const OUTBOUND_PO_SORTABLE_COLUMNS = Object.keys(OUTBOUND_PO_SORT_COLUMNS);
+
 export async function listOutboundPurchaseOrders(opts: {
   page: number;
   limit: number;
   search?: string;
   wipOnly?: boolean;
   partialOnly?: boolean;
-  /** When set, restrict to POs for this marketplace company */
-  companyId?: number;
-  /** When set, restrict to an exact delivery city */
-  deliveryCity?: string;
-  /** When set, fuzzy-match calculated PO status */
-  poStatus?: string;
+  /** Optional substring match against po_number (column-level filter). */
+  poNumber?: string;
+  /** Multi-select; matches any of the supplied marketplace company ids. */
+  companyIds?: number[];
+  /** Multi-select; matches any of the supplied delivery cities (case-insensitive). */
+  deliveryCities?: string[];
+  /** Multi-select; matches any of the supplied calculated PO statuses (case-insensitive). */
+  poStatuses?: string[];
+  /** Multi-select; matches any of the supplied PO types (case-insensitive). */
+  poTypes?: string[];
+  /** Column key from OUTBOUND_PO_SORTABLE_COLUMNS; falls back to created_at DESC. */
+  sortBy?: string;
+  /** "asc" or "desc"; defaults to "desc". */
+  sortDir?: "asc" | "desc";
 }) {
-  const { page, limit, search, wipOnly, partialOnly, companyId, deliveryCity, poStatus } = opts;
+  const {
+    page, limit, search, wipOnly, partialOnly,
+    poNumber, companyIds, deliveryCities, poStatuses, poTypes,
+    sortBy, sortDir,
+  } = opts;
   const offset = (page - 1) * limit;
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -164,27 +203,60 @@ export async function listOutboundPurchaseOrders(opts: {
     p += 1;
   }
 
-  if (companyId != null && Number.isFinite(companyId) && companyId > 0) {
-    conditions.push(`o.company_id = $${p}`);
-    params.push(companyId);
+  if (poNumber && poNumber.trim()) {
+    conditions.push(`LOWER(o.po_number) LIKE $${p}`);
+    params.push(`%${poNumber.trim().toLowerCase()}%`);
     p += 1;
   }
 
-  if (deliveryCity && deliveryCity.trim()) {
-    conditions.push(`LOWER(COALESCE(o.delivery_city, '')) = $${p}`);
-    params.push(deliveryCity.trim().toLowerCase());
+  const validCompanyIds = (companyIds ?? []).filter(
+    (n) => Number.isFinite(n) && n > 0
+  );
+  if (validCompanyIds.length > 0) {
+    conditions.push(`o.company_id = ANY($${p}::bigint[])`);
+    params.push(validCompanyIds);
     p += 1;
   }
 
-  if (poStatus && poStatus.trim()) {
-    conditions.push(`LOWER(COALESCE(o.calculated_po_status, '')) LIKE $${p}`);
-    params.push(`%${poStatus.trim().toLowerCase()}%`);
+  const cityList = (deliveryCities ?? [])
+    .map((s) => (typeof s === "string" ? s.trim().toLowerCase() : ""))
+    .filter((s) => s.length > 0);
+  if (cityList.length > 0) {
+    conditions.push(`LOWER(COALESCE(o.delivery_city, '')) = ANY($${p}::text[])`);
+    params.push(cityList);
+    p += 1;
+  }
+
+  const statusList = (poStatuses ?? [])
+    .map((s) => (typeof s === "string" ? s.trim().toLowerCase() : ""))
+    .filter((s) => s.length > 0);
+  if (statusList.length > 0) {
+    conditions.push(`LOWER(COALESCE(o.calculated_po_status, '')) = ANY($${p}::text[])`);
+    params.push(statusList);
+    p += 1;
+  }
+
+  const typeList = (poTypes ?? [])
+    .map((s) => (typeof s === "string" ? s.trim().toLowerCase() : ""))
+    .filter((s) => s.length > 0);
+  if (typeList.length > 0) {
+    conditions.push(`LOWER(COALESCE(o.po_type, '')) = ANY($${p}::text[])`);
+    params.push(typeList);
     p += 1;
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const fromPoJoinCompany = `FROM outbound_purchase_orders o
      LEFT JOIN companies c ON c.id = o.company_id`;
+
+  const sortExpr =
+    sortBy && OUTBOUND_PO_SORT_COLUMNS[sortBy]
+      ? OUTBOUND_PO_SORT_COLUMNS[sortBy]
+      : null;
+  const sortDirSql = sortDir === "asc" ? "ASC" : "DESC";
+  const orderBy = sortExpr
+    ? `ORDER BY ${sortExpr} ${sortDirSql} NULLS LAST, o.id DESC`
+    : `ORDER BY o.created_at DESC NULLS LAST, o.id DESC`;
 
   const countR = await query(
     `SELECT COUNT(*)::int AS total ${fromPoJoinCompany} ${where}`,
@@ -201,7 +273,7 @@ export async function listOutboundPurchaseOrders(opts: {
             o.analytics_object, o.calculated_po_status, o.eautomate_synced_at
      ${fromPoJoinCompany}
      ${where}
-     ORDER BY o.created_at DESC NULLS LAST, o.id DESC
+     ${orderBy}
      LIMIT $${p} OFFSET $${p + 1}`,
     [...params, limit, offset]
   );

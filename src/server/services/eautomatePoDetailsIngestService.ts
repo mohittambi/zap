@@ -178,11 +178,20 @@ export async function ingestPoDetailsByVendorAndPo(
 
   /** zap is the source of truth for the PO and its vendor binding; eAutomate provides only line/GRN/listing data. */
   const poRow = await query(
-    `SELECT vendor_id FROM vendor_purchase_orders WHERE po_id = $1`,
+    `SELECT vendor_id, source FROM vendor_purchase_orders WHERE po_id = $1`,
     [poId]
   );
   if (poRow.rows.length === 0) {
     throw new AppError("PO not found", 404);
+  }
+  /** Zap-created POs share an id namespace with eAutomate but have no upstream
+   * counterpart. Calling eAutomate would return a phantom PO and pollute
+   * inbound_po_detail_* tables (the GRN-3157-under-zap-PO-16719 bug). Skip. */
+  if (poRow.rows[0].source === "zap") {
+    console.warn(
+      `[ingestPoDetailsByVendorAndPo] skip po_id=${poId}: source=zap (no eAutomate counterpart)`
+    );
+    return;
   }
   const canonicalVendorId = Number(poRow.rows[0].vendor_id);
 
@@ -306,6 +315,8 @@ export function toNumberOrZero(v: unknown): number {
   return toNullableNumber(v) ?? 0;
 }
 
+export type PoSource = "zap" | "eautomate";
+
 export type PoDetailHeader = {
   po_id: number;
   vendor_id: number;
@@ -328,9 +339,13 @@ export type PoDetailHeader = {
   total_rejected_quantity: number;
   sku_fill_rate: number;
   quantity_fill_rate: number;
+  /** Where this PO originated. zap-source POs never display eAutomate snapshot rows. */
+  source: PoSource;
 };
 
 export function rowToHeader(r: Record<string, unknown>): PoDetailHeader {
+  const sourceRaw = typeof r.source === "string" ? r.source : "eautomate";
+  const source: PoSource = sourceRaw === "zap" ? "zap" : "eautomate";
   return {
     po_id: Number(r.po_id),
     vendor_id: Number(r.vendor_id),
@@ -353,6 +368,7 @@ export function rowToHeader(r: Record<string, unknown>): PoDetailHeader {
     total_rejected_quantity: toNumberOrZero(r.total_rejected_quantity),
     sku_fill_rate: toNumberOrZero(r.sku_fill_rate),
     quantity_fill_rate: toNumberOrZero(r.quantity_fill_rate),
+    source,
   };
 }
 
@@ -371,7 +387,8 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
             po.created_by, po.modified_by, po.created_at, po.updated_at, po.date_published,
             po.sku_count, po.total_quantity, po.number_of_grns,
             po.total_invoice_quantity, po.total_accepted_quantity, po.total_rejected_quantity,
-            po.sku_fill_rate, po.quantity_fill_rate
+            po.sku_fill_rate, po.quantity_fill_rate,
+            po.source
        FROM vendor_purchase_orders po
        JOIN vendors v ON v.id = po.vendor_id
       WHERE po.po_id = $1`,
@@ -401,19 +418,150 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
           po_raw: {},
         };
 
-  const linesR = await query(
-    `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,
-    [poId]
-  );
-  const grnsR = await query(
-    `SELECT sort_index, grn_id, raw FROM inbound_po_detail_grns WHERE po_id = $1 ORDER BY sort_index`,
-    [poId]
-  );
+  /** Lines: zap-source POs use the canonical zap-side line items; eAutomate-source
+   * POs use the snapshot mirror. The snapshot table has no meaning for zap POs. */
+  const linesR =
+    header.source === "zap"
+      ? await query(
+          `SELECT row_number() OVER (ORDER BY id) - 1 AS line_index,
+                  sku_id,
+                  jsonb_build_object(
+                    'sku_id', sku_id,
+                    'quantity', quantity,
+                    'created_at', created_at
+                  ) AS raw
+             FROM vendor_purchase_order_lines
+            WHERE po_id = $1
+            ORDER BY id`,
+          [poId]
+        )
+      : await query(
+          `SELECT line_index, sku_id, raw FROM inbound_po_detail_lines WHERE po_id = $1 ORDER BY line_index`,
+          [poId]
+        );
+
+  /** GRNs come from two zap-side tables (no eAutomate calls):
+   *   - inbound_po_detail_grns: rich raw JSONB mirrored by sync:po:details*
+   *   - inbound_grns:           canonical GRN rows (zap-created drafts have negative grn_ids,
+   *                             synced rows have positive ids; both belong on the PO detail view)
+   * For zap-source POs, the snapshot is excluded — those rows would be phantoms
+   * from the eAutomate id-space collision (e.g. GRN 3157 under zap PO 16719).
+   */
+  const [snapGrnsR, zapGrnsR] = await Promise.all([
+    header.source === "zap"
+      ? Promise.resolve({ rows: [] })
+      : query(
+          `SELECT sort_index, grn_id, raw FROM inbound_po_detail_grns WHERE po_id = $1 ORDER BY sort_index`,
+          [poId]
+        ),
+    query(
+      `SELECT grn_id, vendor_invoice_number, box_count_invoice, actual_box_count_received,
+              grn_sku_count, grn_status, grn_audit_status,
+              grn_accepted_quantity, grn_rejected_quantity, grn_shortage_quantity,
+              created_by, created_at, updated_at,
+              source
+         FROM inbound_grns
+        WHERE po_id = $1`,
+      [poId]
+    ),
+  ]);
+
+  const grns = mergePoGrnSources(snapGrnsR.rows, zapGrnsR.rows);
 
   return {
     header,
     snapshot: snap,
     lines: linesR.rows,
-    grns: grnsR.rows,
+    grns,
   };
+}
+
+type GrnDisplayRow = {
+  sort_index: number;
+  grn_id: number | null;
+  raw: Record<string, unknown>;
+};
+
+function rowToTimestamp(raw: Record<string, unknown>): number {
+  for (const key of ["updated_at", "updatedAt", "created_at", "createdAt"]) {
+    const v = raw[key];
+    if (typeof v !== "string" || !v) continue;
+    const t = new Date(v).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+export function mergePoGrnSources(
+  snapRows: ReadonlyArray<{ sort_index: number; grn_id: number | null; raw: unknown }>,
+  zapRows: ReadonlyArray<Record<string, unknown>>
+): GrnDisplayRow[] {
+  const out: GrnDisplayRow[] = [];
+  const seen = new Set<number>();
+
+  for (const r of snapRows) {
+    const raw =
+      r.raw && typeof r.raw === "object"
+        ? (r.raw as Record<string, unknown>)
+        : {};
+    const id = Number(r.grn_id);
+    out.push({
+      sort_index: r.sort_index,
+      grn_id: Number.isFinite(id) ? id : null,
+      raw,
+    });
+    if (Number.isFinite(id)) seen.add(id);
+  }
+
+  let nextIdx = out.length;
+  for (const r of zapRows) {
+    if (r.grn_id == null) continue;
+    const id = Number(r.grn_id);
+    if (!Number.isFinite(id) || id === 0 || seen.has(id)) continue;
+
+    /** Authoritative origin marker comes from inbound_grns.source. The
+     * legacy negative-id heuristic remains as a fallback for rows that
+     * predate migration 060's backfill. Doctrine #3 / #5. */
+    const sourceCol = typeof r.source === "string" ? r.source : null;
+    let zap_origin: "zap" | "draft" | undefined;
+    if (sourceCol === "zap") {
+      zap_origin = id < 0 ? "draft" : "zap";
+    } else if (sourceCol == null && id < 0) {
+      zap_origin = "draft"; // pre-backfill legacy draft
+    } // else: eautomate-source row, no marker
+
+    out.push({
+      sort_index: nextIdx,
+      grn_id: id,
+      raw: {
+        grn_id: id,
+        vendor_invoice_number: r.vendor_invoice_number ?? null,
+        box_count_invoice: r.box_count_invoice ?? 0,
+        actual_box_count_received: r.actual_box_count_received ?? 0,
+        grn_sku_count: r.grn_sku_count ?? 0,
+        grn_status: r.grn_status ?? null,
+        grn_audit_status: r.grn_audit_status ?? null,
+        grn_accepted_quantity: r.grn_accepted_quantity ?? 0,
+        grn_rejected_quantity: r.grn_rejected_quantity ?? 0,
+        grn_shortage_quantity: r.grn_shortage_quantity ?? 0,
+        created_by: r.created_by ?? null,
+        created_at: isoOrNull(r.created_at),
+        updated_at: isoOrNull(r.updated_at),
+        ...(zap_origin ? { zap_origin } : {}),
+      },
+    });
+    nextIdx += 1;
+  }
+
+  /** Sort by latest activity timestamp DESC so the most-recent GRN sits at the
+   * top regardless of source (snapshot order from eAutomate is preserved as the
+   * tiebreaker via sort_index). */
+  out.sort((a, b) => {
+    const ta = rowToTimestamp(a.raw);
+    const tb = rowToTimestamp(b.raw);
+    if (ta !== tb) return tb - ta;
+    return a.sort_index - b.sort_index;
+  });
+
+  return out;
 }

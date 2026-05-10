@@ -15,6 +15,13 @@ import {
   Plus,
 } from "lucide-react";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { formatGrnLabel, formatPoLabel } from "@/lib/idDisplay";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   deriveDisplayName,
   deriveFillPct,
@@ -102,6 +109,8 @@ type PoDetailHeader = {
   total_rejected_quantity: number;
   sku_fill_rate: number;
   quantity_fill_rate: number;
+  /** Drives ZP- prefix in the page title. Doctrine #5. */
+  source: "zap" | "eautomate";
 };
 
 type PoDetailBundle = {
@@ -312,7 +321,7 @@ export default function InboundPoDetailPage() {
     };
   }, [vendorId, poId]);
 
-  const downloadPdf = async () => {
+  const downloadPoDocument = async (format: "pdf" | "xlsx") => {
     setActionBusy(true);
     try {
       const token = getStoredToken();
@@ -320,7 +329,7 @@ export default function InboundPoDetailPage() {
       if (token) headers.set("Authorization", `Bearer ${token}`);
       const res = await fetch(
         apiUrl(
-          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/document`
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/document?format=${format}`
         ),
         { headers }
       );
@@ -329,10 +338,10 @@ export default function InboundPoDetailPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `po-${poId}-document.pdf`;
+      a.download = `${poId}_purchase_order.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("PDF download started");
+      toast.success(`${format.toUpperCase()} download started`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Download failed");
     } finally {
@@ -472,6 +481,28 @@ export default function InboundPoDetailPage() {
     [snap?.vendor_listings_raw]
   );
 
+  /** Latest upstream activity across all GRNs on this PO. Reflects when ops
+   * actually touched a GRN in eAutomate (closed, audited, etc.) — not when
+   * zap last pulled the data. Falls back to the PO's own updated_at. */
+  const latestGrnActivityIso = React.useMemo<string | null>(() => {
+    let best: number | null = null;
+    const consider = (raw: unknown): void => {
+      if (!raw || typeof raw !== "object") return;
+      const r = raw as Record<string, unknown>;
+      for (const key of ["updated_at", "createdAt", "created_at", "updatedAt"]) {
+        const v = r[key];
+        if (typeof v !== "string" || !v) continue;
+        const t = new Date(v).getTime();
+        if (Number.isFinite(t) && (best == null || t > best)) best = t;
+      }
+    };
+    for (const g of bundle?.grns ?? []) consider(g.raw);
+    if (best == null) {
+      consider(snap?.po_raw);
+    }
+    return best == null ? null : new Date(best).toISOString();
+  }, [bundle?.grns, snap?.po_raw]);
+
   const isZapCancelled = deriveIsZapCancelled(poRaw.zap_status);
   const poStatus = derivePoDisplayStatus(isZapCancelled, header?.status ?? null);
   const totalSkus = numberStringOrDash(header?.sku_count);
@@ -510,7 +541,11 @@ export default function InboundPoDetailPage() {
       </div>
 
       <AppPageTitle
-        title={loading ? "Purchase order" : `PO ${poId}`}
+        title={
+          loading
+            ? "Purchase order"
+            : `PO ${formatPoLabel(poId, header?.source ?? null)}`
+        }
         description="Line items, GRNs, and summary for this purchase order."
       />
 
@@ -578,16 +613,29 @@ export default function InboundPoDetailPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="gap-2"
-              disabled={actionBusy}
-              onClick={() => void downloadPdf()}
-            >
-              <FileText className="size-4" />
-              Generate PO document
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="gap-2"
+                    disabled={actionBusy}
+                  >
+                    <FileText className="size-4" />
+                    Generate PO document
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem onClick={() => void downloadPoDocument("pdf")}>
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void downloadPoDocument("xlsx")}>
+                  Download as Excel (.xlsx)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               type="button"
               variant="default"
@@ -777,6 +825,22 @@ export default function InboundPoDetailPage() {
               <div className="bg-primary text-primary-foreground rounded-md px-3 py-2 text-sm font-semibold">
                 GRN section
               </div>
+              <p className="text-muted-foreground text-[11px] leading-snug">
+                <span>GRN rows are mirrored from eAutomate via </span>
+                <code className="text-[10px]">npm run sync:po:details*</code>
+                <span>.</span>
+                {latestGrnActivityIso ? (
+                  <>
+                    <span> Latest GRN activity upstream: </span>
+                    <span className="text-foreground font-medium">
+                      {formatDt(latestGrnActivityIso)}
+                    </span>
+                    <span>.</span>
+                  </>
+                ) : (
+                  <span> No GRN activity yet for this PO.</span>
+                )}
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -805,8 +869,17 @@ export default function InboundPoDetailPage() {
                 {bundle.grns.map((g) => {
                   const r = g.raw;
                   const gid = grnIdFromRow(g);
-                  const href =
-                    gid != null ? `/inbound/grns/${gid}` : null;
+                  /** zap_origin is set by mergePoGrnSources for rows that came
+                   * from inbound_grns (zap-canonical). Snapshot-only rows
+                   * (positive grn_id without a matching inbound_grns row) 404
+                   * on click — render as a non-link with a tooltip instead. */
+                  const isZapBacked = r.zap_origin === "zap" || r.zap_origin === "draft";
+                  const href = gid != null && isZapBacked ? `/inbound/grns/${gid}` : null;
+                  const grnSource: "zap" | "draft" | "eautomate" = isZapBacked
+                    ? (r.zap_origin as "zap" | "draft")
+                    : "eautomate";
+                  const grnLabel =
+                    gid != null ? formatGrnLabel(gid, grnSource) : "—";
                   return (
                     <Card key={g.sort_index} className="border-primary/20">
                       <CardHeader className="pb-2">
@@ -816,10 +889,19 @@ export default function InboundPoDetailPage() {
                               href={href}
                               className="text-primary underline-offset-4 hover:underline"
                             >
-                              GRN #{gid}
+                              GRN {grnLabel}
                             </Link>
                           ) : (
-                            <span>GRN</span>
+                            <span
+                              className="text-foreground"
+                              title={
+                                gid != null
+                                  ? "This GRN exists upstream but has not been imported into zap. Run `npm run sync:grns:all` to enable navigation."
+                                  : "GRN id not available"
+                              }
+                            >
+                              GRN {grnLabel}
+                            </span>
                           )}
                         </CardTitle>
                       </CardHeader>

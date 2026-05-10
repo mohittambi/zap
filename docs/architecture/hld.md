@@ -1,5 +1,7 @@
 # High-level design (HLD)
 
+> The architectural rules that govern every change in this repo are enumerated in [**../../../docs/zap-doctrine.md**](../../../docs/zap-doctrine.md). Read that first if you're new — this doc covers structure; the doctrine covers boundaries.
+
 ## Purpose
 
 **Zap** is an internal operations and catalog platform that mirrors and extends data from **eAutomate** (reference ERP) while storing authoritative state in **PostgreSQL**. The primary deliverable is a **Next.js** web app with **Route Handlers** under `/api`, plus optional **React Native** (Zap Ops) and sync scripts.

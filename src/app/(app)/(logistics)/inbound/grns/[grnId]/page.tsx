@@ -56,6 +56,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
+import { formatGrnLabel } from "@/lib/idDisplay";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -88,6 +89,8 @@ type GrnHeader = {
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Drives ZG- prefix in the page title. Doctrine #5. */
+  source?: "zap" | "eautomate";
 };
 
 type SnapshotRow = {
@@ -2263,7 +2266,13 @@ export default function InboundGrnDetailPage() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <AppPageTitle
           className="mb-0 min-w-0 flex-1"
-          title={loading ? "GRN" : row ? `GRN ${row.grn_id}` : "GRN"}
+          title={
+            loading
+              ? "GRN"
+              : row
+                ? `GRN ${formatGrnLabel(row.grn_id, row.source ?? (row.grn_id < 0 ? "draft" : "eautomate"))}`
+                : "GRN"
+          }
           description="Receipt details, documents, and activity for this goods receipt note."
         />
         <Button
@@ -2938,29 +2947,23 @@ export default function InboundGrnDetailPage() {
             selectedLine={grnSkuSelectedLine}
             onSelectLine={setGrnSkuSelectedLine}
             grnTitle={`GRN #${row.grn_id}`}
-            onLineUpdated={(line) => {
-              setBundle((b) => {
-                if (!b) return b;
-                const grn_items = b.grn_items.map((li) =>
-                  li.line_index === line.line_index
-                    ? {
-                        ...li,
-                        raw: line.raw,
-                        sku_id: line.sku_id ?? li.sku_id,
-                      }
-                    : li
+            onLineUpdated={async () => {
+              /** After a line save, close the sidebar and re-fetch the whole
+               * bundle so derived totals (accepted/rejected/shortage on the
+               * GRN header, fill-rate badges, debit-note flags, etc.) all
+               * reflect the new state instead of just the row we touched. */
+              setGrnSkuSheetOpen(false);
+              setGrnSkuSelectedLine(null);
+              try {
+                const refreshed = await apiFetch<GrnDetailsBundle>(
+                  `/api/inbound/grns/${encodeURIComponent(grnId)}/details`
                 );
-                return { ...b, grn_items };
-              });
-              setGrnSkuSelectedLine((prev) =>
-                prev && prev.line_index === line.line_index
-                  ? {
-                      ...prev,
-                      raw: line.raw,
-                      sku_id: line.sku_id ?? prev.sku_id,
-                    }
-                  : prev
-              );
+                setBundle(refreshed);
+              } catch (e) {
+                toast.error(
+                  e instanceof Error ? e.message : "Saved, but refresh failed"
+                );
+              }
             }}
           />
 

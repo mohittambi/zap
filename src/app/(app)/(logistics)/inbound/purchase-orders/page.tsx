@@ -33,16 +33,9 @@ import {
   inboundPoRowsToCsv,
 } from "@/lib/inboundPoGrnPendingUi";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
-import { ChevronDown, Download } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download } from "lucide-react";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { formatPoLabel, stripIdPrefix } from "@/lib/idDisplay";
 
 type PoRow = {
   po_id: number;
@@ -64,6 +57,8 @@ type PoRow = {
   total_rejected_quantity: number;
   sku_fill_rate: number;
   quantity_fill_rate: number;
+  /** 'zap' → ZP- prefix in display; 'eautomate' → bare. Doctrine #5. */
+  source?: "zap" | "eautomate";
 };
 
 type PoListResponse = {
@@ -79,109 +74,58 @@ type VendorOpt = {
   vendor_name: string;
 };
 
-type ColumnMultiSelectProps = {
-  readonly options: readonly { id: number; label: string }[];
-  readonly selected: ReadonlySet<number>;
-  readonly onToggle: (id: number) => void;
-  readonly onClear: () => void;
-  readonly placeholder: string;
-  readonly ariaLabel: string;
-};
+type SortableColumn =
+  | "po_id"
+  | "vendor_id"
+  | "vendor_name"
+  | "status"
+  | "sku_count"
+  | "total_quantity"
+  | "number_of_grns"
+  | "total_invoice_quantity"
+  | "total_accepted_quantity"
+  | "total_rejected_quantity"
+  | "sku_fill_rate"
+  | "quantity_fill_rate"
+  | "po_remarks"
+  | "created_at"
+  | "updated_at"
+  | "date_published"
+  | "expected_date"
+  | "created_by";
 
-function ColumnMultiSelect({
-  options,
-  selected,
-  onToggle,
-  onClear,
-  placeholder,
-  ariaLabel,
-}: ColumnMultiSelectProps) {
-  const [open, setOpen] = React.useState(false);
-  const [q, setQ] = React.useState("");
+type SortState = { col: SortableColumn; dir: "asc" | "desc" } | null;
 
-  React.useEffect(() => {
-    if (!open) setQ("");
-  }, [open]);
-
-  const filtered = React.useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return options.slice();
-    return options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(needle) ||
-        String(o.id).toLowerCase().includes(needle)
-    );
-  }, [options, q]);
-
-  const label =
-    selected.size > 0
-      ? `${selected.size} selected`
-      : placeholder;
-
+function SortHeader({
+  label,
+  col,
+  sort,
+  onSort,
+  align,
+}: Readonly<{
+  label: string;
+  col: SortableColumn;
+  sort: SortState;
+  onSort: (col: SortableColumn) => void;
+  align?: "left" | "right";
+}>) {
+  const active = sort?.col === col;
+  let Icon = ChevronsUpDown;
+  if (active) Icon = sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger
-        type="button"
-        aria-label={ariaLabel}
-        className="border-input bg-background hover:bg-accent/50 ring-offset-background focus-visible:ring-ring flex h-8 w-full items-center gap-1.5 rounded-md border px-2 text-left font-normal text-xs focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-      >
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronDown className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="bottom"
-        className="max-w-[min(320px,calc(100vw-2rem))] min-w-[200px] p-2"
-      >
-        <div
-          className="px-0 pb-2"
-          onPointerDown={(e) => {
-            /* keep menu open while interacting with search */
-            e.preventDefault();
-          }}
-        >
-          <Input
-            aria-label={`${ariaLabel} search`}
-            className="h-8 text-xs"
-            placeholder="Search…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
-        <div className="max-h-[min(240px,40vh)] overflow-y-auto pr-1">
-          <DropdownMenuGroup>
-            {filtered.length === 0 ? (
-              <div className="text-muted-foreground px-1.5 py-2 text-xs">
-                No matches
-              </div>
-            ) : (
-              filtered.map((opt) => (
-                <DropdownMenuCheckboxItem
-                  key={opt.id}
-                  checked={selected.has(opt.id)}
-                  onCheckedChange={() => {
-                    onToggle(opt.id);
-                  }}
-                  inset
-                  className="cursor-pointer text-xs"
-                >
-                  {opt.label}
-                </DropdownMenuCheckboxItem>
-              ))
-            )}
-          </DropdownMenuGroup>
-        </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-muted-foreground justify-center text-xs font-normal"
-          onClick={() => {
-            onClear();
-          }}
-        >
-          Clear
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <button
+      type="button"
+      onClick={() => onSort(col)}
+      className={cn(
+        "inline-flex items-center gap-1 font-semibold whitespace-nowrap",
+        "hover:text-primary",
+        active ? "text-primary" : "text-foreground",
+        align === "right" ? "justify-end w-full" : ""
+      )}
+    >
+      {label}
+      <Icon className={cn("size-3", active ? "opacity-100" : "opacity-50")} />
+    </button>
   );
 }
 
@@ -206,6 +150,16 @@ export default function InboundPurchaseOrdersPage() {
   const [poIdColDraft, setPoIdColDraft] = React.useState("");
   const [poIdColApplied, setPoIdColApplied] = React.useState("");
   const [appliedVendorIds, setAppliedVendorIds] = React.useState<number[]>([]);
+  const [sort, setSort] = React.useState<SortState>(null);
+
+  const handleSort = React.useCallback((col: SortableColumn) => {
+    setPage(1);
+    setSort((prev) => {
+      if (prev?.col !== col) return { col, dir: "desc" };
+      if (prev.dir === "desc") return { col, dir: "asc" };
+      return null;
+    });
+  }, []);
   const [selectedPoIds, setSelectedPoIds] = React.useState<Set<number>>(
     () => new Set()
   );
@@ -236,6 +190,8 @@ export default function InboundPurchaseOrdersPage() {
         searchKeyword: searchApplied,
         vendorIds: appliedVendorIds,
         poIdFilter: poIdColApplied,
+        sortBy: sort?.col,
+        sortDir: sort?.dir,
       });
       const res = await apiFetch<PoListResponse>(
         `/api/inbound/purchase-orders?${qs}`
@@ -247,7 +203,7 @@ export default function InboundPurchaseOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchApplied, appliedVendorIds, poIdColApplied]);
+  }, [page, searchApplied, appliedVendorIds, poIdColApplied, sort]);
 
   React.useEffect(() => {
     void load();
@@ -261,44 +217,39 @@ export default function InboundPurchaseOrdersPage() {
     clearSelection();
   }, [page, searchApplied, appliedVendorIds, poIdColApplied, clearSelection]);
 
-  const appliedVendorSet = React.useMemo(
-    () => new Set(appliedVendorIds),
+  const appliedVendorIdsAsStrings = React.useMemo(
+    () => appliedVendorIds.map(String),
     [appliedVendorIds]
   );
 
   const vendorIdOptions = React.useMemo(
-    () => vendors.map((v) => ({ id: v.id, label: String(v.id) })),
+    () => vendors.map((v) => ({ value: String(v.id), label: String(v.id) })),
     [vendors]
   );
 
   const vendorNameOptions = React.useMemo(
     () =>
       vendors.map((v) => ({
-        id: v.id,
+        value: String(v.id),
         label: v.vendor_name?.trim() ? v.vendor_name : String(v.id),
       })),
     [vendors]
   );
 
-  const toggleAppliedVendor = React.useCallback((id: number) => {
+  const onVendorMultiChange = React.useCallback((next: string[]) => {
     setPage(1);
-    setAppliedVendorIds((prev) => {
-      const s = new Set(prev);
-      if (s.has(id)) s.delete(id);
-      else s.add(id);
-      return [...s].sort((a, b) => a - b);
-    });
-  }, []);
-
-  const clearAppliedVendors = React.useCallback(() => {
-    setPage(1);
-    setAppliedVendorIds([]);
+    const ids = next
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .sort((a, b) => a - b);
+    setAppliedVendorIds(ids);
   }, []);
 
   const applyFilters = () => {
     setPage(1);
-    setSearchApplied(searchDraft);
-    setPoIdColApplied(poIdColDraft.trim());
+    /** Strip ZP-/ZG- prefix so a user can paste either the labelled or bare form. */
+    setSearchApplied(stripIdPrefix(searchDraft));
+    setPoIdColApplied(stripIdPrefix(poIdColDraft));
   };
 
   const selectedRows = React.useMemo(() => {
@@ -408,8 +359,8 @@ export default function InboundPurchaseOrdersPage() {
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <div className="flex min-w-[200px] flex-1 flex-col gap-2 sm:max-w-xs">
+          <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-1">
               <Label
                 htmlFor="po-global-search"
                 className="text-muted-foreground text-xs font-medium"
@@ -424,6 +375,7 @@ export default function InboundPurchaseOrdersPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") applyFilters();
                 }}
+                className="h-9 w-72"
               />
             </div>
             <Button type="button" variant="secondary" onClick={applyFilters}>
@@ -441,7 +393,7 @@ export default function InboundPurchaseOrdersPage() {
             <Table>
               <TableHeader>
                   <TableRow className="bg-muted/60 hover:bg-muted/60">
-                    <TableHead className="w-10 p-2">
+                    <TableHead className="w-10 p-2" rowSpan={2}>
                       <input
                         ref={headerSelectRef}
                         type="checkbox"
@@ -451,35 +403,30 @@ export default function InboundPurchaseOrdersPage() {
                         aria-label="Select all POs on this page"
                       />
                     </TableHead>
-                    <TableHead className="whitespace-nowrap">PO Id</TableHead>
-                    <TableHead className="whitespace-nowrap">Vendor Id</TableHead>
-                    <TableHead className="min-w-[140px]">Vendor Name</TableHead>
-                    <TableHead>PO status</TableHead>
-                    <TableHead className="text-right">Sku Count</TableHead>
-                    <TableHead className="text-right">Total Qty</TableHead>
-                    <TableHead className="whitespace-nowrap">
-                      Was GRN Done?
-                    </TableHead>
-                    <TableHead className="text-right"># GRNs</TableHead>
-                    <TableHead className="text-right">Inv. Qty</TableHead>
-                    <TableHead className="text-right">Acc. Qty</TableHead>
-                    <TableHead className="text-right">Rej. Qty</TableHead>
-                    <TableHead className="text-right">SKU %</TableHead>
-                    <TableHead className="text-right">Qty %</TableHead>
-                    <TableHead className="min-w-[100px]">Remarks</TableHead>
-                    <TableHead className="whitespace-nowrap">Created</TableHead>
-                    <TableHead className="whitespace-nowrap">Published</TableHead>
-                    <TableHead className="whitespace-nowrap">
-                      Expiry date
-                    </TableHead>
-                    <TableHead className="whitespace-nowrap">Updated</TableHead>
-                    <TableHead>Created By</TableHead>
+                    <TableHead className="min-w-[100px]"><SortHeader label="PO Id" col="po_id" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="min-w-[120px]"><SortHeader label="Vendor Id" col="vendor_id" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="min-w-[160px]"><SortHeader label="Vendor Name" col="vendor_name" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead><SortHeader label="PO status" col="status" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Sku Count" col="sku_count" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Total Qty" col="total_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="whitespace-nowrap">Was GRN Done?</TableHead>
+                    <TableHead className="text-right"><SortHeader label="# GRNs" col="number_of_grns" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Inv. Qty" col="total_invoice_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Acc. Qty" col="total_accepted_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Rej. Qty" col="total_rejected_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="SKU %" col="sku_fill_rate" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Qty %" col="quantity_fill_rate" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="min-w-[100px]"><SortHeader label="Remarks" col="po_remarks" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Created" col="created_at" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Published" col="date_published" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Expiry date" col="expected_date" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Updated" col="updated_at" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead><SortHeader label="Created By" col="created_by" sort={sort} onSort={handleSort} /></TableHead>
                   </TableRow>
                   <TableRow className="bg-muted/40 border-b">
-                    <TableHead className="p-1" />
-                    <TableHead className="min-w-[88px] p-1">
+                    <TableHead className="p-1">
                       <Input
-                        className="h-8 text-xs"
+                        className="h-7 text-[11px]"
                         placeholder="Filter…"
                         value={poIdColDraft}
                         onChange={(e) => setPoIdColDraft(e.target.value)}
@@ -489,33 +436,27 @@ export default function InboundPurchaseOrdersPage() {
                         aria-label="Filter by PO id"
                       />
                     </TableHead>
-                    <TableHead className="min-w-[112px] p-1">
-                      <ColumnMultiSelect
-                        options={vendorIdOptions}
-                        selected={appliedVendorSet}
-                        onToggle={toggleAppliedVendor}
-                        onClear={clearAppliedVendors}
-                        placeholder="All vendors"
+                    <TableHead className="p-1">
+                      <MultiSelect
                         ariaLabel="Filter by vendor id"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[144px] p-1">
-                      <ColumnMultiSelect
-                        options={vendorNameOptions}
-                        selected={appliedVendorSet}
-                        onToggle={toggleAppliedVendor}
-                        onClear={clearAppliedVendors}
                         placeholder="All vendors"
-                        ariaLabel="Filter by vendor name"
+                        options={vendorIdOptions}
+                        selected={appliedVendorIdsAsStrings}
+                        onChange={onVendorMultiChange}
                       />
                     </TableHead>
-                    <TableHead
-                      colSpan={16}
-                      className="text-muted-foreground p-2 text-left align-bottom text-[10px] font-normal"
-                    >
-                      Vendor filters apply immediately when you toggle; PO id and
-                      global Search use <strong>Apply</strong>.
+                    <TableHead className="p-1">
+                      <MultiSelect
+                        ariaLabel="Filter by vendor name"
+                        placeholder="All vendors"
+                        options={vendorNameOptions}
+                        selected={appliedVendorIdsAsStrings}
+                        onChange={onVendorMultiChange}
+                      />
                     </TableHead>
+                    {Array.from({ length: 16 }).map((_, i) => (
+                      <TableHead key={`spacer-${i}`} className="p-1" />
+                    ))}
                   </TableRow>
               </TableHeader>
               <TableBody>
@@ -558,7 +499,7 @@ export default function InboundPurchaseOrdersPage() {
                             onChange={(e) =>
                               togglePo(row.po_id, e.target.checked)
                             }
-                            aria-label={`Select PO ${row.po_id}`}
+                            aria-label={`Select PO ${formatPoLabel(row.po_id, row.source ?? null)}`}
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">
@@ -566,7 +507,7 @@ export default function InboundPurchaseOrdersPage() {
                             href={`/inbound/vendors/${row.vendor_id}/purchase-orders/${row.po_id}`}
                             className="text-primary font-medium underline-offset-4 hover:underline"
                           >
-                            {row.po_id}
+                            {formatPoLabel(row.po_id, row.source ?? null)}
                           </Link>
                         </TableCell>
                         <TableCell className="font-mono text-xs">

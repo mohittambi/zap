@@ -54,6 +54,8 @@ export function buildInboundPurchaseOrdersQuery(opts: {
   searchKeyword: string;
   vendorIds?: readonly number[];
   poIdFilter?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
 }): string {
   const q = new URLSearchParams({
     page: String(opts.page),
@@ -65,6 +67,10 @@ export function buildInboundPurchaseOrdersQuery(opts: {
   }
   const po = opts.poIdFilter?.trim();
   if (po) q.set("po_id_filter", po);
+  if (opts.sortBy && opts.sortDir) {
+    q.set("sort_by", opts.sortBy);
+    q.set("sort_dir", opts.sortDir);
+  }
   return q.toString();
 }
 

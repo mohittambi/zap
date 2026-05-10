@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GripVertical } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,8 @@ export type CardFrameProps = {
   actions?: { available: CardAction[]; onAction: (action: CardAction) => void };
   /** Render a small "Custom filter" badge next to the title. */
   filterActive?: boolean;
+  /** When set, the filter badge becomes a clickable X-pill that clears the card filter in one tap. */
+  onClearFilter?: () => void;
   className?: string;
   bodyClassName?: string;
   children: React.ReactNode;
@@ -39,6 +41,7 @@ export function CardFrame({
   chartType,
   actions,
   filterActive,
+  onClearFilter,
   className,
   bodyClassName,
   children,
@@ -59,9 +62,26 @@ export function CardFrame({
               {title}
             </span>
             {filterActive ? (
-              <Badge variant="outline" className="h-4 px-1 text-[9px]">
-                Custom filter
-              </Badge>
+              onClearFilter ? (
+                <button
+                  type="button"
+                  data-no-drag
+                  onClick={onClearFilter}
+                  title="Clear card filter"
+                  aria-label="Clear card filter"
+                  className={cn(
+                    "border-primary/30 bg-primary/10 text-primary hover:bg-primary/20",
+                    "inline-flex h-4 items-center gap-0.5 rounded-md border px-1 text-[9px] font-medium uppercase tracking-wide"
+                  )}
+                >
+                  Custom filter
+                  <X className="size-2.5" strokeWidth={2.5} />
+                </button>
+              ) : (
+                <Badge variant="outline" className="h-4 px-1 text-[9px]">
+                  Custom filter
+                </Badge>
+              )
             ) : null}
           </div>
           {description ? (

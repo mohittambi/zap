@@ -136,14 +136,11 @@ export function DashboardGrid({
   onPositionsChange,
   readOnly,
 }: DashboardGridProps) {
+  /** All hooks must run on every render — keep them above any early return. */
   const isMobile = useIsMobile();
   const rglLayout = React.useMemo(() => toRglLayout(layout), [layout]);
   const { width, containerRef, mounted } = useContainerWidth();
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  if (isMobile) {
-    return <MobileFlatStack layout={layout} renderers={renderers} />;
-  }
 
   const handleLayoutChange = React.useCallback(
     (next: RglLayoutItem[]) => {
@@ -190,6 +187,10 @@ export function DashboardGrid({
       }),
     [rglLayout, renderers]
   );
+
+  if (isMobile) {
+    return <MobileFlatStack layout={layout} renderers={renderers} />;
+  }
 
   return (
     <div

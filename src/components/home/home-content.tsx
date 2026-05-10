@@ -171,11 +171,6 @@ export function HomeContent() {
     [layout, data, refresh, setHidden]
   );
 
-  // ── Per-card chart type ───────────────────────────────────────────────────
-  function chartTypeFor(id: ChartCapableCard): ChartType {
-    return getCardConfig(id).chart_type ?? CHART_OPTIONS[id].default;
-  }
-
   // ── Default action sets per card ──────────────────────────────────────────
   const baseActions: CardAction[] = ["refresh", "expand", "export", "copy_link", "filter", "hide"];
   const noFilterActions: CardAction[] = ["refresh", "expand", "export", "copy_link", "hide"];
@@ -191,6 +186,7 @@ export function HomeContent() {
         title={CARD_TITLES.sales_qty}
         description={CARD_DESCRIPTIONS.sales_qty}
         filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
         chartType={{
           value: ct,
           options: CHART_OPTIONS.sales_qty.options,
@@ -218,6 +214,7 @@ export function HomeContent() {
         title={CARD_TITLES.sales_pos}
         description={CARD_DESCRIPTIONS.sales_pos}
         filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
         chartType={{
           value: ct,
           options: CHART_OPTIONS.sales_pos.options,
@@ -230,7 +227,7 @@ export function HomeContent() {
           delta_mom_pct={data?.kpis.sales_pos.delta_mom_pct ?? null}
           delta_yoy_pct={data?.kpis.sales_pos.delta_yoy_pct ?? null}
           loading={loading}
-          href={withCompanyParam("/outbound/purchase-orders", companyId)}
+          href={withCompanyParam("/outbound", companyId)}
           sparkline={ct === "sparkline" ? data?.trends.sales_qty_daily : undefined}
         />
       </CardFrame>
@@ -244,6 +241,7 @@ export function HomeContent() {
         title={CARD_TITLES.fill_rate_pct}
         description={CARD_DESCRIPTIONS.fill_rate_pct}
         filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
         actions={{ available: baseActions, onAction: (a) => handleCardAction("fill_rate_pct", a) }}
       >
         <KpiCardBody
@@ -270,6 +268,7 @@ export function HomeContent() {
             : CARD_DESCRIPTIONS.inbound_qty
         }
         filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
         chartType={{
           value: ct,
           options: CHART_OPTIONS.inbound_qty.options,
@@ -323,13 +322,14 @@ export function HomeContent() {
     const cfg = getCardConfig("open_pos");
     const openPosHref =
       companyId != null
-        ? `/outbound/purchase-orders?company_id=${companyId}`
-        : "/outbound/purchase-orders";
+        ? `/outbound?company_id=${companyId}`
+        : "/outbound";
     renderers.open_pos = (
       <CardFrame
         title={CARD_TITLES.open_pos}
         description={CARD_DESCRIPTIONS.open_pos}
         filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
         actions={{ available: baseActions, onAction: (a) => handleCardAction("open_pos", a) }}
       >
         <OpenPosBody stat={data?.open_pos} loading={loading} href={openPosHref} />
@@ -484,13 +484,14 @@ export function HomeContent() {
         description={detailFor ? CARD_DESCRIPTIONS[detailFor] : undefined}
         onClose={() => setDetailFor(null)}
       >
-        {detailFor ? renderDetail(detailFor, data, loading) : null}
+        {detailFor ? renderDetail(detailFor, data, loading, companyId) : null}
       </CardDetailSheet>
 
       {/* Per-card filter dialog */}
       <CardFilterForm
         open={filterFor != null}
         initial={filterFor ? getCardConfig(filterFor).filters : undefined}
+        pageCompanyId={companyId}
         onClose={() => setFilterFor(null)}
         onSave={(filters: CardFilters) => {
           if (filterFor) setCardFilters(filterFor, filters);
@@ -503,35 +504,198 @@ export function HomeContent() {
   );
 }
 
+function DetailWrap({
+  source,
+  href,
+  children,
+}: Readonly<{
+  source: string;
+  href?: string;
+  children: React.ReactNode;
+}>) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span>
+          <span className="font-medium text-foreground">Source:</span> {source}
+        </span>
+        {href ? (
+          <a
+            href={href}
+            className="text-primary font-medium underline-offset-4 hover:underline"
+          >
+            Open full page →
+          </a>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function renderDetail(
   id: DashboardCardId,
   data: HomeSummary | null,
-  loading: boolean
+  loading: boolean,
+  companyId: number | null
 ): React.ReactNode {
+  const withCompany = (base: string): string => withCompanyParam(base, companyId);
+
   switch (id) {
     case "trends":
       return (
-        <div className="h-[480px]">
-          <TrendChartBody
-            data={data?.trends.sales_qty_daily ?? null}
-            loading={loading}
-            chartType="line"
-          />
-        </div>
+        <DetailWrap source="Sales (RTD) vs prior year, last 90 days" href={withCompany("/outbound")}>
+          <div className="h-[480px]">
+            <TrendChartBody
+              data={data?.trends.sales_qty_daily ?? null}
+              loading={loading}
+              chartType="line"
+            />
+          </div>
+        </DetailWrap>
       );
+
     case "channel_mix":
       return (
-        <div className="h-[480px]">
-          <ChannelMixBody rows={data?.channel_mix ?? null} loading={loading} chartType="bar" />
-        </div>
+        <DetailWrap source="Units shipped per company, last 30 days" href="/outbound">
+          <div className="h-[480px]">
+            <ChannelMixBody rows={data?.channel_mix ?? null} loading={loading} chartType="bar" />
+          </div>
+        </DetailWrap>
       );
+
     case "reorder_alerts_strip":
-      return <ReorderAlertsBody data={data} loading={loading} />;
-    default:
       return (
-        <p className="text-muted-foreground text-xs">
-          Detail view not yet wired for this card. Use the inline card view.
-        </p>
+        <DetailWrap source="SKUs at or below their reorder threshold" href="/reorder">
+          <ReorderAlertsBody data={data} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "sales_qty":
+      return (
+        <DetailWrap source="Units shipped (RTD), last 30 days" href={withCompany("/outbound")}>
+          <KpiCardBody
+            value={data?.kpis.sales_qty.value ?? null}
+            delta_mom_pct={data?.kpis.sales_qty.delta_mom_pct ?? null}
+            delta_yoy_pct={data?.kpis.sales_qty.delta_yoy_pct ?? null}
+            loading={loading}
+            href={withCompany("/outbound")}
+            sparkline={data?.trends.sales_qty_daily}
+          />
+          <div className="h-[320px] pt-4">
+            <TrendChartBody
+              data={data?.trends.sales_qty_daily ?? null}
+              loading={loading}
+              chartType="line"
+            />
+          </div>
+        </DetailWrap>
+      );
+
+    case "sales_pos":
+      return (
+        <DetailWrap source="Sales POs raised, by PO issue date (last 30 days)" href={withCompany("/outbound")}>
+          <KpiCardBody
+            value={data?.kpis.sales_pos.value ?? null}
+            delta_mom_pct={data?.kpis.sales_pos.delta_mom_pct ?? null}
+            delta_yoy_pct={data?.kpis.sales_pos.delta_yoy_pct ?? null}
+            loading={loading}
+            href={withCompany("/outbound")}
+            sparkline={data?.trends.sales_qty_daily}
+          />
+        </DetailWrap>
+      );
+
+    case "fill_rate_pct":
+      return (
+        <DetailWrap source="Average fill rate, weighted by quantity" href={withCompany("/outbound")}>
+          <KpiCardBody
+            value={data?.kpis.fill_rate_pct.value ?? null}
+            format="percent"
+            delta_mom_pct={data?.kpis.fill_rate_pct.delta_mom_pct ?? null}
+            delta_yoy_pct={data?.kpis.fill_rate_pct.delta_yoy_pct ?? null}
+            loading={loading}
+            href={withCompany("/outbound")}
+          />
+        </DetailWrap>
+      );
+
+    case "inbound_qty":
+      return (
+        <DetailWrap source="Inbound qty accepted on GRN, last 30 days" href="/inbound">
+          <KpiCardBody
+            value={data?.kpis.inbound_qty.value ?? null}
+            delta_mom_pct={data?.kpis.inbound_qty.delta_mom_pct ?? null}
+            delta_yoy_pct={data?.kpis.inbound_qty.delta_yoy_pct ?? null}
+            loading={loading}
+            href="/inbound"
+            sparkline={data?.trends.inbound_qty_daily}
+          />
+          <div className="h-[320px] pt-4">
+            <TrendChartBody
+              data={data?.trends.inbound_qty_daily ?? null}
+              loading={loading}
+              chartType="line"
+            />
+          </div>
+        </DetailWrap>
+      );
+
+    case "skus_below_reorder":
+      return (
+        <DetailWrap source="Live count of SKUs at or below the reorder threshold" href="/reorder">
+          <KpiCardBody
+            value={data?.kpis.skus_below_reorder.value ?? null}
+            delta_mom_pct={null}
+            delta_yoy_pct={null}
+            loading={loading}
+            href="/reorder"
+          />
+          <ReorderAlertsBody data={data} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "ops_queues":
+      return (
+        <DetailWrap source="Pending counts across audit, invoice collection, and DCN queues" href="/inbound">
+          <OpsQueuesBody queues={data?.ops_queues} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "open_pos": {
+      const openPosHref = withCompany("/outbound");
+      return (
+        <DetailWrap source="Outbound POs in OPEN or ACK PENDING state" href={openPosHref}>
+          <OpenPosBody stat={data?.open_pos} loading={loading} href={openPosHref} />
+        </DetailWrap>
+      );
+    }
+
+    case "vendor_quality":
+      return (
+        <DetailWrap source="Vendor acceptance vs rejection vs shortage ratios, last 30 days" href="/inbound">
+          <VendorQualityBody vq={data?.vendor_quality} loading={loading} href="/inbound" />
+        </DetailWrap>
+      );
+
+    case "inventory_snapshot":
+      return (
+        <DetailWrap source="Live, point-in-time inventory across the catalogue" href="/listings/warehouse">
+          <InventorySnapshotBody snapshot={data?.inventory_snapshot} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "saved_query_panel":
+      return (
+        <DetailWrap source="Run-once curated queries">
+          <SavedQueryPanel />
+        </DetailWrap>
+      );
+
+    default:
+      /** Every known DashboardCardId is handled above; this branch is defensive only. */
+      return (
+        <p className="text-muted-foreground text-xs">No detail view for this card.</p>
       );
   }
 }

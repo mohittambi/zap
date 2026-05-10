@@ -56,29 +56,39 @@ export async function GET(request: Request) {
       q.partial === "true" ||
       q.filter === "partial";
 
-    const companyRaw =
-      typeof q.company_id === "string"
-        ? q.company_id.trim()
-        : typeof q.companyId === "string"
-          ? q.companyId.trim()
-          : "";
-    const companyIdParsed = companyRaw ? Number.parseInt(companyRaw, 10) : NaN;
-    const companyId =
-      Number.isFinite(companyIdParsed) && companyIdParsed > 0
-        ? companyIdParsed
-        : undefined;
-    const deliveryCity =
-      typeof q.delivery_city === "string"
-        ? q.delivery_city.trim() || undefined
-        : typeof q.deliveryCity === "string"
-          ? q.deliveryCity.trim() || undefined
-          : undefined;
-    const poStatus =
-      typeof q.po_status === "string"
-        ? q.po_status.trim() || undefined
-        : typeof q.poStatus === "string"
-          ? q.poStatus.trim() || undefined
-          : undefined;
+    const csvList = (raw: string | undefined): string[] =>
+      typeof raw === "string"
+        ? raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+        : [];
+
+    /** Multi-select: prefer plural `*_ids`/`*_list`; accept singular for back-compat. */
+    const companyIdsRaw =
+      csvList(q.company_ids) .length > 0
+        ? csvList(q.company_ids)
+        : csvList(q.company_id);
+    const companyIds = companyIdsRaw
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    const deliveryCities =
+      csvList(q.delivery_cities).length > 0
+        ? csvList(q.delivery_cities)
+        : csvList(q.delivery_city);
+
+    const poStatuses =
+      csvList(q.po_statuses).length > 0
+        ? csvList(q.po_statuses)
+        : csvList(q.po_status);
+
+    const poTypes = csvList(q.po_types);
+
+    const poNumber =
+      typeof q.po_number === "string" ? q.po_number.trim() || undefined : undefined;
+
+    const sortBy = typeof q.sort_by === "string" ? q.sort_by.trim() || undefined : undefined;
+    let sortDir: "asc" | "desc" | undefined;
+    if (q.sort_dir === "asc") sortDir = "asc";
+    else if (q.sort_dir === "desc") sortDir = "desc";
 
     const data = await outboundPoService.listOutboundPurchaseOrders({
       page,
@@ -86,9 +96,13 @@ export async function GET(request: Request) {
       search,
       wipOnly,
       partialOnly,
-      companyId,
-      deliveryCity,
-      poStatus,
+      poNumber,
+      companyIds,
+      deliveryCities,
+      poStatuses,
+      poTypes,
+      sortBy,
+      sortDir,
     });
     return NextResponse.json(data);
   } catch (err) {
