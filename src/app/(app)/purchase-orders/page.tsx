@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,13 +49,8 @@ export default function PurchaseOrdersPage() {
   }, [load, appliedSku, page]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Purchase orders</h1>
-        <p className="text-sm text-muted-foreground">
-          Listing order details by secondary SKU.
-        </p>
-      </div>
+    <AppPageShell>
+      <AppPageTitle title="Purchase Orders" description="Listing order details by secondary SKU." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Query</CardTitle>
@@ -169,6 +165,6 @@ export default function PurchaseOrdersPage() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </AppPageShell>
   );
 }

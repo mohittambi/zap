@@ -315,6 +315,166 @@ const BinQtyView = React.memo(function BinQtyView({ binLabel, quantity }: BinQty
   );
 });
 
+// ── Bin combobox ──────────────────────────────────────────────────────────────
+
+type BinLocation = {
+  warehouse_id: number;
+  bin_id: string;
+  bin_total_qty: number;
+  sku_qty: number;
+  already_assigned: boolean;
+};
+
+function BinCombobox({
+  locations,
+  loading,
+  selected,
+  onSelect,
+  onAdd,
+  onCancel,
+  adding,
+}: {
+  locations: BinLocation[];
+  loading: boolean;
+  selected: string;
+  onSelect: (v: string) => void;
+  onAdd: () => void;
+  onCancel: () => void;
+  adding: boolean;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return locations;
+    return locations.filter(
+      (loc) =>
+        loc.bin_id.toLowerCase().includes(q) ||
+        String(loc.warehouse_id).includes(q)
+    );
+  }, [locations, query]);
+
+  const selectedLoc = React.useMemo(
+    () => locations.find((l) => `${l.warehouse_id}|${l.bin_id}` === selected) ?? null,
+    [locations, selected]
+  );
+
+  // Close dropdown on outside click
+  React.useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setQuery(e.target.value);
+    setOpen(true);
+    if (selected) onSelect(""); // clear selection when user types again
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      // Select first non-assigned match on Enter
+      const first = filtered.find((l) => !l.already_assigned);
+      if (first) {
+        onSelect(`${first.warehouse_id}|${first.bin_id}`);
+        setQuery(first.bin_id);
+        setOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  function handlePick(loc: BinLocation) {
+    if (loc.already_assigned) return;
+    onSelect(`${loc.warehouse_id}|${loc.bin_id}`);
+    setQuery(loc.bin_id);
+    setOpen(false);
+  }
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+      <p className="text-xs font-medium">Add Bin Location</p>
+
+      <div className="space-y-1" ref={containerRef}>
+        <Label className="text-xs">Search bin</Label>
+        <div className="relative">
+          <Input
+            value={query}
+            onChange={handleInputChange}
+            onFocus={() => setOpen(true)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type bin ID or warehouse…"
+            className="h-9 font-mono text-sm"
+            disabled={loading}
+          />
+          {open && !loading && filtered.length > 0 && (
+            <ul className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover shadow-md text-sm">
+              {filtered.map((loc) => {
+                const key = `${loc.warehouse_id}|${loc.bin_id}`;
+                const isSelected = selected === key;
+                return (
+                  <li
+                    key={key}
+                    onMouseDown={(e) => { e.preventDefault(); handlePick(loc); }}
+                    className={cn(
+                      "flex items-start justify-between gap-2 px-3 py-2 cursor-pointer",
+                      loc.already_assigned
+                        ? "cursor-not-allowed opacity-40"
+                        : isSelected
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <span className="font-mono font-semibold">{loc.bin_id}</span>
+                      <span className="ml-2 text-xs opacity-70">WH {loc.warehouse_id}</span>
+                      {loc.already_assigned && (
+                        <span className="ml-2 text-xs italic">already assigned</span>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right text-xs opacity-70 tabular-nums">
+                      <div>this SKU: {loc.sku_qty}</div>
+                      <div>bin total: {loc.bin_total_qty}</div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {open && !loading && filtered.length === 0 && (
+            <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
+              No bins match "{query}"
+            </div>
+          )}
+        </div>
+        {selectedLoc && (
+          <p className="text-xs text-muted-foreground">
+            Selected: <span className="font-mono font-medium">{selectedLoc.bin_id}</span> · WH {selectedLoc.warehouse_id} · this SKU: {selectedLoc.sku_qty} · bin total: {selectedLoc.bin_total_qty}
+          </p>
+        )}
+        {loading && <p className="text-xs text-muted-foreground">Loading bins…</p>}
+      </div>
+
+      <div className="flex gap-2">
+        <Button size="sm" onClick={onAdd} disabled={adding || !selected}>
+          {adding ? "Adding…" : "Add"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AvailableQuantityCard({
   listing,
   skuId,
@@ -333,28 +493,50 @@ export function AvailableQuantityCard({
   const [qtyErrors, setQtyErrors] = React.useState<Record<number, string>>({});
 
   // ── Add Bin state ─────────────────────────────────────────────────────────
+  type BinLocation = { warehouse_id: number; bin_id: string; bin_total_qty: number; sku_qty: number; already_assigned: boolean };
   const [showAddBin, setShowAddBin] = React.useState(false);
-  const [newWarehouseId, setNewWarehouseId] = React.useState("");
-  const [newBinId, setNewBinId] = React.useState("");
+  const [binLocations, setBinLocations] = React.useState<BinLocation[]>([]);
+  const [locationsLoading, setLocationsLoading] = React.useState(false);
+  const [selectedLocation, setSelectedLocation] = React.useState<string>(""); // "warehouseId|binId"
   const [addingBin, setAddingBin] = React.useState(false);
 
+  async function loadBinLocations() {
+    setLocationsLoading(true);
+    try {
+      const data = await apiFetch<BinLocation[]>(
+        `/api/bins/locations?sku_id=${encodeURIComponent(skuId)}`
+      );
+      setBinLocations(data);
+    } catch {
+      setBinLocations([]);
+    } finally {
+      setLocationsLoading(false);
+    }
+  }
+
+  function handleOpenAddBin() {
+    setSelectedLocation("");
+    setShowAddBin(true);
+    void loadBinLocations();
+  }
+
   async function handleAddBin() {
-    const wid = Number(newWarehouseId.trim());
-    if (!wid || !newBinId.trim()) {
-      toast.error("Warehouse ID (number) and Bin ID are required.");
+    const [whRaw, binRaw] = selectedLocation.split("|");
+    const wid = Number(whRaw);
+    const bid = binRaw?.trim();
+    if (!wid || !bid) {
+      toast.error("Please select a bin from the dropdown.");
       return;
     }
     setAddingBin(true);
     try {
       await apiFetch("/api/bins", {
         method: "POST",
-        body: JSON.stringify({ warehouse_id: wid, sku_id: skuId, bin_id: newBinId.trim() }),
+        body: JSON.stringify({ warehouse_id: wid, sku_id: skuId, bin_id: bid }),
       });
-      toast.success(`Bin "${newBinId.trim()}" added.`);
-      setNewWarehouseId("");
-      setNewBinId("");
+      toast.success(`Bin "${bid}" added for this SKU.`);
+      setSelectedLocation("");
       setShowAddBin(false);
-      // Reload the full listing so the new bin appears in the list.
       const updated = await apiFetch<ListingDetail>(
         `/api/listings/sku/${encodeURIComponent(skuId)}`
       );
@@ -438,11 +620,7 @@ export function AvailableQuantityCard({
         </CardTitle>
         <div className="flex gap-2">
           {canManage && !isEditing && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowAddBin((v) => !v)}
-            >
+            <Button size="sm" variant="outline" onClick={handleOpenAddBin}>
               <Plus className="mr-1 h-3 w-3" />
               Add Bin
             </Button>
@@ -470,38 +648,15 @@ export function AvailableQuantityCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {canManage && showAddBin && (
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-            <p className="text-xs font-medium">Add Bin Location</p>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Warehouse ID</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={newWarehouseId}
-                  onChange={(e) => setNewWarehouseId(e.target.value)}
-                  placeholder="e.g. 1"
-                  className="h-8 w-24 font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Bin ID</Label>
-                <Input
-                  value={newBinId}
-                  onChange={(e) => setNewBinId(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void handleAddBin(); }}
-                  placeholder="e.g. A-01-02"
-                  className="h-8 w-32 font-mono text-sm"
-                />
-              </div>
-              <Button size="sm" onClick={() => void handleAddBin()} disabled={addingBin}>
-                {addingBin ? "Adding…" : "Add"}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowAddBin(false)}>
-                Cancel
-              </Button>
-            </div>
-          </div>
+          <BinCombobox
+            locations={binLocations}
+            loading={locationsLoading}
+            selected={selectedLocation}
+            onSelect={setSelectedLocation}
+            onAdd={() => void handleAddBin()}
+            onCancel={() => setShowAddBin(false)}
+            adding={addingBin}
+          />
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {isEditing

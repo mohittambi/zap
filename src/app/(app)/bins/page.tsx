@@ -3,13 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDown, ChevronRight } from "lucide-react";
+
 import { useAuth } from "@/contexts/auth-context";
 
 type BinBreakdown = { id: number; bin_id: string; available_quantity: number };
@@ -316,12 +317,9 @@ export default function BinsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <AppPageShell>
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Bin Inventory</h1>
-          <p className="text-sm text-muted-foreground">SKU-level stock view with bin breakdown.</p>
-        </div>
+        <AppPageTitle title="Bins" description="SKU-level stock view with bin breakdown." className="mb-0" />
         <div className="flex shrink-0 flex-wrap gap-2">
           {canManage ? (
             <Button
@@ -427,6 +425,6 @@ export default function BinsPage() {
           ))}
         </div>
       )}
-    </div>
+    </AppPageShell>
   );
 }

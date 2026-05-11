@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,13 +49,8 @@ export default function WarehouseInventoryPage() {
   }, [load, appliedSku, page]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Warehouse inventory log</h1>
-        <p className="text-sm text-muted-foreground">
-          Operations log per SKU (paginated).
-        </p>
-      </div>
+    <AppPageShell>
+      <AppPageTitle title="Warehouse Inventory Log" description="Operations log per SKU (paginated)." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Query</CardTitle>
@@ -170,6 +166,6 @@ export default function WarehouseInventoryPage() {
           </CardContent>
         </Card>
       ) : null}
-    </div>
+    </AppPageShell>
   );
 }

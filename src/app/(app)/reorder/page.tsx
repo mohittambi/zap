@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -189,14 +190,10 @@ export default function ReorderPage() {
   const alertCount = pageData?.data.filter(m => m.is_below_reorder).length ?? 0;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <AppPageShell>
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Reorder Alerts</h1>
-          <p className="text-sm text-muted-foreground">
-            SKUs where available qty (current + expected) falls below the reorder threshold.
-          </p>
-        </div>
+        <AppPageTitle title="Reorder Alerts" description="SKUs where available qty (current + expected) falls below the reorder threshold." className="mb-0" />
+
         {pageData && alertCount > 0 && (
           <Badge className="mt-1 shrink-0 bg-red-100 text-red-700 border-red-200 hover:bg-red-100 text-sm px-3 py-1">
             {alertCount} alert{alertCount !== 1 ? "s" : ""}
@@ -304,6 +301,6 @@ export default function ReorderPage() {
           </div>
         )}
       </div>
-    </div>
+    </AppPageShell>
   );
 }

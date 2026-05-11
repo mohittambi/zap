@@ -10,6 +10,7 @@ function defaultDateValue(d: ParamSpec & { type: "date" }): string {
   const today = new Date();
   if (d.default === "30d_ago") today.setUTCDate(today.getUTCDate() - 30);
   if (d.default === "90d_ago") today.setUTCDate(today.getUTCDate() - 90);
+  if (d.default === "365d_ago") today.setUTCDate(today.getUTCDate() - 365);
   return today.toISOString().slice(0, 10);
 }
 

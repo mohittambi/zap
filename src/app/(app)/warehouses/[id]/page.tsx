@@ -11,14 +11,77 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { WarehouseIcon, MapPinIcon, BuildingIcon } from "lucide-react";
+import { WarehouseIcon, MapPinIcon, PackageIcon } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 function str(v: unknown): string {
   if (v == null) return "";
   return String(v).trim();
 }
 
-function StatBox({ label, value }: { label: string; value: string }) {
+type SkuSummary = {
+  sku_id: string;
+  description: string | null;
+  total_quantity: number;
+  bins: { id: number; bin_id: string; available_quantity: number }[];
+};
+
+function renderBinsRows(loading: boolean, skus: SkuSummary[]) {
+  if (loading) {
+    return ["r1", "r2", "r3", "r4"].map((r) => (
+      <TableRow key={r}>
+        {["c1", "c2", "c3", "c4"].map((c) => (
+          <TableCell key={c}><Skeleton className="h-5 w-full" /></TableCell>
+        ))}
+      </TableRow>
+    ));
+  }
+  if (skus.length === 0) {
+    return (
+      <TableRow>
+        <TableCell colSpan={4} className="text-muted-foreground py-8 text-center text-sm">
+          No bins assigned to this warehouse.
+        </TableCell>
+      </TableRow>
+    );
+  }
+  return skus.flatMap((sku) =>
+    sku.bins.map((bin) => (
+      <TableRow key={bin.id}>
+        <TableCell className="font-mono text-xs font-semibold text-primary">
+          <Link href={`/listings/${encodeURIComponent(sku.sku_id)}`} className="hover:underline">
+            {sku.sku_id}
+          </Link>
+        </TableCell>
+        <TableCell className="text-muted-foreground max-w-[220px] truncate text-xs">
+          {sku.description ?? "—"}
+        </TableCell>
+        <TableCell className="font-mono text-xs">{bin.bin_id}</TableCell>
+        <TableCell className="text-right tabular-nums text-sm">{bin.available_quantity}</TableCell>
+      </TableRow>
+    ))
+  );
+}
+
+function statusLabel(s: string): string {
+  if (s === "1" || s === "true") return "Active";
+  if (s === "0" || s === "false") return "Inactive";
+  return s;
+}
+
+function StatusBadge({ status }: Readonly<{ status: string }>) {
+  const isActive = status === "1" || status === "true" || status.toLowerCase() === "active";
+  return <Badge variant={isActive ? "default" : "secondary"}>{statusLabel(status)}</Badge>;
+}
+
+function StatBox({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="bg-muted/50 rounded-lg border p-3">
       <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
@@ -34,6 +97,19 @@ export default function WarehouseDetailPage() {
   const id = str(params.id ?? "");
   const [data, setData] = React.useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [skus, setSkus] = React.useState<SkuSummary[]>([]);
+  const [skusLoading, setSkusLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!id) return;
+    setSkusLoading(true);
+    let c = false;
+    apiFetch<{ data: SkuSummary[] }>(`/api/bins?warehouse_id=${encodeURIComponent(id)}&page=1&limit=200`)
+      .then((r) => { if (!c) setSkus(r.data); })
+      .catch(() => {})
+      .finally(() => { if (!c) setSkusLoading(false); });
+    return () => { c = true; };
+  }, [id]);
 
   React.useEffect(() => {
     let c = false;
@@ -104,17 +180,7 @@ export default function WarehouseDetailPage() {
             <WarehouseIcon className="mr-2 inline size-6 opacity-70" />
             {name || `Warehouse #${id}`}
           </h1>
-          {status ? (
-            <Badge
-              variant={
-                status === "1" || status === "true" || status.toLowerCase() === "active"
-                  ? "default"
-                  : "secondary"
-              }
-            >
-              {status === "1" || status === "true" ? "Active" : status === "0" || status === "false" ? "Inactive" : status}
-            </Badge>
-          ) : null}
+          {status ? <StatusBadge status={status} /> : null}
           {type ? <Badge variant="outline">{type}</Badge> : null}
         </div>
         <p className="text-muted-foreground font-mono text-sm">ID: {id}</p>
@@ -162,6 +228,31 @@ export default function WarehouseDetailPage() {
           </div>
         </>
       ) : null}
+
+      <Separator />
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <PackageIcon className="size-4" />
+            Bins in this warehouse
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/60 hover:bg-muted/60">
+                <TableHead>SKU</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Bin</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {renderBinsRows(skusLoading, skus)}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

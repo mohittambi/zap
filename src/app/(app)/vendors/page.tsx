@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -42,13 +43,8 @@ export default function VendorsPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Vendors</h1>
-        <p className="text-sm text-muted-foreground">
-          Directory of vendors and specialties.
-        </p>
-      </div>
+    <AppPageShell>
+      <AppPageTitle title="Vendors" description="Directory of vendors and specialties." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">All vendors</CardTitle>
@@ -97,6 +93,6 @@ export default function VendorsPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </AppPageShell>
   );
 }

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -38,11 +39,8 @@ export default function WarehousesPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Warehouses</h1>
-        <p className="text-sm text-muted-foreground">Master warehouse directory.</p>
-      </div>
+    <AppPageShell>
+      <AppPageTitle title="Warehouses" description="Master warehouse directory." />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">All</CardTitle>
@@ -89,6 +87,6 @@ export default function WarehousesPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </AppPageShell>
   );
 }

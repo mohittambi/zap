@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { apiUrl, getStoredToken, apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { formatIstDateTime } from "@/lib/format-ist";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,12 +140,9 @@ export default function BinChangesPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <AppPageShell>
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Bin Changes</h1>
-          <p className="text-sm text-muted-foreground">All inventory movements across the system.</p>
-        </div>
+        <AppPageTitle title="Bin Changes" description="All inventory movements across the system." className="mb-0" />
         <Button onClick={() => void handleExport()} disabled={exporting} variant="outline" className="min-h-11 shrink-0">
           {exporting ? "Exporting…" : "Download Excel"}
         </Button>
@@ -288,6 +286,6 @@ export default function BinChangesPage() {
           </Button>
         </div>
       </div>
-    </div>
+    </AppPageShell>
   );
 }

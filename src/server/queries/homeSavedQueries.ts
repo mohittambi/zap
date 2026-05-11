@@ -5,7 +5,7 @@ import type { AuthUser } from "@/server/rbac";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type ParamSpec =
-  | { name: string; type: "date"; label: string; required?: boolean; default?: "today" | "30d_ago" | "90d_ago" }
+  | { name: string; type: "date"; label: string; required?: boolean; default?: "today" | "30d_ago" | "90d_ago" | "365d_ago" }
   | { name: string; type: "company"; label: string; required?: boolean }
   | { name: string; type: "select"; label: string; options: { value: string; label: string }[]; required?: boolean };
 
@@ -47,7 +47,7 @@ const top_skus_by_sales: SavedQueryDef = {
   label: "Top SKUs by sales (qty)",
   description: "Top 20 SKUs by units shipped in the date range.",
   params: [
-    { name: "from", type: "date", label: "From", required: true, default: "30d_ago" },
+    { name: "from", type: "date", label: "From", required: true, default: "365d_ago" },
     { name: "to", type: "date", label: "To", required: true, default: "today" },
     { name: "company_id", type: "company", label: "Company (optional)" },
   ],
@@ -64,7 +64,7 @@ const top_skus_by_sales: SavedQueryDef = {
     }
     const r = await query(
       `SELECT ci.po_secondary_sku AS sku,
-              SUM(ci.consignment_quantity)::bigint AS shipped_qty,
+              SUM(ci.dispatched_quantity)::bigint AS shipped_qty,
               COUNT(DISTINCT c.id)::int AS shipments
        FROM   outbound_consignment_items ci
        JOIN   outbound_consignments c ON c.id = ci.consignment_id
@@ -181,7 +181,7 @@ const fill_rate_by_company: SavedQueryDef = {
   label: "Fill-rate by company",
   description: "Weighted average fill-rate per company in the date range.",
   params: [
-    { name: "from", type: "date", label: "From", required: true, default: "30d_ago" },
+    { name: "from", type: "date", label: "From", required: true, default: "365d_ago" },
     { name: "to", type: "date", label: "To", required: true, default: "today" },
   ],
   resultShape: "bar",
@@ -190,13 +190,13 @@ const fill_rate_by_company: SavedQueryDef = {
     const to = requireDate(p, "to");
     const r = await query(
       `SELECT COALESCE(c.company_name, c.company_id::text, '—') AS company,
-              ROUND((SUM(ci.overall_fill_rate * ci.consignment_quantity)
-                       / NULLIF(SUM(ci.consignment_quantity), 0) * 100)::numeric, 1) AS fill_rate_pct
+              ROUND((SUM(ci.overall_fill_rate * COALESCE(ci.consignment_quantity, ci.dispatched_quantity))
+                       / NULLIF(SUM(COALESCE(ci.consignment_quantity, ci.dispatched_quantity)), 0) * 100)::numeric, 1) AS fill_rate_pct
        FROM   outbound_consignment_items ci
        JOIN   outbound_consignments c ON c.id = ci.consignment_id
        WHERE  c.marked_rtd_at >= $1::timestamptz AND c.marked_rtd_at < $2::timestamptz
        GROUP  BY 1
-       HAVING SUM(ci.consignment_quantity) > 0
+       HAVING SUM(COALESCE(ci.consignment_quantity, ci.dispatched_quantity)) > 0
        ORDER  BY fill_rate_pct DESC NULLS LAST
        LIMIT  20`,
       [from, to]

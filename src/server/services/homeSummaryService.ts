@@ -273,8 +273,8 @@ function fillRateSql(companyId: number | null, companyName: string | null) {
     // overall_fill_rate is stored as a fraction (0–1); multiply by 100 for percent.
     return {
       text: `SELECT COALESCE(
-                SUM(ci.overall_fill_rate * ci.consignment_quantity)
-                  / NULLIF(SUM(ci.consignment_quantity), 0) * 100,
+                SUM(ci.overall_fill_rate * COALESCE(ci.consignment_quantity, ci.dispatched_quantity))
+                  / NULLIF(SUM(COALESCE(ci.consignment_quantity, ci.dispatched_quantity)), 0) * 100,
                 0)::numeric AS v
              FROM outbound_consignment_items ci
              JOIN outbound_consignments c ON c.id = ci.consignment_id
@@ -303,7 +303,7 @@ function gmvValueSql(companyId: number | null, companyName: string | null) {
     params.push(...filter.params);
     return {
       text: `SELECT COALESCE(
-                SUM(ci.consignment_quantity * ci.mrp),
+                SUM(COALESCE(ci.consignment_quantity, ci.dispatched_quantity) * ci.mrp),
                 0)::numeric AS v
              FROM outbound_consignment_items ci
              JOIN outbound_consignments c ON c.id = ci.consignment_id

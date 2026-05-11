@@ -274,6 +274,43 @@ export async function adjustBinInventory(
   }
 }
 
+// ── Bin locations (all distinct warehouse+bin combos for a given SKU context) ──
+
+export type BinLocation = {
+  warehouse_id: number;
+  bin_id: string;
+  /** Total units across ALL SKUs in this bin. */
+  bin_total_qty: number;
+  /** Units of the requested SKU already in this bin (0 if not yet assigned). */
+  sku_qty: number;
+  /** True if this SKU already has a row for this bin (even with qty 0). */
+  already_assigned: boolean;
+};
+
+export async function getBinLocations(skuId: string): Promise<BinLocation[]> {
+  const result = await query(
+    `SELECT
+       b.warehouse_id,
+       b.bin_id,
+       SUM(b.available_quantity)::int                                        AS bin_total_qty,
+       COALESCE(MAX(CASE WHEN b.sku_id = $1 THEN b.available_quantity END), 0)::int
+                                                                             AS sku_qty,
+       BOOL_OR(b.sku_id = $1)                                               AS already_assigned
+     FROM bins b
+     WHERE b.is_deleted = false
+     GROUP BY b.warehouse_id, b.bin_id
+     ORDER BY b.warehouse_id, b.bin_id`,
+    [skuId.trim()]
+  );
+  return result.rows.map((r) => ({
+    warehouse_id: Number(r.warehouse_id),
+    bin_id: String(r.bin_id),
+    bin_total_qty: Number(r.bin_total_qty ?? 0),
+    sku_qty: Number(r.sku_qty ?? 0),
+    already_assigned: Boolean(r.already_assigned),
+  }));
+}
+
 // ── Admin bin management ──────────────────────────────────────────────────────
 
 export async function createBin(
