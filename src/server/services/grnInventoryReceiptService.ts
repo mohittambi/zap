@@ -6,6 +6,8 @@ export type ReceiptItem = {
   sku_id: string;
   bin_id: string;
   quantity: number;
+  /** Required — used to auto-create the bin row if it doesn't already exist. */
+  warehouse_id: number;
 };
 
 export type ReceiptResult = {
@@ -33,6 +35,10 @@ export async function receiveIntoInventory(
     }
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new AppError(`Invalid quantity for SKU ${item.sku_id}`, 400);
+    }
+    const wid = Number(item.warehouse_id);
+    if (!Number.isFinite(wid) || wid <= 0) {
+      throw new AppError(`Each item must have a valid warehouse_id (got: ${item.warehouse_id})`, 400);
     }
   }
 
@@ -69,6 +75,7 @@ export async function receiveIntoInventory(
         quantity: qty,
         user_id: receivedBy,
         movement_type: "GRN_RECEIPT",
+        warehouse_id: Number(item.warehouse_id),
       });
 
       results.push({

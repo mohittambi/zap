@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/contexts/auth-context";
 import type { ListingDetail } from "@/types/listing";
 
 /** Merge bin PATCH responses into listing and recompute aggregated available qty. */
@@ -315,15 +317,54 @@ const BinQtyView = React.memo(function BinQtyView({ binLabel, quantity }: BinQty
 
 export function AvailableQuantityCard({
   listing,
+  skuId,
   onSaved,
-}: Readonly<{ listing: ListingDetail; onSaved: (l: ListingDetail) => void }>) {
-  const avail = Number(listing.available_quantity ?? 0);
+}: Readonly<{ listing: ListingDetail; skuId: string; onSaved: (l: ListingDetail) => void }>) {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("bins", "manage");
+
   const bins = listing.bins ?? [];
+  // Always derive from live bin data, not the stale listings.available_quantity column.
+  const avail = bins.reduce((s, b) => s + Number(b.available_quantity ?? 0), 0);
 
   const [isEditing, setIsEditing] = React.useState(false);
   const [qtyDraft, setQtyDraft] = React.useState<Record<number, string>>({});
   const [saving, setSaving] = React.useState(false);
   const [qtyErrors, setQtyErrors] = React.useState<Record<number, string>>({});
+
+  // ── Add Bin state ─────────────────────────────────────────────────────────
+  const [showAddBin, setShowAddBin] = React.useState(false);
+  const [newWarehouseId, setNewWarehouseId] = React.useState("");
+  const [newBinId, setNewBinId] = React.useState("");
+  const [addingBin, setAddingBin] = React.useState(false);
+
+  async function handleAddBin() {
+    const wid = Number(newWarehouseId.trim());
+    if (!wid || !newBinId.trim()) {
+      toast.error("Warehouse ID (number) and Bin ID are required.");
+      return;
+    }
+    setAddingBin(true);
+    try {
+      await apiFetch("/api/bins", {
+        method: "POST",
+        body: JSON.stringify({ warehouse_id: wid, sku_id: skuId, bin_id: newBinId.trim() }),
+      });
+      toast.success(`Bin "${newBinId.trim()}" added.`);
+      setNewWarehouseId("");
+      setNewBinId("");
+      setShowAddBin(false);
+      // Reload the full listing so the new bin appears in the list.
+      const updated = await apiFetch<ListingDetail>(
+        `/api/listings/sku/${encodeURIComponent(skuId)}`
+      );
+      onSaved(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add bin");
+    } finally {
+      setAddingBin(false);
+    }
+  }
 
   const onChangeBin = React.useCallback((binId: number, value: string) => {
     setQtyDraft((d) => ({ ...d, [binId]: value }));
@@ -396,14 +437,19 @@ export function AvailableQuantityCard({
           AVAILABLE QUANTITY : {avail}
         </CardTitle>
         <div className="flex gap-2">
+          {canManage && !isEditing && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAddBin((v) => !v)}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              Add Bin
+            </Button>
+          )}
           {isEditing ? (
             <>
-              <Button
-                size="sm"
-                variant="default"
-                disabled={saving}
-                onClick={() => void handleSaveQty()}
-              >
+              <Button size="sm" variant="default" disabled={saving} onClick={() => void handleSaveQty()}>
                 {saving ? "Saving…" : "Save"}
               </Button>
               <Button size="sm" variant="outline" disabled={saving} onClick={handleCancel}>
@@ -422,7 +468,41 @@ export function AvailableQuantityCard({
           )}
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {canManage && showAddBin && (
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs font-medium">Add Bin Location</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Warehouse ID</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={newWarehouseId}
+                  onChange={(e) => setNewWarehouseId(e.target.value)}
+                  placeholder="e.g. 1"
+                  className="h-8 w-24 font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Bin ID</Label>
+                <Input
+                  value={newBinId}
+                  onChange={(e) => setNewBinId(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void handleAddBin(); }}
+                  placeholder="e.g. A-01-02"
+                  className="h-8 w-32 font-mono text-sm"
+                />
+              </div>
+              <Button size="sm" onClick={() => void handleAddBin()} disabled={addingBin}>
+                {addingBin ? "Adding…" : "Add"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAddBin(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {isEditing
             ? bins.map((b) => (
@@ -443,7 +523,7 @@ export function AvailableQuantityCard({
                 <BinQtyView key={b.id} binLabel={b.bin_id} quantity={b.available_quantity} />
               ))}
           {bins.length === 0 && (
-            <p className="text-muted-foreground text-sm">No bin locations.</p>
+            <p className="text-muted-foreground text-sm">No bin locations. {canManage ? "Use \"Add Bin\" to create one." : ""}</p>
           )}
         </div>
       </CardContent>

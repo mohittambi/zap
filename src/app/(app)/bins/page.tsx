@@ -3,14 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 
-type BinBreakdown = { bin_id: string; available_quantity: number };
+type BinBreakdown = { id: number; bin_id: string; available_quantity: number };
 type SkuSummary = {
   sku_id: string;
   warehouse_id: number;
@@ -93,16 +95,116 @@ function applyStockFilter(skus: SkuSummary[], filter: StockFilter, threshold: nu
   return skus.filter(s => getStockStatus(s.total_quantity, threshold) === filter);
 }
 
+// ── Add Bin Panel ─────────────────────────────────────────────────────────────
+
+function AddBinPanel({ onCreated }: { onCreated: () => void }) {
+  const [warehouseId, setWarehouseId] = React.useState("");
+  const [skuId, setSkuId] = React.useState("");
+  const [binId, setBinId] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+
+  async function handleCreate() {
+    const wid = Number(warehouseId.trim());
+    if (!wid || !skuId.trim() || !binId.trim()) {
+      toast.error("All fields are required and warehouse ID must be a number.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch("/api/bins", {
+        method: "POST",
+        body: JSON.stringify({ warehouse_id: wid, sku_id: skuId.trim(), bin_id: binId.trim() }),
+      });
+      toast.success(`Bin "${binId.trim()}" created for SKU ${skuId.trim()}.`);
+      setWarehouseId("");
+      setSkuId("");
+      setBinId("");
+      onCreated();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create bin");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") void handleCreate();
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <p className="text-sm font-medium">Add Bin Location</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="nb-wh" className="text-xs">Warehouse ID</Label>
+          <Input
+            id="nb-wh"
+            type="number"
+            min={1}
+            value={warehouseId}
+            onChange={e => setWarehouseId(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="e.g. 1"
+            className="h-9 w-28 font-mono text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="nb-sku" className="text-xs">SKU ID</Label>
+          <Input
+            id="nb-sku"
+            value={skuId}
+            onChange={e => setSkuId(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="e.g. ABC-001"
+            className="h-9 w-40 font-mono text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="nb-bin" className="text-xs">Bin ID</Label>
+          <Input
+            id="nb-bin"
+            value={binId}
+            onChange={e => setBinId(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="e.g. A-01-02"
+            className="h-9 w-32 font-mono text-sm"
+          />
+        </div>
+        <Button className="h-9" onClick={() => void handleCreate()} disabled={saving}>
+          {saving ? "Creating…" : "Create"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── SKU card ──────────────────────────────────────────────────────────────────
+
 const SkuCard = React.memo(function SkuCard({
   sku,
   threshold,
+  canManage,
+  onBinDeleted,
 }: {
   sku: SkuSummary;
   threshold: number;
+  canManage: boolean;
+  onBinDeleted: () => void;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const status = getStockStatus(sku.total_quantity, threshold);
   const cfg = STATUS_CONFIG[status];
+
+  async function handleDeleteBin(bin: BinBreakdown) {
+    if (!confirm(`Delete bin "${bin.bin_id}" for SKU ${sku.sku_id}? This cannot be undone.`)) return;
+    try {
+      await apiFetch(`/api/bins/${bin.id}`, { method: "DELETE" });
+      toast.success(`Bin "${bin.bin_id}" deleted.`);
+      onBinDeleted();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete bin");
+    }
+  }
 
   return (
     <div className={`rounded-lg border bg-white p-3 shadow-sm ${cfg.borderClass}`}>
@@ -134,7 +236,19 @@ const SkuCard = React.memo(function SkuCard({
           {sku.bins.map(b => (
             <div key={b.bin_id} className="flex items-center justify-between text-xs">
               <span className="font-mono text-muted-foreground">{b.bin_id}</span>
-              <span className="tabular-nums font-medium">{b.available_quantity}</span>
+              <div className="flex items-center gap-2">
+                <span className="tabular-nums font-medium">{b.available_quantity}</span>
+                {canManage ? (
+                  <button
+                    title={b.available_quantity > 0 ? "Cannot delete — has stock" : "Delete bin"}
+                    disabled={b.available_quantity > 0}
+                    onClick={() => void handleDeleteBin(b)}
+                    className="text-muted-foreground hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
@@ -154,6 +268,9 @@ function SkuGridSkeleton() {
 }
 
 export default function BinsPage() {
+  const { hasPermission } = useAuth();
+  const canManage = hasPermission("bins", "manage");
+
   const [state, dispatch] = React.useReducer(filterReducer, {
     warehouseId: "",
     keyword: "",
@@ -165,6 +282,7 @@ export default function BinsPage() {
 
   const [allSkus, setAllSkus] = React.useState<SkuSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [showAddPanel, setShowAddPanel] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -204,7 +322,16 @@ export default function BinsPage() {
           <h1 className="text-2xl font-semibold">Bin Inventory</h1>
           <p className="text-sm text-muted-foreground">SKU-level stock view with bin breakdown.</p>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {canManage ? (
+            <Button
+              variant={showAddPanel ? "default" : "outline"}
+              className="min-h-11"
+              onClick={() => setShowAddPanel(v => !v)}
+            >
+              {showAddPanel ? "Close" : "Add Bin"}
+            </Button>
+          ) : null}
           <Button asChild variant="outline" className="min-h-11">
             <Link href="/bins/changes">Bin changes</Link>
           </Button>
@@ -216,6 +343,10 @@ export default function BinsPage() {
           </Button>
         </div>
       </div>
+
+      {canManage && showAddPanel ? (
+        <AddBinPanel onCreated={() => { void load(); }} />
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
         <div className="space-y-1.5">
@@ -286,7 +417,13 @@ export default function BinsPage() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {visibleSkus.map(sku => (
-            <SkuCard key={`${sku.warehouse_id}-${sku.sku_id}`} sku={sku} threshold={state.reorderThreshold} />
+            <SkuCard
+              key={`${sku.warehouse_id}-${sku.sku_id}`}
+              sku={sku}
+              threshold={state.reorderThreshold}
+              canManage={canManage}
+              onBinDeleted={() => { void load(); }}
+            />
           ))}
         </div>
       )}

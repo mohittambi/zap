@@ -21,6 +21,8 @@ type AdjustBinInventoryParams = {
   quantity: number;
   user_id: string;
   movement_type?: MovementType;
+  /** When provided and the bin row doesn't exist, it will be auto-created with qty=0. */
+  warehouse_id?: number;
 };
 
 type AdjustBinInventoryResult = {
@@ -118,7 +120,7 @@ export async function getBinByBinIdAndSku(binId: string, skuId: string): Promise
   return mapBinRow(result.rows[0]);
 }
 
-export type BinBreakdown = { bin_id: string; available_quantity: number };
+export type BinBreakdown = { id: number; bin_id: string; available_quantity: number };
 export type SkuSummary = {
   sku_id: string;
   warehouse_id: number;
@@ -161,7 +163,7 @@ export async function getSkuInventorySummary(
     `SELECT b.sku_id, b.warehouse_id, l.description,
             SUM(b.available_quantity)::int AS total_quantity,
             json_agg(
-              json_build_object('bin_id', b.bin_id, 'available_quantity', b.available_quantity::int)
+              json_build_object('id', b.id::bigint, 'bin_id', b.bin_id, 'available_quantity', b.available_quantity::int)
               ORDER BY b.bin_id
             ) AS bins
      FROM bins b LEFT JOIN listings l ON l.sku_id = b.sku_id
@@ -194,6 +196,17 @@ export async function adjustBinInventoryInTransaction(
   client,
   params: AdjustBinInventoryParams
 ): Promise<AdjustBinInventoryResult> {
+  // Auto-create the bin row if warehouse_id is provided and the row doesn't exist yet.
+  // This lets GRN receipt book into a bin that hasn't been pre-created via sync.
+  if (params.warehouse_id != null) {
+    await client.query(
+      `INSERT INTO bins (warehouse_id, sku_id, bin_id, available_quantity)
+       VALUES ($1, $2, $3, 0)
+       ON CONFLICT (warehouse_id, sku_id, bin_id) DO NOTHING`,
+      [params.warehouse_id, params.sku_id.trim(), params.bin_id.trim()]
+    );
+  }
+
   const lockResult = await client.query(
     `SELECT id, warehouse_id, sku_id, bin_id, available_quantity
      FROM bins WHERE bin_id = $1 AND sku_id = $2 AND is_deleted = false
@@ -258,6 +271,56 @@ export async function adjustBinInventory(
     throw err;
   } finally {
     client.release();
+  }
+}
+
+// ── Admin bin management ──────────────────────────────────────────────────────
+
+export async function createBin(
+  warehouseId: number,
+  skuId: string,
+  binId: string
+): Promise<BinRow> {
+  const skuCheck = await query(
+    `SELECT 1 FROM listings WHERE sku_id = $1 LIMIT 1`,
+    [skuId.trim()]
+  );
+  if (skuCheck.rows.length === 0) {
+    throw new AppError(`SKU '${skuId}' not found in listings`, 400);
+  }
+
+  const result = await query(
+    `INSERT INTO bins (warehouse_id, sku_id, bin_id, available_quantity)
+     VALUES ($1, $2, $3, 0)
+     ON CONFLICT (warehouse_id, sku_id, bin_id) DO NOTHING
+     RETURNING id, warehouse_id, sku_id, bin_id, available_quantity, is_deleted, created_at, updated_at`,
+    [warehouseId, skuId.trim(), binId.trim()]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError('Bin already exists for this warehouse/SKU/bin combination', 409);
+  }
+  return mapBinRow(result.rows[0]);
+}
+
+export async function deleteBin(id: number): Promise<void> {
+  const result = await query(
+    `UPDATE bins SET is_deleted = true, updated_at = NOW()
+     WHERE id = $1 AND available_quantity = 0 AND is_deleted = false
+     RETURNING id`,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    // Determine whether it's a not-found or has-stock error
+    const check = await query(
+      `SELECT id, available_quantity, is_deleted FROM bins WHERE id = $1`,
+      [id]
+    );
+    if (check.rows.length === 0 || check.rows[0].is_deleted) {
+      throw new AppError('Bin not found', 404);
+    }
+    throw new AppError('Cannot delete a bin with remaining stock', 409);
   }
 }
 
@@ -328,7 +391,7 @@ export async function getBinChanges(
   params.push(limit, offset);
   const dataRes = await query(
     `SELECT w.id, w.created_at, w.warehouse_id, w.sku_id,
-            l.title AS description,
+            l.description,
             w.bin_id, w.inventory_operation_type, w.movement_type,
             w.quantity, w.user_id
        FROM warehouse_inventory_dump w

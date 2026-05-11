@@ -26,6 +26,25 @@ export async function GET(
   }
 }
 
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "bins", "manage");
+    const { id } = await context.params;
+    const numId = Number.parseInt(id, 10);
+    if (!numId) {
+      throw new AppError("Invalid bin id", 400);
+    }
+    await binsService.deleteBin(numId);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Pencil } from "lucide-react";
+import { Pencil, X, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-browser";
@@ -11,6 +11,8 @@ import { formatLogDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -92,6 +94,9 @@ export default function ListingDetailPage() {
   const [vendors, setVendors] = React.useState<VendorBySkuApi[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [thumbIndex, setThumbIndex] = React.useState(0);
+  const [imageEditing, setImageEditing] = React.useState(false);
+  const [imageDraft, setImageDraft] = React.useState({ img_hd: "", img_white: "", img_wdim: "", img_link1: "", img_link2: "" });
+  const [imageSaving, setImageSaving] = React.useState(false);
 
   const loadCore = React.useCallback(async () => {
     if (!skuId) return;
@@ -166,6 +171,43 @@ export default function ListingDetailPage() {
   const handleListingUpdated = React.useCallback((updated: ListingDetail) => {
     setListing(updated);
   }, []);
+
+  function startImageEdit() {
+    if (!listing) return;
+    setImageDraft({
+      img_hd: listing.img_hd ?? "",
+      img_white: listing.img_white ?? "",
+      img_wdim: listing.img_wdim ?? "",
+      img_link1: listing.img_link1 ?? "",
+      img_link2: listing.img_link2 ?? "",
+    });
+    setImageEditing(true);
+  }
+
+  async function saveImageEdit() {
+    if (!listing) return;
+    setImageSaving(true);
+    try {
+      const body: Record<string, string | null> = {
+        img_hd: imageDraft.img_hd.trim() || null,
+        img_white: imageDraft.img_white.trim() || null,
+        img_wdim: imageDraft.img_wdim.trim() || null,
+        img_link1: imageDraft.img_link1.trim() || null,
+        img_link2: imageDraft.img_link2.trim() || null,
+      };
+      const updated = await apiFetch<ListingDetail>(
+        `/api/listings/sku/${encodeURIComponent(skuId)}`,
+        { method: "PATCH", body: JSON.stringify(body) }
+      );
+      setListing(updated);
+      setImageEditing(false);
+      toast.success("Images saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save images");
+    } finally {
+      setImageSaving(false);
+    }
+  }
 
   React.useEffect(() => {
     setThumbIndex(0);
@@ -282,13 +324,47 @@ export default function ListingDetailPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <span className="text-primary font-medium">{mainLabel}</span>
-                  <Pencil className="text-primary mt-0.5 size-4 shrink-0 opacity-40" aria-hidden />
-                  <span className="text-muted-foreground break-all font-mono text-xs">
-                    {mainImage ?? "—"}
-                  </span>
-                </div>
+                {imageEditing ? (
+                  <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs font-medium">Edit image URLs</p>
+                    {(["img_hd", "img_white", "img_wdim", "img_link1", "img_link2"] as const).map((key) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{key}</Label>
+                        <Input
+                          value={imageDraft[key]}
+                          onChange={(e) => setImageDraft((d) => ({ ...d, [key]: e.target.value }))}
+                          placeholder={`https://…`}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" disabled={imageSaving} onClick={() => void saveImageEdit()}>
+                        <Check className="mr-1 h-3 w-3" />
+                        {imageSaving ? "Saving…" : "Save"}
+                      </Button>
+                      <Button size="sm" variant="outline" disabled={imageSaving} onClick={() => setImageEditing(false)}>
+                        <X className="mr-1 h-3 w-3" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 text-sm">
+                    <span className="text-primary font-medium">{mainLabel}</span>
+                    <button
+                      type="button"
+                      title="Edit image URLs"
+                      onClick={startImageEdit}
+                      className="mt-0.5 shrink-0 text-primary opacity-60 hover:opacity-100"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                    <span className="text-muted-foreground break-all font-mono text-xs">
+                      {mainImage ?? "—"}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -333,7 +409,7 @@ export default function ListingDetailPage() {
                 </CardContent>
               </Card>
 
-              <AvailableQuantityCard listing={listing} onSaved={handleListingUpdated} />
+              <AvailableQuantityCard listing={listing} skuId={skuId} onSaved={handleListingUpdated} />
             </div>
           </div>
         </TabsContent>

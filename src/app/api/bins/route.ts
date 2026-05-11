@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
-import { handleApiError } from "@/server/errors";
+import { AppError, handleApiError } from "@/server/errors";
 import * as binsService from "@/server/services/binsService";
 import { parsePagination } from "@/server/validators/pagination";
 
@@ -23,6 +23,30 @@ export async function GET(request: Request) {
     };
     const data = await binsService.getBins(filters, page, limit);
     return NextResponse.json(data);
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "bins", "manage");
+
+    const body = (await request.json()) as Record<string, unknown>;
+    const warehouseId = Number(body.warehouse_id);
+    if (!Number.isFinite(warehouseId) || warehouseId <= 0) {
+      throw new AppError("warehouse_id must be a positive integer", 400);
+    }
+    if (typeof body.sku_id !== "string" || !body.sku_id.trim()) {
+      throw new AppError("sku_id is required", 400);
+    }
+    if (typeof body.bin_id !== "string" || !body.bin_id.trim()) {
+      throw new AppError("bin_id is required", 400);
+    }
+
+    const bin = await binsService.createBin(warehouseId, body.sku_id, body.bin_id);
+    return NextResponse.json(bin, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }
