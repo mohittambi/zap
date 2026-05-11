@@ -5,7 +5,10 @@
  *   2. populate po_sku_count + po_total_quantity from vendor_purchase_orders
  *      where they are still 0 and the parent PO has values;
  *   3. seed a "GRN draft created in zap" entry in inbound_grn_logs for any
- *      zap GRN that has no log entries yet.
+ *      zap GRN that has no log entries yet;
+ *   4. derive pending-queue membership from current status fields (doctrine
+ *      #10 — zap owns workflow lifecycle). Recovers any GRN whose stage
+ *      change happened before the queue-insert wiring landed.
  *
  * Usage:
  *   npm run fix:zap-grns               # all zap GRNs
@@ -175,9 +178,54 @@ async function main() {
         );
     logsSeeded = logsR.rowCount ?? 0;
 
+    /**
+     * Step 4 — derive pending-queue membership from the current status fields.
+     * The queue a GRN belongs to is determined by its furthest forward state:
+     *   - accounts_status not in (APPROVED,REJECTED) AND invoice collected
+     *       → pending_accounts_approval
+     *   - invoice_collection_status NOT COLLECTED AND audit done
+     *       → pending_invoice_collection
+     *   - grn_status CLOSED AND audit not done
+     *       → pending_audit
+     * Inserts are idempotent. Scoped to the explicit grn_ids when provided,
+     * else applied across every GRN in the table.
+     */
+    const idScope = explicit.length > 0 ? `g.grn_id = ANY($1::bigint[]) AND ` : ``;
+    const idScopeParam = explicit.length > 0 ? [explicit] : [];
+
+    const auditR = await client.query(
+      `INSERT INTO inbound_grn_pending_audit (grn_id)
+       SELECT g.grn_id FROM inbound_grns g
+        WHERE ${idScope}UPPER(COALESCE(g.grn_status, '')) = 'CLOSED'
+          AND UPPER(COALESCE(g.grn_audit_status, '')) NOT IN ('CLOSED','AUDITED','DONE','COMPLETED')
+       ON CONFLICT (grn_id) DO NOTHING`,
+      idScopeParam
+    );
+    const auditQueued = auditR.rowCount ?? 0;
+
+    const invR = await client.query(
+      `INSERT INTO inbound_grn_pending_invoice_collection (grn_id)
+       SELECT g.grn_id FROM inbound_grns g
+        WHERE ${idScope}UPPER(COALESCE(g.grn_audit_status, '')) IN ('CLOSED','AUDITED','DONE','COMPLETED')
+          AND UPPER(COALESCE(g.grn_invoice_collection_status, '')) <> 'COLLECTED'
+       ON CONFLICT (grn_id) DO NOTHING`,
+      idScopeParam
+    );
+    const invQueued = invR.rowCount ?? 0;
+
+    const acctR = await client.query(
+      `INSERT INTO inbound_grn_pending_accounts_approval (grn_id)
+       SELECT g.grn_id FROM inbound_grns g
+        WHERE ${idScope}UPPER(COALESCE(g.grn_invoice_collection_status, '')) = 'COLLECTED'
+          AND UPPER(COALESCE(g.accounts_status, '')) NOT IN ('APPROVED','REJECTED')
+       ON CONFLICT (grn_id) DO NOTHING`,
+      idScopeParam
+    );
+    const acctQueued = acctR.rowCount ?? 0;
+
     await client.query("COMMIT");
     console.log(
-      `Done. source flipped: ${sourceFlipped}, po totals backfilled: ${totalsBackfilled}, line items seeded: ${itemsSeeded}, creation logs seeded: ${logsSeeded}.`
+      `Done. source flipped: ${sourceFlipped}, po totals backfilled: ${totalsBackfilled}, line items seeded: ${itemsSeeded}, creation logs seeded: ${logsSeeded}, queues seeded — audit: ${auditQueued}, invoice_collection: ${invQueued}, accounts_approval: ${acctQueued}.`
     );
   } catch (e) {
     await client.query("ROLLBACK");

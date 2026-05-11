@@ -4,7 +4,7 @@
 
 ## Hard rule
 
-**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, or the PO/GRN id allocator, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes 9 rules learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, and ambiguous vendor names.
+**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, the PO/GRN id allocator, or the GRN pending-queue tables, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes 10 rules learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, ambiguous vendor names, and GRNs that never reach the right queue page.
 
 ## Doctrine TL;DR
 
@@ -17,6 +17,7 @@
 7. **Files in Zap Storage only.** No eAutomate fallback for downloads.
 8. **Zap UI never writes to eAutomate** — except outbound consignment creation. One exception, no more.
 9. **Optimistic UI updates.** Render local state immediately; persist follows; roll back on failure.
+10. **Workflow ownership.** Once a record exists in zap, its state transitions and pending-queue membership are owned by zap. Status mutators must INSERT into the next queue + DELETE from the previous one in the same transaction; sync scripts scope queue writes to `source = 'eautomate'`.
 
 ## When you add a new entity that ops can create in zap AND that exists in eAutomate
 

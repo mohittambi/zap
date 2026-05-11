@@ -6,7 +6,14 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { filenameFromContentDisposition } from "@/lib/filenameFromContentDisposition";
-import { hasVendorInvoiceReadyToClose, showCloseGrnHeaderAction } from "@/lib/inboundGrnCloseUi";
+import {
+  closeGrnDisabledHint,
+  closeGrnSubmitDisabled,
+  closeGrnSubmitLabel,
+  hasVendorInvoiceReadyToClose,
+  showCloseGrnHeaderAction,
+  VENDOR_INVOICE_MAX_FILES as VENDOR_INVOICE_MAX_FILES_LIB,
+} from "@/lib/inboundGrnCloseUi";
 import { classifyVendorInvoicePick } from "@/lib/inboundVendorInvoiceUi";
 import { assertGrnLineQuantitiesAccountable } from "@/lib/grnLineQuantityValidation";
 import { Button } from "@/components/ui/button";
@@ -368,7 +375,7 @@ function invoiceCollectionClass(value: string | null | undefined): string {
 
 /** Vendor invoice files (JPG, JPEG, PDF; 4 MB each). Server enforces per-file
  * size + type; client caps the count to keep the upload loop bounded. */
-const VENDOR_INVOICE_MAX_FILES = 10;
+const VENDOR_INVOICE_MAX_FILES = VENDOR_INVOICE_MAX_FILES_LIB;
 function filterVendorInvoiceFilesPicked(picked: File[]): File[] {
   if (picked.length > VENDOR_INVOICE_MAX_FILES) {
     toast.message(
@@ -1707,6 +1714,24 @@ export default function InboundGrnDetailPage() {
     };
   }, [grnId]);
 
+  /** Single source of truth for re-fetching the GRN bundle. Every mutation
+   * (line save, file upload, status change, DN action, etc.) calls this so
+   * dependent components — header, line items, logs, debit-note panels, file
+   * lists — refresh together without a manual page reload. */
+  const reloadBundle = React.useCallback(async (): Promise<GrnDetailsBundle | null> => {
+    if (!grnId) return null;
+    try {
+      const refreshed = await apiFetch<GrnDetailsBundle>(
+        `/api/inbound/grns/${encodeURIComponent(grnId)}/details`
+      );
+      setBundle(refreshed);
+      return refreshed;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refresh failed");
+      return null;
+    }
+  }, [grnId]);
+
   const row = bundle?.header ?? null;
   const snap = bundle?.snapshot ?? null;
 
@@ -1759,12 +1784,13 @@ export default function InboundGrnDetailPage() {
   function handleGenerateDebitNote(grnId: number) {
     setGeneratingNote(true);
     apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note`, { method: "POST" })
-      .then((note) => {
+      .then(async (note) => {
         setDebitNote(note);
         toast.success(
           `Debit note ${note.note_reference}: ${note.lines.length} line(s), total ₹${Number(note.total_debit_amount).toFixed(2)}`
         );
         refreshDebitNoteQuiet(grnId);
+        await reloadBundle();
       })
       .catch(async (e: unknown) => {
         const msg = e instanceof Error ? e.message : "Failed to generate debit note";
@@ -1785,6 +1811,7 @@ export default function InboundGrnDetailPage() {
               `Debit note ${forced.note_reference}: ${forced.lines.length} line(s), total ₹${Number(forced.total_debit_amount).toFixed(2)}`
             );
             refreshDebitNoteQuiet(grnId);
+            await reloadBundle();
             return;
           }
         }
@@ -1800,7 +1827,11 @@ export default function InboundGrnDetailPage() {
       method: "PATCH",
       body: JSON.stringify({ dn_number: dnNumberInput.trim() }),
     })
-      .then((note) => { setDebitNote(note); toast.success("DN number assigned"); })
+      .then(async (note) => {
+        setDebitNote(note);
+        toast.success("DN number assigned");
+        await reloadBundle();
+      })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to assign DN number"))
       .finally(() => setAssigningDnNumber(false));
   }
@@ -1866,7 +1897,12 @@ export default function InboundGrnDetailPage() {
     const fd = new FormData();
     fd.append("file", file);
     apiFetch<ZapDebitNote>(`/api/inbound/grns/${grnId}/debit-note/cn-copy`, { method: "POST", body: fd })
-      .then((note) => { setDebitNote(note); toast.success("CN copy uploaded"); if (cnCopyRef.current) cnCopyRef.current.value = ""; })
+      .then(async (note) => {
+        setDebitNote(note);
+        toast.success("CN copy uploaded");
+        if (cnCopyRef.current) cnCopyRef.current.value = "";
+        await reloadBundle();
+      })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Upload failed"))
       .finally(() => setUploadingCnCopy(false));
   }
@@ -1905,6 +1941,7 @@ export default function InboundGrnDetailPage() {
           { method: "POST" }
         );
         setDebitNote(note);
+        await reloadBundle();
       } catch (e: unknown) {
         toast.error(
           e instanceof Error
@@ -1965,10 +2002,7 @@ export default function InboundGrnDetailPage() {
           body: fd,
         });
       }
-      const refreshed = await apiFetch<GrnDetailsBundle>(
-        `/api/inbound/grns/${grnId}/details`
-      );
-      setBundle(refreshed);
+      await reloadBundle();
       toast.success(
         files.length === 1 ? "Invoice uploaded" : "Invoices uploaded"
       );
@@ -2035,10 +2069,7 @@ export default function InboundGrnDetailPage() {
 
       await apiFetch<GrnHeader>(`/api/inbound/grns/${gid}/close`, { method: "POST" });
 
-      const refreshed = await apiFetch<GrnDetailsBundle>(
-        `/api/inbound/grns/${grnId}/details`
-      );
-      setBundle(refreshed);
+      await reloadBundle();
       toast.success("GRN closed");
       setCloseGrnModalOpen(false);
       setCloseGrnFiles([]);
@@ -2090,14 +2121,7 @@ export default function InboundGrnDetailPage() {
     })
       .then(async (header) => {
         toast.success(`GRN opened (status: ${header.grn_status ?? "OPEN"})`);
-        try {
-          const refreshed = await apiFetch<GrnDetailsBundle>(
-            `/api/inbound/grns/${encodeURIComponent(draftId)}/details`
-          );
-          setBundle(refreshed);
-        } catch {
-          /** Save succeeded; refresh blip is non-fatal — page reload picks it up. */
-        }
+        await reloadBundle();
       })
       .catch((e: unknown) =>
         toast.error(e instanceof Error ? e.message : "Open failed")
@@ -2233,9 +2257,9 @@ export default function InboundGrnDetailPage() {
       method: "PATCH",
       body: JSON.stringify({ accounts_status: action }),
     })
-      .then((updated) => {
-        if (bundle) setBundle({ ...bundle, header: updated });
+      .then(async () => {
         toast.success(action === "APPROVED" ? "Accounts approved" : "Accounts rejected");
+        await reloadBundle();
       })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Action failed"))
       .finally(() => setAccountsSubmitting(false));
@@ -2271,12 +2295,13 @@ export default function InboundGrnDetailPage() {
       `/api/inbound/grns/${grnId}/receive-inventory`,
       { method: "POST", body: JSON.stringify({ items: payload }) }
     )
-      .then((res) => {
+      .then(async (res) => {
         setReceiptDone(res.results);
-        // Refresh header to show inventory_receipt_status=DONE
-        return apiFetch<GrnHeader>(`/api/inbound/grns/${grnId}`);
+        /** Refresh the whole bundle so header (inventory_receipt_status=DONE),
+         * grn_logs (the receive-inventory log entry), and grn_items (any
+         * derived totals) all refresh together. */
+        await reloadBundle();
       })
-      .then((updated) => { if (bundle) setBundle({ ...bundle, header: updated }); })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Failed to book inventory"))
       .finally(() => setReceiptSubmitting(false));
   }
@@ -3000,20 +3025,11 @@ export default function InboundGrnDetailPage() {
             onLineUpdated={async () => {
               /** After a line save, close the sidebar and re-fetch the whole
                * bundle so derived totals (accepted/rejected/shortage on the
-               * GRN header, fill-rate badges, debit-note flags, etc.) all
-               * reflect the new state instead of just the row we touched. */
+               * GRN header, fill-rate badges, debit-note flags, logs, etc.)
+               * all reflect the new state instead of just the row we touched. */
               setGrnSkuSheetOpen(false);
               setGrnSkuSelectedLine(null);
-              try {
-                const refreshed = await apiFetch<GrnDetailsBundle>(
-                  `/api/inbound/grns/${encodeURIComponent(grnId)}/details`
-                );
-                setBundle(refreshed);
-              } catch (e) {
-                toast.error(
-                  e instanceof Error ? e.message : "Saved, but refresh failed"
-                );
-              }
+              await reloadBundle();
             }}
           />
 
@@ -3384,14 +3400,13 @@ export default function InboundGrnDetailPage() {
               </div>
               <DialogFooter className="border-border bg-muted/10 flex shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
                 {(() => {
-                  const ready = hasVendorInvoiceReadyToClose({
+                  const hint = closeGrnDisabledHint({
+                    busy: closeGrnBusy,
                     existingInvoiceFilesCount: bundle.invoice_files.length,
                     stagedInvoiceFilesCount: closeGrnFiles.length,
                   });
-                  return !ready ? (
-                    <p className="text-muted-foreground text-xs sm:mr-auto">
-                      Upload at least one invoice file (or use one already on this GRN) before closing.
-                    </p>
+                  return hint ? (
+                    <p className="text-muted-foreground text-xs sm:mr-auto">{hint}</p>
                   ) : (
                     <span className="sm:mr-auto" />
                   );
@@ -3407,36 +3422,24 @@ export default function InboundGrnDetailPage() {
                   </Button>
                   <Button
                     type="button"
-                    disabled={
-                      closeGrnBusy ||
-                      !hasVendorInvoiceReadyToClose({
-                        existingInvoiceFilesCount: bundle.invoice_files.length,
-                        stagedInvoiceFilesCount: closeGrnFiles.length,
-                      })
-                    }
+                    disabled={closeGrnSubmitDisabled({
+                      busy: closeGrnBusy,
+                      existingInvoiceFilesCount: bundle.invoice_files.length,
+                      stagedInvoiceFilesCount: closeGrnFiles.length,
+                    })}
                     title={
-                      hasVendorInvoiceReadyToClose({
+                      closeGrnDisabledHint({
+                        busy: closeGrnBusy,
                         existingInvoiceFilesCount: bundle.invoice_files.length,
                         stagedInvoiceFilesCount: closeGrnFiles.length,
-                      })
-                        ? undefined
-                        : "Upload at least one invoice file before closing"
+                      }) ?? undefined
                     }
                     onClick={() => void handleConfirmCloseGrn()}
                   >
-                    {(() => {
-                      if (closeGrnBusy) {
-                        return closeGrnFiles.length > 0
-                          ? "Uploading & Closing…"
-                          : "Closing…";
-                      }
-                      if (closeGrnFiles.length > 0) {
-                        return `Upload ${closeGrnFiles.length} file${
-                          closeGrnFiles.length === 1 ? "" : "s"
-                        } & Close GRN`;
-                      }
-                      return "Close GRN";
-                    })()}
+                    {closeGrnSubmitLabel({
+                      busy: closeGrnBusy,
+                      stagedFilesCount: closeGrnFiles.length,
+                    })}
                   </Button>
                 </div>
               </DialogFooter>
