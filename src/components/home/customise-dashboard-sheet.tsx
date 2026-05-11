@@ -25,13 +25,18 @@ const CARD_LABELS: Record<DashboardCardId, string> = {
   fill_rate_pct: "Avg fill rate",
   inbound_qty: "Inbound received (qty)",
   skus_below_reorder: "SKUs below reorder",
+  gmv_value_30d: "GMV value (30d)",
   ops_queues: "Ops queues",
   open_pos: "Open sales POs",
   vendor_quality: "Vendor quality",
   inventory_snapshot: "Inventory snapshot",
+  sku_velocity_buckets: "SKU velocity",
   trends: "Trend charts",
   channel_mix: "Channel mix",
   reorder_alerts_strip: "Reorder alerts strip",
+  sku_movement: "SKU movement (30/60/90d)",
+  stockout_risk: "Stockout risk",
+  dead_stock: "Dead stock",
   saved_query_panel: "Saved queries",
 };
 

@@ -40,6 +40,7 @@ export type DebitNote = {
   cn_copy_file_name: string | null;
   cn_copy_uploaded_at: string | null;
   cn_copy_uploaded_by: string | null;
+  narration: string;
   lines: DebitNoteLine[];
 };
 
@@ -124,15 +125,26 @@ function toNum(v: unknown): number {
 
 // ── Internal fetch helpers ────────────────────────────────────────────────────
 
+function buildNarration(grnId: number, poId: number | null, rejectedQty: number, shortageQty: number): string {
+  const parts = [`Price diff on GRN ${grnId} — PO ${poId ?? "N/A"}`];
+  if (rejectedQty > 0) parts.push(`Damage: ${rejectedQty} units`);
+  if (shortageQty > 0) parts.push(`Missing: ${shortageQty} units`);
+  return parts.join(" | ");
+}
+
 async function fetchNoteById(noteId: number): Promise<DebitNote> {
   const [noteRes, lineRes] = await Promise.all([
     query(
-      `SELECT id, grn_id, note_reference, vendor_id, vendor_name, po_id,
-              total_debit_amount, line_count, status, generated_by,
-              generated_at, exported_at, notes,
-              dn_number, dn_number_assigned_by, dn_number_assigned_at,
-              cn_copy_file_path, cn_copy_file_name, cn_copy_uploaded_at, cn_copy_uploaded_by
-       FROM inbound_zap_debit_notes WHERE id = $1`,
+      `SELECT n.id, n.grn_id, n.note_reference, n.vendor_id, n.vendor_name, n.po_id,
+              n.total_debit_amount, n.line_count, n.status, n.generated_by,
+              n.generated_at, n.exported_at, n.notes,
+              n.dn_number, n.dn_number_assigned_by, n.dn_number_assigned_at,
+              n.cn_copy_file_path, n.cn_copy_file_name, n.cn_copy_uploaded_at, n.cn_copy_uploaded_by,
+              COALESCE(g.grn_rejected_quantity, 0) AS grn_rejected_quantity,
+              COALESCE(g.grn_shortage_quantity, 0) AS grn_shortage_quantity
+       FROM inbound_zap_debit_notes n
+       LEFT JOIN inbound_grns g ON g.grn_id = n.grn_id
+       WHERE n.id = $1`,
       [noteId]
     ),
     query(
@@ -145,13 +157,15 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
   ]);
   if (noteRes.rows.length === 0) throw new AppError("Debit note not found", 404);
   const note = noteRes.rows[0];
+  const grnId = toNum(note.grn_id);
+  const poId = note.po_id == null ? null : toNum(note.po_id);
   return {
     id: toNum(note.id),
-    grn_id: toNum(note.grn_id),
+    grn_id: grnId,
     note_reference: String(note.note_reference ?? ""),
     vendor_id: note.vendor_id == null ? null : toNum(note.vendor_id),
     vendor_name: note.vendor_name ?? null,
-    po_id: note.po_id == null ? null : toNum(note.po_id),
+    po_id: poId,
     total_debit_amount: toNum(note.total_debit_amount),
     line_count: toNum(note.line_count),
     status: (note.status as DebitNote["status"]) ?? "DRAFT",
@@ -166,6 +180,7 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
     cn_copy_file_name: note.cn_copy_file_name ?? null,
     cn_copy_uploaded_at: note.cn_copy_uploaded_at ? String(note.cn_copy_uploaded_at) : null,
     cn_copy_uploaded_by: note.cn_copy_uploaded_by ?? null,
+    narration: buildNarration(grnId, poId, toNum(note.grn_rejected_quantity), toNum(note.grn_shortage_quantity)),
     lines: lineRes.rows.map((l) => ({
       id: toNum(l.id),
       debit_note_id: toNum(l.debit_note_id),
@@ -648,7 +663,7 @@ export async function buildTallyCsv(
   const lines: string[] = [
     csvRow([
       "VoucherType", "Date", "VoucherNo", "PartyName",
-      "StockItem", "Quantity", "VendorRate", "AuditRate",
+      "StockItem", "Quantity", "InvoicePrice", "AuditRate",
       "RateDiff", "Amount(Debit)", "Narration",
     ]),
   ];
@@ -666,7 +681,7 @@ export async function buildTallyCsv(
         Number(l.audit_price),
         Number(l.price_diff),
         Number(l.debit_amount),
-        `Price diff on GRN ${note.grn_id} — PO ${note.po_id ?? "N/A"}`,
+        note.narration,
       ])
     );
   }

@@ -104,3 +104,21 @@ test("defaultPositionFor returns a fresh object each call", () => {
   assert.notEqual(a, b);
   assert.deepEqual(a, b);
 });
+
+test("SKU-movement + business cards are registered with default positions", () => {
+  const NEW_IDS = [
+    "gmv_value_30d",
+    "sku_velocity_buckets",
+    "sku_movement",
+    "stockout_risk",
+    "dead_stock",
+  ] as const;
+  for (const id of NEW_IDS) {
+    assert.ok(
+      (DASHBOARD_CARD_IDS as readonly string[]).includes(id),
+      `${id} missing from DASHBOARD_CARD_IDS`
+    );
+    const pos = defaultPositionFor(id);
+    assert.ok(pos.w >= 1 && pos.h >= 1, `${id} should have a non-zero default position`);
+  }
+});

@@ -1,11 +1,33 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function downloadBlob(path: string, body: unknown, filename: string) {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const token = getStoredToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(apiUrl(path), { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = t || res.statusText;
+    try { const j = JSON.parse(t) as { error?: string }; if (j.error) msg = j.error; } catch { /* plain */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 // ── Domain types ─────────────────────────────────────────────────────────────
 
@@ -89,6 +111,7 @@ function InputPhase({
   onAddRow,
   onRemoveRow,
   onSuggest,
+  onCsvUpload,
 }: Readonly<{
   rows: InputRow[];
   loading: boolean;
@@ -96,7 +119,10 @@ function InputPhase({
   onAddRow: () => void;
   onRemoveRow: (id: string) => void;
   onSuggest: () => void;
+  onCsvUpload: (file: File) => void;
 }>) {
+  const csvRef = React.useRef<HTMLInputElement>(null);
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -132,9 +158,40 @@ function InputPhase({
         ))}
         <Button variant="outline" size="sm" onClick={onAddRow}>+ Add SKU</Button>
       </div>
-      <Button className="min-h-10" disabled={loading} onClick={onSuggest}>
-        {loading ? "Loading…" : "Get suggestions →"}
-      </Button>
+
+      <div className="flex items-center gap-3">
+        <Button className="min-h-10" disabled={loading} onClick={onSuggest}>
+          {loading ? "Loading…" : "Get suggestions →"}
+        </Button>
+        <span className="text-muted-foreground text-xs">or</span>
+        <input
+          ref={csvRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="sr-only"
+          disabled={loading}
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) { onCsvUpload(f); e.target.value = ""; }
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-10"
+          disabled={loading}
+          onClick={() => csvRef.current?.click()}
+        >
+          Upload CSV
+        </Button>
+        <Link
+          href="/samples/bins/sample_outward.csv"
+          download="sample_outward.csv"
+          className="text-xs text-primary underline-offset-2 hover:underline"
+        >
+          Sample CSV
+        </Link>
+      </div>
     </div>
   );
 }
@@ -268,9 +325,34 @@ function ReviewPhase({
 
 function DonePhase({
   results,
+  suggestions,
+  committedAt,
   onReset,
-}: Readonly<{results: CommitSkuResult[]; onReset: () => void}>) {
+}: Readonly<{
+  results: CommitSkuResult[];
+  suggestions: SkuSuggestion[];
+  committedAt: string;
+  onReset: () => void;
+}>) {
+  const [downloading, setDownloading] = React.useState(false);
   const totalDeducted = results.reduce((s, r) => s + r.total_deducted, 0);
+  const descriptions = Object.fromEntries(suggestions.map(s => [s.sku_id, s.description ?? ""]));
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const slug = committedAt.slice(0, 16).replaceAll("T", "-").replaceAll(":", "-");
+      await downloadBlob(
+        "/api/bins/outward/changes-export",
+        { committed_at: committedAt, results, descriptions },
+        `bin-changes-${slug}.xlsx`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -279,7 +361,7 @@ function DonePhase({
           Allocation committed — {results.length} SKU{results.length !== 1 ? "s" : ""}, {totalDeducted} units total
         </p>
       </div>
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-lg border bg-card overflow-hidden print-results">
         {results.map((r, i) => (
           <div key={r.sku_id} className={`p-4 space-y-2 ${i < results.length - 1 ? "border-b" : ""}`}>
             <div className="flex items-center justify-between">
@@ -288,18 +370,27 @@ function DonePhase({
                 −{r.total_deducted} units
               </Badge>
             </div>
+            {descriptions[r.sku_id] ? (
+              <p className="text-xs text-muted-foreground">{descriptions[r.sku_id]}</p>
+            ) : null}
             <div className="space-y-1">
               {r.bins.map(b => (
                 <div key={b.bin_id} className="flex items-center justify-between text-xs text-muted-foreground">
                   <span className="font-mono">{b.bin_id}</span>
-                  <span>deducted {b.deducted} · remaining {b.new_qty}</span>
+                  <span>prev {b.new_qty + b.deducted} → deducted {b.deducted} → remaining {b.new_qty}</span>
                 </div>
               ))}
             </div>
           </div>
         ))}
       </div>
-      <Button onClick={onReset}>New outward</Button>
+      <div className="flex gap-2 print:hidden">
+        <Button onClick={onReset} variant="outline">New outward</Button>
+        <Button onClick={() => void handleDownload()} disabled={downloading}>
+          {downloading ? "Downloading…" : "Download Excel"}
+        </Button>
+        <Button variant="outline" onClick={() => globalThis.print()}>Print</Button>
+      </div>
     </div>
   );
 }
@@ -314,6 +405,7 @@ export default function BulkOutwardPage() {
   const [suggestions, setSuggestions] = React.useState<SkuSuggestion[]>([]);
   const [overrides, setOverrides] = React.useState<OverrideMap>(new Map());
   const [commitResults, setCommitResults] = React.useState<CommitSkuResult[]>([]);
+  const [committedAt, setCommittedAt] = React.useState<string>("");
   const [loading, setLoading] = React.useState(false);
 
   function handleRowChange(id: string, field: "sku_id" | "required_qty", value: string) {
@@ -363,6 +455,42 @@ export default function BulkOutwardPage() {
     }
   }
 
+  async function handleCsvUpload(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    setLoading(true);
+    try {
+      const result = await apiFetch<{ items: { sku_id: string; required_qty: number }[]; errors: { row: number; message: string }[] }>(
+        "/api/bins/outward/parse-csv",
+        { method: "POST", body: fd }
+      );
+      if (result.errors.length > 0) {
+        const preview = result.errors.slice(0, 4).map(e => `Row ${e.row}: ${e.message}`).join("\n");
+        toast.warning(`Parsed ${result.items.length} rows; ${result.errors.length} error(s)`, { description: preview + (result.errors.length > 4 ? "\n…" : "") });
+      }
+      if (result.items.length === 0) { setLoading(false); return; }
+      const newRows: InputRow[] = result.items.map(item => {
+        rowCounter += 1;
+        return { id: String(rowCounter), sku_id: item.sku_id, required_qty: String(item.required_qty) };
+      });
+      setRows(newRows);
+      // Auto-proceed to suggest
+      const items = newRows.map(r => ({ sku_id: r.sku_id.trim(), required_qty: Number(r.required_qty) }));
+      const suggestion = await apiFetch<SuggestResult>("/api/bins/outward/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      setSuggestions(suggestion.suggestions);
+      setOverrides(new Map());
+      setPhase("review");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "CSV upload failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleCommit() {
     const commitItems = buildCommitItems(suggestions, overrides);
     setLoading(true);
@@ -373,6 +501,7 @@ export default function BulkOutwardPage() {
         body: JSON.stringify({ items: commitItems }),
       });
       setCommitResults(result.results);
+      setCommittedAt(new Date().toISOString());
       setPhase("done");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Commit failed");
@@ -386,6 +515,7 @@ export default function BulkOutwardPage() {
     setSuggestions([]);
     setOverrides(new Map());
     setCommitResults([]);
+    setCommittedAt("");
     setPhase("input");
   }
 
@@ -418,6 +548,7 @@ export default function BulkOutwardPage() {
           onAddRow={handleAddRow}
           onRemoveRow={handleRemoveRow}
           onSuggest={handleSuggest}
+          onCsvUpload={handleCsvUpload}
         />
       )}
       {phase === "review" && (
@@ -431,7 +562,12 @@ export default function BulkOutwardPage() {
         />
       )}
       {phase === "done" && (
-        <DonePhase results={commitResults} onReset={handleReset} />
+        <DonePhase
+          results={commitResults}
+          suggestions={suggestions}
+          committedAt={committedAt}
+          onReset={handleReset}
+        />
       )}
     </div>
   );

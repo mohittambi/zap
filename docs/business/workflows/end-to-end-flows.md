@@ -92,6 +92,8 @@ flowchart LR
    → Enters quantities received per SKU
    → Flags any damaged or missing items
 
+   > **What "Pending Audits" means.** When a GRN is received but the quantities haven't been verified yet, it sits on the **Pending Audits** queue. A warehouse auditor opens each GRN, confirms accepted / rejected / shortage quantities line by line, and then marks the audit complete — at which point the GRN moves on to **Pending Invoice Collection**. Until audit is complete, the GRN can't progress to invoice matching or stock update. *(Note: audit is one-way today — there's no UI to send a GRN back from "audited" to "pending" if a mistake is found; flag the IT team for a manual fix.)*
+
 4. **Invoice received from vendor**
    → Uploaded to the GRN in Zap
    → Linked to the correct PO record

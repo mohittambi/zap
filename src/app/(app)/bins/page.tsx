@@ -206,6 +206,9 @@ export default function BinsPage() {
         </div>
         <div className="flex shrink-0 gap-2">
           <Button asChild variant="outline" className="min-h-11">
+            <Link href="/bins/changes">Bin changes</Link>
+          </Button>
+          <Button asChild variant="outline" className="min-h-11">
             <Link href="/bins/outward">Bulk outward</Link>
           </Button>
           <Button asChild className="min-h-11">

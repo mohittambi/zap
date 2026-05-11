@@ -66,6 +66,46 @@ export type InventorySnapshot = { units_on_hand: number; skus_at_zero: number };
 
 export type ChannelMixRow = { company: string; qty: number };
 
+export type SkuMovementRow = {
+  sku_id: string;
+  description: string | null;
+  qty_30d: number;
+  qty_60d: number;
+  qty_90d: number;
+  available_qty: number;
+};
+
+export type DeadStockRow = {
+  sku_id: string;
+  description: string | null;
+  available_qty: number;
+  // Days since the last 'SALE' movement; null if never sold.
+  days_since_last_sale: number | null;
+};
+
+export type StockoutRiskRow = {
+  sku_id: string;
+  description: string | null;
+  available_qty: number;
+  sold_30d: number;
+  // Calendar days of cover at current 30d burn rate. Null when sold_30d == 0
+  // (treated separately as "dead stock" — see dead_stock card).
+  days_of_cover: number | null;
+};
+
+// Catalogue health by velocity — constants + type live in @/lib/skuVelocity
+// so Client Components can import them without pulling in the server bundle.
+export {
+  SKU_VELOCITY_FAST_THRESHOLD,
+  SKU_VELOCITY_MEDIUM_THRESHOLD,
+  type SkuVelocityBuckets,
+} from "@/lib/skuVelocity";
+import {
+  SKU_VELOCITY_FAST_THRESHOLD,
+  SKU_VELOCITY_MEDIUM_THRESHOLD,
+  type SkuVelocityBuckets,
+} from "@/lib/skuVelocity";
+
 export type HomeSummary = {
   range: { from: string; to: string };
   scoped: { company_id: number | null; company_name: string | null };
@@ -79,6 +119,7 @@ export type HomeSummary = {
     fill_rate_pct: Delta;
     inbound_qty: Delta;
     skus_below_reorder: { value: number; prev_mom: null; prev_yoy: null };
+    gmv_value_30d: Delta;
   };
   ops_queues: OpsQueues;
   open_pos: OpenPosStat;
@@ -91,6 +132,10 @@ export type HomeSummary = {
     inbound_qty_daily: TrendPoint[];
   };
   reorder_top: Awaited<ReturnType<typeof getReorderMetrics>>["data"];
+  sku_movement: SkuMovementRow[];
+  dead_stock: DeadStockRow[];
+  stockout_risk: StockoutRiskRow[];
+  sku_velocity: SkuVelocityBuckets;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -249,6 +294,26 @@ function inboundQtySql() {
   });
 }
 
+// Dispatched MRP value: sum(consignment_quantity * mrp) for consignments
+// marked RTD in the window. Rows missing mrp contribute 0 to the sum.
+function gmvValueSql(companyId: number | null, companyName: string | null) {
+  return (start: string, end: string) => {
+    const params: unknown[] = [start, end];
+    const filter = buildCompanyFilter("c.", companyId, companyName, 3);
+    params.push(...filter.params);
+    return {
+      text: `SELECT COALESCE(
+                SUM(ci.consignment_quantity * ci.mrp),
+                0)::numeric AS v
+             FROM outbound_consignment_items ci
+             JOIN outbound_consignments c ON c.id = ci.consignment_id
+             WHERE c.marked_rtd_at >= $1::timestamptz
+               AND c.marked_rtd_at < $2::timestamptz${filter.sql}`,
+      params,
+    };
+  };
+}
+
 // ── Phase 2 aggregations ─────────────────────────────────────────────────────
 
 async function getOpsQueues(): Promise<OpsQueues> {
@@ -318,6 +383,186 @@ async function getInventorySnapshot(): Promise<InventorySnapshot> {
   return {
     units_on_hand: Number(row.units_on_hand),
     skus_at_zero: Number(row.skus_at_zero),
+  };
+}
+
+// ── SKU movement / health builders ───────────────────────────────────────────
+
+/**
+ * Top N SKUs by 30-day movement (units sold). Returns 30/60/90-day totals so
+ * callers can compare velocity trends, plus current on-hand availability.
+ */
+async function getSkuMovement(limit: number): Promise<SkuMovementRow[]> {
+  const r = await query(
+    `WITH movement AS (
+       SELECT sku_id,
+              SUM(quantity) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')::int AS qty_30d,
+              SUM(quantity) FILTER (WHERE created_at >= NOW() - INTERVAL '60 days')::int AS qty_60d,
+              SUM(quantity) FILTER (WHERE created_at >= NOW() - INTERVAL '90 days')::int AS qty_90d
+       FROM   warehouse_inventory_dump
+       WHERE  inventory_operation_type = 'REMOVE'
+         AND  (movement_type IS NULL OR movement_type = 'SALE')
+         AND  created_at >= NOW() - INTERVAL '90 days'
+       GROUP  BY sku_id
+     ),
+     on_hand AS (
+       SELECT sku_id, SUM(available_quantity)::int AS available_qty
+       FROM   bins
+       WHERE  is_deleted = false
+       GROUP  BY sku_id
+     )
+     SELECT l.sku_id,
+            l.description,
+            COALESCE(m.qty_30d, 0)            AS qty_30d,
+            COALESCE(m.qty_60d, 0)            AS qty_60d,
+            COALESCE(m.qty_90d, 0)            AS qty_90d,
+            COALESCE(oh.available_qty, 0)     AS available_qty
+     FROM   listings l
+     JOIN   movement m   ON m.sku_id  = l.sku_id
+     LEFT   JOIN on_hand oh ON oh.sku_id = l.sku_id
+     ORDER  BY m.qty_30d DESC NULLS LAST, m.qty_60d DESC NULLS LAST
+     LIMIT  $1`,
+    [limit]
+  );
+  return r.rows.map((row) => ({
+    sku_id: String(row.sku_id),
+    description: row.description == null ? null : String(row.description),
+    qty_30d: Number(row.qty_30d),
+    qty_60d: Number(row.qty_60d),
+    qty_90d: Number(row.qty_90d),
+    available_qty: Number(row.available_qty),
+  }));
+}
+
+/**
+ * SKUs with on-hand stock but no SALE movement in the last 60 days.
+ * "days_since_last_sale" is null when the SKU has never been sold.
+ */
+async function getDeadStock(limit: number): Promise<DeadStockRow[]> {
+  const r = await query(
+    `WITH last_sale AS (
+       SELECT sku_id, MAX(created_at) AS last_sale_at
+       FROM   warehouse_inventory_dump
+       WHERE  inventory_operation_type = 'REMOVE'
+         AND  (movement_type IS NULL OR movement_type = 'SALE')
+       GROUP  BY sku_id
+     ),
+     on_hand AS (
+       SELECT sku_id, SUM(available_quantity)::int AS available_qty
+       FROM   bins
+       WHERE  is_deleted = false
+       GROUP  BY sku_id
+       HAVING SUM(available_quantity) > 0
+     )
+     SELECT l.sku_id,
+            l.description,
+            oh.available_qty,
+            CASE WHEN ls.last_sale_at IS NULL THEN NULL
+                 ELSE EXTRACT(EPOCH FROM (NOW() - ls.last_sale_at))::numeric / 86400
+            END AS days_since_last_sale
+     FROM   on_hand oh
+     JOIN   listings  l  ON l.sku_id  = oh.sku_id
+     LEFT   JOIN last_sale ls ON ls.sku_id = oh.sku_id
+     WHERE  ls.last_sale_at IS NULL
+        OR  ls.last_sale_at < NOW() - INTERVAL '60 days'
+     ORDER  BY oh.available_qty DESC, ls.last_sale_at ASC NULLS FIRST
+     LIMIT  $1`,
+    [limit]
+  );
+  return r.rows.map((row) => ({
+    sku_id: String(row.sku_id),
+    description: row.description == null ? null : String(row.description),
+    available_qty: Number(row.available_qty),
+    days_since_last_sale:
+      row.days_since_last_sale == null
+        ? null
+        : Math.floor(Number(row.days_since_last_sale)),
+  }));
+}
+
+/**
+ * SKUs projected to run out within 14 days at current 30-day burn rate.
+ * Excludes SKUs with no 30-day sales (those are dead stock, not stockout risk).
+ */
+async function getStockoutRisk(limit: number): Promise<StockoutRiskRow[]> {
+  const r = await query(
+    `WITH sales_30d AS (
+       SELECT sku_id, SUM(quantity)::int AS sold_30d
+       FROM   warehouse_inventory_dump
+       WHERE  inventory_operation_type = 'REMOVE'
+         AND  (movement_type IS NULL OR movement_type = 'SALE')
+         AND  created_at >= NOW() - INTERVAL '30 days'
+       GROUP  BY sku_id
+       HAVING SUM(quantity) > 0
+     ),
+     on_hand AS (
+       SELECT sku_id, SUM(available_quantity)::int AS available_qty
+       FROM   bins
+       WHERE  is_deleted = false
+       GROUP  BY sku_id
+     )
+     SELECT l.sku_id,
+            l.description,
+            COALESCE(oh.available_qty, 0)               AS available_qty,
+            s.sold_30d,
+            COALESCE(oh.available_qty, 0)::numeric
+              / NULLIF(s.sold_30d, 0) * 30              AS days_of_cover
+     FROM   sales_30d s
+     JOIN   listings l   ON l.sku_id  = s.sku_id
+     LEFT   JOIN on_hand oh ON oh.sku_id = s.sku_id
+     WHERE  COALESCE(oh.available_qty, 0)::numeric
+              / NULLIF(s.sold_30d, 0) * 30 < 14
+     ORDER  BY days_of_cover ASC NULLS FIRST, s.sold_30d DESC
+     LIMIT  $1`,
+    [limit]
+  );
+  return r.rows.map((row) => ({
+    sku_id: String(row.sku_id),
+    description: row.description == null ? null : String(row.description),
+    available_qty: Number(row.available_qty),
+    sold_30d: Number(row.sold_30d),
+    days_of_cover:
+      row.days_of_cover == null ? null : Number(row.days_of_cover),
+  }));
+}
+
+async function getSkuVelocityBuckets(): Promise<SkuVelocityBuckets> {
+  const r = await query(
+    `WITH sales_30d AS (
+       SELECT sku_id, SUM(quantity)::int AS sold_30d
+       FROM   warehouse_inventory_dump
+       WHERE  inventory_operation_type = 'REMOVE'
+         AND  (movement_type IS NULL OR movement_type = 'SALE')
+         AND  created_at >= NOW() - INTERVAL '30 days'
+       GROUP  BY sku_id
+     ),
+     on_hand AS (
+       SELECT sku_id, SUM(available_quantity)::int AS available_qty
+       FROM   bins
+       WHERE  is_deleted = false
+       GROUP  BY sku_id
+     )
+     SELECT
+       COUNT(*) FILTER (WHERE COALESCE(s.sold_30d, 0) >= $1)::int                                                   AS fast,
+       COUNT(*) FILTER (WHERE COALESCE(s.sold_30d, 0) >= $2 AND COALESCE(s.sold_30d, 0) < $1)::int                  AS medium,
+       COUNT(*) FILTER (WHERE COALESCE(s.sold_30d, 0) >  0 AND COALESCE(s.sold_30d, 0) < $2)::int                   AS slow,
+       COUNT(*) FILTER (WHERE COALESCE(s.sold_30d, 0) =  0 AND COALESCE(oh.available_qty, 0) > 0)::int              AS dead
+     FROM   listings l
+     LEFT   JOIN sales_30d s ON s.sku_id  = l.sku_id
+     LEFT   JOIN on_hand  oh ON oh.sku_id = l.sku_id`,
+    [SKU_VELOCITY_FAST_THRESHOLD, SKU_VELOCITY_MEDIUM_THRESHOLD]
+  );
+  const row = r.rows[0] as {
+    fast: number;
+    medium: number;
+    slow: number;
+    dead: number;
+  };
+  return {
+    fast: Number(row.fast),
+    medium: Number(row.medium),
+    slow: Number(row.slow),
+    dead: Number(row.dead),
   };
 }
 
@@ -430,6 +675,7 @@ export async function getHomeSummary(opts: {
     salesPos,
     fillRate,
     inboundQty,
+    gmvValue,
     reorder,
     salesTrend,
     inboundTrend,
@@ -439,11 +685,16 @@ export async function getHomeSummary(opts: {
     shortageRate,
     inventorySnapshot,
     channelMix,
+    skuMovement,
+    deadStock,
+    stockoutRisk,
+    skuVelocity,
   ] = await Promise.all([
     sumWindow(salesQtySql(companyId, companyName), windows),
     sumWindow(salesPosSql(companyId, companyName), windows),
     sumWindow(fillRateSql(companyId, companyName), windows),
     sumWindow(inboundQtySql(), windows),
+    sumWindow(gmvValueSql(companyId, companyName), windows),
     getReorderMetrics({ alertsOnly: true, page: 1, limit: 8 }),
     dailyTrend("outbound_consignments", windows, companyId, companyName),
     dailyTrend("inbound_grns", windows, null, null),
@@ -454,6 +705,10 @@ export async function getHomeSummary(opts: {
     getInventorySnapshot(),
     // channel-mix only when no company filter — otherwise the breakdown is meaningless.
     companyId == null ? getChannelMix(windows) : Promise.resolve(null),
+    getSkuMovement(15),
+    getDeadStock(15),
+    getStockoutRisk(15),
+    getSkuVelocityBuckets(),
   ]);
 
   return {
@@ -466,6 +721,7 @@ export async function getHomeSummary(opts: {
       fill_rate_pct: asDelta(fillRate),
       inbound_qty: asDelta(inboundQty),
       skus_below_reorder: { value: reorder.total, prev_mom: null, prev_yoy: null },
+      gmv_value_30d: asDelta(gmvValue),
     },
     ops_queues: opsQueues,
     open_pos: openPos,
@@ -480,5 +736,9 @@ export async function getHomeSummary(opts: {
       inbound_qty_daily: inboundTrend,
     },
     reorder_top: reorder.data,
+    sku_movement: skuMovement,
+    dead_stock: deadStock,
+    stockout_risk: stockoutRisk,
+    sku_velocity: skuVelocity,
   };
 }

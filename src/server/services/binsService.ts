@@ -260,3 +260,100 @@ export async function adjustBinInventory(
     client.release();
   }
 }
+
+// ── Bin changes log ───────────────────────────────────────────────────────────
+
+export type BinChangeRow = {
+  id: number;
+  created_at: string;
+  warehouse_id: number;
+  sku_id: string;
+  description: string | null;
+  bin_id: string | null;
+  inventory_operation_type: string;
+  movement_type: string | null;
+  quantity: number;
+  user_id: string | null;
+};
+
+export type BinChangesFilters = {
+  sku_id?: string;
+  bin_id?: string;
+  movement_type?: string;
+  from?: string;
+  to?: string;
+  page: number;
+  limit: number;
+};
+
+export async function getBinChanges(
+  filters: BinChangesFilters
+): Promise<{ total: number; page: number; limit: number; data: BinChangeRow[] }> {
+  const { page, limit } = filters;
+  const offset = (page - 1) * limit;
+  const params: unknown[] = [];
+  const where: string[] = [];
+
+  if (filters.sku_id) {
+    params.push(`%${filters.sku_id}%`);
+    where.push(`w.sku_id ILIKE $${params.length}`);
+  }
+  if (filters.bin_id) {
+    params.push(`%${filters.bin_id}%`);
+    where.push(`w.bin_id ILIKE $${params.length}`);
+  }
+  if (filters.movement_type && filters.movement_type !== 'ALL') {
+    params.push(filters.movement_type);
+    where.push(`w.movement_type = $${params.length}`);
+  }
+  if (filters.from) {
+    params.push(filters.from);
+    where.push(`w.created_at >= $${params.length}`);
+  }
+  if (filters.to) {
+    params.push(filters.to);
+    where.push(`w.created_at <= $${params.length}`);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  const countRes = await query(
+    `SELECT COUNT(*)::int AS total
+       FROM warehouse_inventory_dump w
+       ${whereClause}`,
+    params
+  );
+  const total = Number(countRes.rows[0]?.total ?? 0);
+
+  params.push(limit, offset);
+  const dataRes = await query(
+    `SELECT w.id, w.created_at, w.warehouse_id, w.sku_id,
+            l.title AS description,
+            w.bin_id, w.inventory_operation_type, w.movement_type,
+            w.quantity, w.user_id
+       FROM warehouse_inventory_dump w
+       LEFT JOIN listings l ON l.sku_id = w.sku_id
+       ${whereClause}
+       ORDER BY w.created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+
+  return {
+    total,
+    page,
+    limit,
+    data: dataRes.rows.map((r) => ({
+      id: Number(r.id),
+      created_at: String(r.created_at ?? ''),
+      warehouse_id: Number(r.warehouse_id),
+      sku_id: String(r.sku_id ?? ''),
+      description: r.description ?? null,
+      bin_id: r.bin_id ?? null,
+      inventory_operation_type: String(r.inventory_operation_type ?? ''),
+      movement_type: r.movement_type ?? null,
+      quantity: Number(r.quantity ?? 0),
+      user_id: r.user_id ?? null,
+    })),
+  };
+}

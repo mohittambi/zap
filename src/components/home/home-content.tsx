@@ -21,6 +21,10 @@ import { OpenPosBody } from "@/components/home/open-pos-card";
 import { VendorQualityBody } from "@/components/home/vendor-quality-card";
 import { InventorySnapshotBody } from "@/components/home/inventory-snapshot-card";
 import { ReorderAlertsBody } from "@/components/home/reorder-alerts-strip";
+import { SkuMovementBody } from "@/components/home/sku-movement-card";
+import { DeadStockBody } from "@/components/home/dead-stock-card";
+import { StockoutRiskBody } from "@/components/home/stockout-risk-card";
+import { SkuVelocityBucketsBody } from "@/components/home/sku-velocity-buckets-card";
 import { SavedQueryPanel } from "@/components/home/saved-query-panel";
 import { useHomeSummary } from "@/hooks/use-home-summary";
 import { useDashboardPrefs } from "@/hooks/use-dashboard-prefs";
@@ -43,13 +47,18 @@ const CARD_TITLES: Record<DashboardCardId, string> = {
   fill_rate_pct: "Avg fill rate",
   inbound_qty: "Inbound received (qty)",
   skus_below_reorder: "SKUs below reorder",
+  gmv_value_30d: "GMV value (30d)",
   ops_queues: "Ops queues",
   open_pos: "Open sales POs",
   vendor_quality: "Vendor quality (30d)",
   inventory_snapshot: "Inventory snapshot",
+  sku_velocity_buckets: "SKU velocity",
   trends: "Trends — sales & inbound",
   channel_mix: "Channel mix — top 5 (30d)",
   reorder_alerts_strip: "Reorder alerts",
+  sku_movement: "SKU movement (30 / 60 / 90 d)",
+  stockout_risk: "Stockout risk",
+  dead_stock: "Dead stock",
   saved_query_panel: "Saved queries",
 };
 
@@ -59,13 +68,18 @@ const CARD_DESCRIPTIONS: Partial<Record<DashboardCardId, string>> = {
   fill_rate_pct: "Weighted by qty",
   inbound_qty: "GRN accepted",
   skus_below_reorder: "Live alert count",
+  gmv_value_30d: "Dispatched MRP value",
   ops_queues: "Pending action",
   open_pos: "OPEN + ACK PENDING",
   vendor_quality: "GRN ratios",
   inventory_snapshot: "Live, point-in-time",
+  sku_velocity_buckets: "Catalogue health (30d)",
   trends: "Trailing 90 days vs prior year",
   channel_mix: "Units shipped per company",
   reorder_alerts_strip: "Top SKUs below threshold",
+  sku_movement: "Top movers, switch window to re-sort",
+  stockout_risk: "<14 days of cover at current burn rate",
+  dead_stock: "On hand, no sale in 60+ days",
   saved_query_panel: "Pick a curated query, run it",
 };
 
@@ -422,6 +436,75 @@ export function HomeContent() {
     );
   }
 
+  if (isVisible("gmv_value_30d")) {
+    const cfg = getCardConfig("gmv_value_30d");
+    renderers.gmv_value_30d = (
+      <CardFrame
+        title={CARD_TITLES.gmv_value_30d}
+        description={CARD_DESCRIPTIONS.gmv_value_30d}
+        filterActive={!!cfg.filters && Object.keys(cfg.filters).length > 0}
+        onClearFilter={() => setCardFilters(cfg.id, undefined)}
+        actions={{ available: baseActions, onAction: (a) => handleCardAction("gmv_value_30d", a) }}
+      >
+        <KpiCardBody
+          value={data?.kpis.gmv_value_30d.value ?? null}
+          delta_mom_pct={data?.kpis.gmv_value_30d.delta_mom_pct ?? null}
+          delta_yoy_pct={data?.kpis.gmv_value_30d.delta_yoy_pct ?? null}
+          loading={loading}
+          href={withCompanyParam("/outbound", companyId)}
+        />
+      </CardFrame>
+    );
+  }
+
+  if (isVisible("sku_velocity_buckets")) {
+    renderers.sku_velocity_buckets = (
+      <CardFrame
+        title={CARD_TITLES.sku_velocity_buckets}
+        description={CARD_DESCRIPTIONS.sku_velocity_buckets}
+        actions={{ available: noFilterActions, onAction: (a) => handleCardAction("sku_velocity_buckets", a) }}
+      >
+        <SkuVelocityBucketsBody buckets={data?.sku_velocity} loading={loading} />
+      </CardFrame>
+    );
+  }
+
+  if (isVisible("sku_movement")) {
+    renderers.sku_movement = (
+      <CardFrame
+        title={CARD_TITLES.sku_movement}
+        description={CARD_DESCRIPTIONS.sku_movement}
+        actions={{ available: noFilterActions, onAction: (a) => handleCardAction("sku_movement", a) }}
+      >
+        <SkuMovementBody rows={data?.sku_movement} loading={loading} />
+      </CardFrame>
+    );
+  }
+
+  if (isVisible("stockout_risk")) {
+    renderers.stockout_risk = (
+      <CardFrame
+        title={CARD_TITLES.stockout_risk}
+        description={CARD_DESCRIPTIONS.stockout_risk}
+        actions={{ available: noFilterActions, onAction: (a) => handleCardAction("stockout_risk", a) }}
+      >
+        <StockoutRiskBody rows={data?.stockout_risk} loading={loading} />
+      </CardFrame>
+    );
+  }
+
+  if (isVisible("dead_stock")) {
+    renderers.dead_stock = (
+      <CardFrame
+        title={CARD_TITLES.dead_stock}
+        description={CARD_DESCRIPTIONS.dead_stock}
+        actions={{ available: noFilterActions, onAction: (a) => handleCardAction("dead_stock", a) }}
+      >
+        <DeadStockBody rows={data?.dead_stock} loading={loading} />
+      </CardFrame>
+    );
+  }
+
   if (isVisible("saved_query_panel")) {
     renderers.saved_query_panel = (
       <CardFrame
@@ -685,6 +768,47 @@ function renderDetail(
         </DetailWrap>
       );
 
+    case "gmv_value_30d":
+      return (
+        <DetailWrap source="Dispatched MRP value (consignment qty × MRP), last 30 days" href={withCompany("/outbound")}>
+          <KpiCardBody
+            value={data?.kpis.gmv_value_30d.value ?? null}
+            delta_mom_pct={data?.kpis.gmv_value_30d.delta_mom_pct ?? null}
+            delta_yoy_pct={data?.kpis.gmv_value_30d.delta_yoy_pct ?? null}
+            loading={loading}
+            href={withCompany("/outbound")}
+          />
+        </DetailWrap>
+      );
+
+    case "sku_velocity_buckets":
+      return (
+        <DetailWrap source="SKU counts bucketed by 30-day movement velocity" href="/reorder">
+          <SkuVelocityBucketsBody buckets={data?.sku_velocity} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "sku_movement":
+      return (
+        <DetailWrap source="Top SKUs by movement — sort by 30/60/90 days" href="/reorder">
+          <SkuMovementBody rows={data?.sku_movement} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "stockout_risk":
+      return (
+        <DetailWrap source="SKUs projected to run out within 14 days at current burn rate" href="/reorder">
+          <StockoutRiskBody rows={data?.stockout_risk} loading={loading} />
+        </DetailWrap>
+      );
+
+    case "dead_stock":
+      return (
+        <DetailWrap source="SKUs with on-hand stock but no SALE in last 60 days" href="/listings/warehouse">
+          <DeadStockBody rows={data?.dead_stock} loading={loading} />
+        </DetailWrap>
+      );
+
     case "saved_query_panel":
       return (
         <DetailWrap source="Run-once curated queries">
@@ -737,6 +861,53 @@ function exportCardCsv(id: DashboardCardId, data: HomeSummary | null): void {
         ["audit_pending", data.ops_queues.audit_pending],
         ["invoice_collection_pending", data.ops_queues.invoice_collection_pending],
         ["debit_credit_notes_pending", data.ops_queues.debit_credit_notes_pending],
+      ]);
+      return;
+    case "sku_movement":
+      downloadCsv(
+        name,
+        ["sku_id", "description", "qty_30d", "qty_60d", "qty_90d", "available_qty"],
+        data.sku_movement.map((m) => [
+          m.sku_id,
+          m.description ?? "",
+          m.qty_30d,
+          m.qty_60d,
+          m.qty_90d,
+          m.available_qty,
+        ])
+      );
+      return;
+    case "dead_stock":
+      downloadCsv(
+        name,
+        ["sku_id", "description", "available_qty", "days_since_last_sale"],
+        data.dead_stock.map((m) => [
+          m.sku_id,
+          m.description ?? "",
+          m.available_qty,
+          m.days_since_last_sale ?? "never",
+        ])
+      );
+      return;
+    case "stockout_risk":
+      downloadCsv(
+        name,
+        ["sku_id", "description", "available_qty", "sold_30d", "days_of_cover"],
+        data.stockout_risk.map((m) => [
+          m.sku_id,
+          m.description ?? "",
+          m.available_qty,
+          m.sold_30d,
+          m.days_of_cover == null ? "" : m.days_of_cover.toFixed(2),
+        ])
+      );
+      return;
+    case "sku_velocity_buckets":
+      downloadCsv(name, ["bucket", "count"], [
+        ["fast", data.sku_velocity.fast],
+        ["medium", data.sku_velocity.medium],
+        ["slow", data.sku_velocity.slow],
+        ["dead", data.sku_velocity.dead],
       ]);
       return;
     default: {

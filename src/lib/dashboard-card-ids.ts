@@ -8,13 +8,18 @@ export const DASHBOARD_CARD_IDS = [
   "fill_rate_pct",
   "inbound_qty",
   "skus_below_reorder",
+  "gmv_value_30d",
   "ops_queues",
   "open_pos",
   "vendor_quality",
   "inventory_snapshot",
+  "sku_velocity_buckets",
   "trends",
   "channel_mix",
   "reorder_alerts_strip",
+  "sku_movement",
+  "stockout_risk",
+  "dead_stock",
   "saved_query_panel",
 ] as const;
 
@@ -59,25 +64,33 @@ export type DashboardLayoutV2 = {
 // 12-column grid; row height is ~80px in DashboardGrid. Defaults match the
 // pre-Phase-4 static layout so first-time users see no visual change.
 const DEFAULT_POSITIONS: Record<DashboardCardId, CardPosition> = {
-  // KPI row — 5 cards across 12 cols (3-2-2-2-3 split rounded)
+  // KPI row 1 — 5 cards across 12 cols (3-2-2-2-3 split)
   sales_qty: { x: 0, y: 0, w: 3, h: 2 },
   sales_pos: { x: 3, y: 0, w: 2, h: 2 },
   fill_rate_pct: { x: 5, y: 0, w: 2, h: 2 },
   inbound_qty: { x: 7, y: 0, w: 2, h: 2 },
   skus_below_reorder: { x: 9, y: 0, w: 3, h: 2 },
+  // KPI row 2 — value + velocity overview
+  gmv_value_30d: { x: 0, y: 2, w: 4, h: 2 },
+  sku_velocity_buckets: { x: 4, y: 2, w: 8, h: 2 },
   // Ops row — 4 cards across 12 cols
-  ops_queues: { x: 0, y: 2, w: 3, h: 3 },
-  open_pos: { x: 3, y: 2, w: 3, h: 3 },
-  vendor_quality: { x: 6, y: 2, w: 3, h: 3 },
-  inventory_snapshot: { x: 9, y: 2, w: 3, h: 3 },
+  ops_queues: { x: 0, y: 4, w: 3, h: 3 },
+  open_pos: { x: 3, y: 4, w: 3, h: 3 },
+  vendor_quality: { x: 6, y: 4, w: 3, h: 3 },
+  inventory_snapshot: { x: 9, y: 4, w: 3, h: 3 },
   // Trends — full-width
-  trends: { x: 0, y: 5, w: 12, h: 4 },
+  trends: { x: 0, y: 7, w: 12, h: 4 },
   // Channel mix — full-width
-  channel_mix: { x: 0, y: 9, w: 12, h: 4 },
+  channel_mix: { x: 0, y: 11, w: 12, h: 4 },
   // Reorder strip — full-width
-  reorder_alerts_strip: { x: 0, y: 13, w: 12, h: 5 },
+  reorder_alerts_strip: { x: 0, y: 15, w: 12, h: 5 },
+  // SKU movement table — full-width
+  sku_movement: { x: 0, y: 20, w: 12, h: 6 },
+  // Stockout-risk + dead-stock — side-by-side
+  stockout_risk: { x: 0, y: 26, w: 6, h: 5 },
+  dead_stock: { x: 6, y: 26, w: 6, h: 5 },
   // Saved-query panel — full-width
-  saved_query_panel: { x: 0, y: 18, w: 12, h: 6 },
+  saved_query_panel: { x: 0, y: 31, w: 12, h: 6 },
 };
 
 export function defaultPositionFor(id: DashboardCardId): CardPosition {

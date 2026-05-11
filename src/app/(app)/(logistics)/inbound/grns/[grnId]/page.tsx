@@ -289,6 +289,7 @@ type ZapDebitNote = {
   cn_copy_file_name: string | null;
   cn_copy_uploaded_at: string | null;
   cn_copy_uploaded_by: string | null;
+  narration: string;
   lines: DebitNoteLine[];
 };
 
@@ -4197,13 +4198,19 @@ export default function InboundGrnDetailPage() {
                       </div>
                     </dl>
 
+                    {debitNote.narration ? (
+                      <p className="text-muted-foreground rounded bg-muted/40 px-3 py-2 text-xs font-mono">
+                        {debitNote.narration}
+                      </p>
+                    ) : null}
+
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="text-xs">SKU</TableHead>
                           <TableHead className="text-xs">Description</TableHead>
                           <TableHead className="text-right text-xs">Qty</TableHead>
-                          <TableHead className="text-right text-xs">Vendor ₹</TableHead>
+                          <TableHead className="text-right text-xs">Invoice ₹</TableHead>
                           <TableHead className="text-right text-xs">Audit ₹</TableHead>
                           <TableHead className="text-right text-xs">Diff ₹</TableHead>
                           <TableHead className="text-right text-xs">Debit Amt</TableHead>
