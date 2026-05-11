@@ -754,8 +754,14 @@ export async function createDraftGrnForPo({
 }
 
 /**
- * Re-key a Zap draft GRN (negative grn_id, DRAFT_ZAP) to a user-chosen operational positive id.
- * Depends on FK ON UPDATE CASCADE plus manual updates for denormalized grn_id columns without FK.
+ * Re-key a Zap-created draft GRN (any id, status DRAFT_ZAP) to a user-chosen
+ * operational id from the warehouse / receipt system, and promote DRAFT_ZAP to
+ * OPEN. Depends on FK ON UPDATE CASCADE plus manual updates for denormalized
+ * grn_id columns without FK.
+ *
+ * Historically zap drafts used negative ids; migration 060 switched to a high-
+ * range sequence (10^10+). Both shapes are accepted here — the gate is on
+ * `grn_status = 'DRAFT_ZAP'`, not on the sign of the id.
  */
 export async function registerOperationalGrnId(draftGrnIdRaw, operationalGrnIdRaw) {
   const draftGrnId = Number(draftGrnIdRaw);
@@ -764,9 +770,9 @@ export async function registerOperationalGrnId(draftGrnIdRaw, operationalGrnIdRa
   if (
     !Number.isFinite(draftGrnId) ||
     !Number.isInteger(draftGrnId) ||
-    draftGrnId >= 0
+    draftGrnId === 0
   ) {
-    throw new AppError("Only draft GRNs (negative integer id) can be registered", 400);
+    throw new AppError("Invalid draft GRN id", 400);
   }
   if (
     !Number.isFinite(operationalGrnId) ||
@@ -774,6 +780,12 @@ export async function registerOperationalGrnId(draftGrnIdRaw, operationalGrnIdRa
     operationalGrnId < 1
   ) {
     throw new AppError("operational_grn_id must be a positive integer", 400);
+  }
+  if (operationalGrnId === draftGrnId) {
+    throw new AppError(
+      "Operational id is the same as the current id. Use 'Open draft' to just promote status.",
+      400
+    );
   }
 
   const pool = getPool();
@@ -842,4 +854,41 @@ export async function registerOperationalGrnId(draftGrnIdRaw, operationalGrnIdRa
   }
 
   return getGrnById(operationalGrnId);
+}
+
+/**
+ * Promote a Zap draft (status DRAFT_ZAP) to OPEN without re-keying its grn_id.
+ * Use when ops doesn't have a separate warehouse/receipt GRN number to register —
+ * the zap-allocated id (sequence-based, ZG-N) becomes the operational id.
+ */
+export async function openDraftGrn(grnIdRaw) {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId) || !Number.isInteger(grnId) || grnId === 0) {
+    throw new AppError("Invalid grn id", 400);
+  }
+
+  const r = await query(
+    `UPDATE inbound_grns
+        SET grn_status = 'OPEN',
+            updated_at = NOW()
+      WHERE grn_id = $1 AND grn_status = 'DRAFT_ZAP'
+      RETURNING grn_id`,
+    [grnId]
+  );
+  if ((r.rowCount ?? 0) === 0) {
+    /** Distinguish "doesn't exist" from "not in DRAFT_ZAP" for a clearer error. */
+    const exists = await query(
+      `SELECT grn_status FROM inbound_grns WHERE grn_id = $1`,
+      [grnId]
+    );
+    if (exists.rows.length === 0) {
+      throw new AppError("GRN not found", 404);
+    }
+    throw new AppError(
+      `Only DRAFT_ZAP GRNs can be opened. Current status: ${exists.rows[0].grn_status}`,
+      409
+    );
+  }
+
+  return getGrnById(grnId);
 }

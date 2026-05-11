@@ -2079,6 +2079,28 @@ export default function InboundGrnDetailPage() {
       .finally(() => setRegisteringOperationalId(false));
   }
 
+  function handleOpenDraft(draftId: number) {
+    setRegisteringOperationalId(true);
+    apiFetch<GrnHeader>(`/api/inbound/grns/${draftId}/open-draft`, {
+      method: "POST",
+    })
+      .then(async (header) => {
+        toast.success(`GRN opened (status: ${header.grn_status ?? "OPEN"})`);
+        try {
+          const refreshed = await apiFetch<GrnDetailsBundle>(
+            `/api/inbound/grns/${encodeURIComponent(draftId)}/details`
+          );
+          setBundle(refreshed);
+        } catch {
+          /** Save succeeded; refresh blip is non-fatal — page reload picks it up. */
+        }
+      })
+      .catch((e: unknown) =>
+        toast.error(e instanceof Error ? e.message : "Open failed")
+      )
+      .finally(() => setRegisteringOperationalId(false));
+  }
+
   // Accounts + Inventory receipt tab state
   const [accountsSubmitting, setAccountsSubmitting] = React.useState(false);
   const [receiptItems, setReceiptItems] = React.useState<ReceiptLineItem[]>([]);
@@ -2490,11 +2512,10 @@ export default function InboundGrnDetailPage() {
                     <span className="font-medium text-foreground">GRN Documents</span> and{" "}
                     <span className="font-medium text-foreground">GRN Logs</span> for files and history.
                   </>
-                ) : row.grn_id < 0 ||
-                  String(row.grn_status ?? "").toUpperCase() === "DRAFT_ZAP" ? (
+                ) : String(row.grn_status ?? "").toUpperCase() === "DRAFT_ZAP" ? (
                   <>
                     <span className="font-medium text-foreground">Close GRN</span> appears when status is
-                    OPEN. Register the operational GRN if this is still a draft.
+                    OPEN. Open this draft to promote it (or register an operational GRN number).
                   </>
                 ) : (
                   <>
@@ -2506,48 +2527,73 @@ export default function InboundGrnDetailPage() {
             )}
           </div>
 
-          {row.grn_id < 0 ? (
+          {String(row.grn_status ?? "").toUpperCase() === "DRAFT_ZAP" ? (
             <Card className="border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">
-                  Register operational GRN number
-                </CardTitle>
+                <CardTitle className="text-base">Promote this draft to OPEN</CardTitle>
                 <CardDescription>
-                  This is a Zap draft (negative id). Enter the warehouse or receipt GRN number you want
-                  to use. It replaces this draft id across documents, lines, and URLs; status becomes{" "}
-                  <span className="font-medium text-foreground">OPEN</span> if it was{" "}
-                  <span className="font-medium text-foreground">DRAFT_ZAP</span>.
+                  This GRN is a zap-created draft (status{" "}
+                  <span className="font-medium text-foreground">DRAFT_ZAP</span>). Promote it to{" "}
+                  <span className="font-medium text-foreground">OPEN</span> so the{" "}
+                  <span className="font-medium text-foreground">Close GRN</span> action becomes available.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="min-w-[12rem] flex-1 space-y-1.5">
-                  <label
-                    htmlFor="operational-grn-id-input"
-                    className="text-muted-foreground text-xs font-medium"
-                  >
-                    Operational GRN #
-                  </label>
-                  <Input
-                    id="operational-grn-id-input"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    step={1}
-                    placeholder="e.g. 12345"
-                    value={operationalGrnInput}
-                    onChange={(e) => setOperationalGrnInput(e.target.value)}
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="space-y-0.5 text-sm">
+                    <p className="font-medium">Open with the current zap GRN id</p>
+                    <p className="text-muted-foreground text-xs">
+                      Keep this draft&apos;s id ({row.grn_id}). Quickest path when ops doesn&apos;t have a
+                      separate warehouse GRN number.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
                     disabled={registeringOperationalId}
-                    className="font-mono"
-                  />
+                    className="w-full sm:w-auto"
+                    onClick={() => handleOpenDraft(row.grn_id)}
+                  >
+                    {registeringOperationalId ? "Working…" : "Open this draft"}
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  disabled={registeringOperationalId}
-                  className="w-full sm:w-auto"
-                  onClick={() => handleRegisterOperational(row.grn_id)}
-                >
-                  {registeringOperationalId ? "Registering…" : "Register"}
-                </Button>
+                <div className="border-t pt-3">
+                  <p className="text-sm font-medium">Or register an operational GRN number</p>
+                  <p className="text-muted-foreground mb-3 text-xs">
+                    Re-keys this draft to the warehouse / receipt GRN number you enter. Replaces the id
+                    across documents, lines, and URLs.
+                  </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="min-w-[12rem] flex-1 space-y-1.5">
+                      <label
+                        htmlFor="operational-grn-id-input"
+                        className="text-muted-foreground text-xs font-medium"
+                      >
+                        Operational GRN #
+                      </label>
+                      <Input
+                        id="operational-grn-id-input"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        step={1}
+                        placeholder="e.g. 12345"
+                        value={operationalGrnInput}
+                        onChange={(e) => setOperationalGrnInput(e.target.value)}
+                        disabled={registeringOperationalId}
+                        className="font-mono"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={registeringOperationalId}
+                      className="w-full sm:w-auto"
+                      onClick={() => handleRegisterOperational(row.grn_id)}
+                    >
+                      {registeringOperationalId ? "Registering…" : "Register"}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           ) : null}
