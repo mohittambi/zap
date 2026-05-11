@@ -366,13 +366,17 @@ function invoiceCollectionClass(value: string | null | undefined): string {
   return statusClosedClass(value);
 }
 
-/** Max 2 vendor invoice files (JPG, JPEG, PDF; 4 MB each) — Close GRN modal and GRN Documents upload. */
+/** Vendor invoice files (JPG, JPEG, PDF; 4 MB each). Server enforces per-file
+ * size + type; client caps the count to keep the upload loop bounded. */
+const VENDOR_INVOICE_MAX_FILES = 10;
 function filterVendorInvoiceFilesPicked(picked: File[]): File[] {
-  if (picked.length > 2) {
-    toast.message("Only the first 2 files are used (max 2).");
+  if (picked.length > VENDOR_INVOICE_MAX_FILES) {
+    toast.message(
+      `Only the first ${VENDOR_INVOICE_MAX_FILES} files are used (max ${VENDOR_INVOICE_MAX_FILES}).`
+    );
   }
   const out: File[] = [];
-  for (const f of picked.slice(0, 2)) {
+  for (const f of picked.slice(0, VENDOR_INVOICE_MAX_FILES)) {
     const rej = classifyVendorInvoicePick(f.name, f.size);
     if (rej === "oversize") {
       toast.error(`${f.name} exceeds 4MB`);
@@ -3057,16 +3061,17 @@ export default function InboundGrnDetailPage() {
                     Upload scanned invoice files
                   </h3>
                   <p className="text-muted-foreground text-[13px]">
-                    Vendor invoice for this receipt — max <span className="font-medium">2</span> files,{" "}
+                    Vendor invoice for this receipt — pick one or many (up to{" "}
+                    <span className="font-medium">{VENDOR_INVOICE_MAX_FILES}</span> files,{" "}
                     <span className="font-medium">4 MB</span> each;{" "}
-                    <span className="font-medium">JPG, JPEG, PDF</span>. If the vendor only provides a
+                    <span className="font-medium">JPG, JPEG, PDF</span>). If the vendor only provides a
                     spreadsheet-style invoice, export or scan to PDF before uploading.
                   </p>
                   {bundle.invoice_files.length > 0 ? (
                     <p className="text-sky-800 text-[13px] dark:text-sky-200">
                       This GRN already has {bundle.invoice_files.length} invoice file
                       {bundle.invoice_files.length === 1 ? "" : "s"} on file. You may add more below
-                      (up to 2 in this step) or close using the existing documents.
+                      or close using the existing documents.
                     </p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
@@ -3377,22 +3382,63 @@ export default function InboundGrnDetailPage() {
                   </div>
                 </section>
               </div>
-              <DialogFooter className="border-border bg-muted/10 flex shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={closeGrnBusy}
-                  onClick={() => setCloseGrnModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={closeGrnBusy}
-                  onClick={() => void handleConfirmCloseGrn()}
-                >
-                  {closeGrnBusy ? "Closing…" : "Close GRN"}
-                </Button>
+              <DialogFooter className="border-border bg-muted/10 flex shrink-0 flex-col gap-2 border-t px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+                {(() => {
+                  const ready = hasVendorInvoiceReadyToClose({
+                    existingInvoiceFilesCount: bundle.invoice_files.length,
+                    stagedInvoiceFilesCount: closeGrnFiles.length,
+                  });
+                  return !ready ? (
+                    <p className="text-muted-foreground text-xs sm:mr-auto">
+                      Upload at least one invoice file (or use one already on this GRN) before closing.
+                    </p>
+                  ) : (
+                    <span className="sm:mr-auto" />
+                  );
+                })()}
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={closeGrnBusy}
+                    onClick={() => setCloseGrnModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      closeGrnBusy ||
+                      !hasVendorInvoiceReadyToClose({
+                        existingInvoiceFilesCount: bundle.invoice_files.length,
+                        stagedInvoiceFilesCount: closeGrnFiles.length,
+                      })
+                    }
+                    title={
+                      hasVendorInvoiceReadyToClose({
+                        existingInvoiceFilesCount: bundle.invoice_files.length,
+                        stagedInvoiceFilesCount: closeGrnFiles.length,
+                      })
+                        ? undefined
+                        : "Upload at least one invoice file before closing"
+                    }
+                    onClick={() => void handleConfirmCloseGrn()}
+                  >
+                    {(() => {
+                      if (closeGrnBusy) {
+                        return closeGrnFiles.length > 0
+                          ? "Uploading & Closing…"
+                          : "Closing…";
+                      }
+                      if (closeGrnFiles.length > 0) {
+                        return `Upload ${closeGrnFiles.length} file${
+                          closeGrnFiles.length === 1 ? "" : "s"
+                        } & Close GRN`;
+                      }
+                      return "Close GRN";
+                    })()}
+                  </Button>
+                </div>
               </DialogFooter>
             </DialogContent>
           </Dialog>

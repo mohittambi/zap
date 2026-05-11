@@ -45,7 +45,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Download, Search } from "lucide-react";
+import { ChevronDown, Download, Search, X } from "lucide-react";
 import {
   InboundVendorListingsTable,
   type VendorListingRow,
@@ -672,11 +672,16 @@ function InboundVendorHubBody() {
           if (!open) resetCreateForm();
         }}
       >
-        <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[min(90vh,640px)] w-[min(96vw,640px)] overflow-x-hidden overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Create Purchase Order ( Vendor ID : {id} )</DialogTitle>
+            <DialogTitle className="break-words">
+              Create Purchase Order
+              <span className="text-muted-foreground ml-2 text-sm font-normal">
+                · Vendor ID: {id}
+              </span>
+            </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4">
+          <div className="grid gap-4 min-w-0">
             <div className="space-y-2">
               <Label htmlFor="po-exp">Expected Delivery Date</Label>
               <div className="flex flex-wrap items-end gap-2">
@@ -746,9 +751,9 @@ function InboundVendorHubBody() {
               {lineDrafts.map((row) => (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1fr_5rem_auto] items-end gap-2"
+                  className="grid grid-cols-[minmax(0,1fr)_4.5rem_auto] items-end gap-2"
                 >
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-1">
                     <Label className="text-xs">SKU</Label>
                     <SearchableSkuSelect
                       options={vendorSkus}
@@ -759,7 +764,7 @@ function InboundVendorHubBody() {
                       ariaLabel={`Select SKU for line ${row.key}`}
                     />
                   </div>
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-1">
                     <Label className="text-xs">Qty</Label>
                     <Input
                       inputMode="numeric"
@@ -772,12 +777,13 @@ function InboundVendorHubBody() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     className="text-destructive shrink-0"
+                    aria-label="Remove line"
                     disabled={lineDrafts.length <= 1}
                     onClick={() => removeLineDraft(row.key)}
                   >
-                    Remove
+                    <X className="size-4" />
                   </Button>
                 </div>
               ))}
