@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   Bar,
   BarChart,
@@ -42,6 +43,69 @@ function formatCell(v: unknown): string {
   return String(v);
 }
 
+function compareCell(a: unknown, b: unknown): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return -1;
+  if (b == null) return 1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b));
+}
+
+function SortableTable({ columns, rows }: { columns: string[]; rows: unknown[][] }) {
+  const [sortCol, setSortCol] = React.useState<number | null>(null);
+  const [sortAsc, setSortAsc] = React.useState(true);
+
+  function handleSort(idx: number) {
+    if (sortCol === idx) setSortAsc((p) => !p);
+    else { setSortCol(idx); setSortAsc(true); }
+  }
+
+  const sorted = React.useMemo(() => {
+    if (sortCol === null) return rows;
+    return [...rows].sort((a, b) => {
+      const cmp = compareCell(a[sortCol], b[sortCol]);
+      return sortAsc ? cmp : -cmp;
+    });
+  }, [rows, sortCol, sortAsc]);
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-muted/40 hover:bg-muted/40">
+          {columns.map((c, i) => (
+            <TableHead
+              key={c}
+              className="cursor-pointer select-none whitespace-nowrap"
+              onClick={() => handleSort(i)}
+            >
+              {c}
+              {sortCol === i ? (
+                <span className="ml-1 text-primary">{sortAsc ? "↑" : "↓"}</span>
+              ) : (
+                <span className="ml-1 text-muted-foreground/40">↕</span>
+              )}
+            </TableHead>
+          ))}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sorted.map((row, i) => (
+          <TableRow key={i}>
+            {row.map((v, j) => (
+              <TableCell
+                key={j}
+                className={typeof v === "number" ? "tabular-nums" : undefined}
+              >
+                {formatCell(v)}
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 export function SavedQueryResult({ result }: { result: QueryResultData }) {
   if (result.rows.length === 0) {
     return (
@@ -50,31 +114,7 @@ export function SavedQueryResult({ result }: { result: QueryResultData }) {
   }
 
   if (result.resultShape === "table") {
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
-            {result.columns.map((c) => (
-              <TableHead key={c}>{c}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {result.rows.map((row, i) => (
-            <TableRow key={i}>
-              {row.map((v, j) => (
-                <TableCell
-                  key={j}
-                  className={typeof v === "number" ? "tabular-nums" : undefined}
-                >
-                  {formatCell(v)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
+    return <SortableTable columns={result.columns} rows={result.rows} />;
   }
 
   // For charts we expect: column[0] = label, column[1] = numeric value.

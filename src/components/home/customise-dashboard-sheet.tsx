@@ -38,6 +38,7 @@ const CARD_LABELS: Record<DashboardCardId, string> = {
   stockout_risk: "Stockout risk",
   dead_stock: "Dead stock",
   saved_query_panel: "Saved queries",
+  custom_query: "Query builder",
 };
 
 function findCard(layout: DashboardLayoutV2, id: DashboardCardId): CardConfig {
@@ -118,13 +119,14 @@ export function CustomiseDashboardSheet({
           </Button>
         }
       />
-      <SheetContent side="right" className="w-[360px]">
-        <SheetHeader className="border-b p-4">
+      <SheetContent side="right" className="flex w-[360px] flex-col p-0">
+        <SheetHeader className="shrink-0 border-b p-4">
           <SheetTitle>Customise dashboard</SheetTitle>
           <p className="text-muted-foreground text-xs">
             Toggle cards on/off. Drag and resize cards on the dashboard itself.
           </p>
         </SheetHeader>
+        <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col gap-1 p-4">
           {DASHBOARD_CARD_IDS.map((id) => {
             const checked = !findCard(draft, id).hidden;
@@ -144,7 +146,8 @@ export function CustomiseDashboardSheet({
             );
           })}
         </div>
-        <div className="flex items-center justify-between gap-2 border-t p-4">
+        </div>
+        <div className="shrink-0 flex items-center justify-between gap-2 border-t p-4">
           <div className="flex gap-2">
             <Button
               type="button"

@@ -21,6 +21,7 @@ export const DASHBOARD_CARD_IDS = [
   "stockout_risk",
   "dead_stock",
   "saved_query_panel",
+  "custom_query",
 ] as const;
 
 export type DashboardCardId = (typeof DASHBOARD_CARD_IDS)[number];
@@ -91,6 +92,8 @@ const DEFAULT_POSITIONS: Record<DashboardCardId, CardPosition> = {
   dead_stock: { x: 6, y: 26, w: 6, h: 5 },
   // Saved-query panel — full-width
   saved_query_panel: { x: 0, y: 31, w: 12, h: 6 },
+  // Custom SQL query builder — full-width
+  custom_query: { x: 0, y: 37, w: 12, h: 8 },
 };
 
 export function defaultPositionFor(id: DashboardCardId): CardPosition {

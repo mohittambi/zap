@@ -26,6 +26,7 @@ import { DeadStockBody } from "@/components/home/dead-stock-card";
 import { StockoutRiskBody } from "@/components/home/stockout-risk-card";
 import { SkuVelocityBucketsBody } from "@/components/home/sku-velocity-buckets-card";
 import { SavedQueryPanel } from "@/components/home/saved-query-panel";
+import { CustomQueryCard } from "@/components/home/custom-query-card";
 import { useHomeSummary } from "@/hooks/use-home-summary";
 import { useDashboardPrefs } from "@/hooks/use-dashboard-prefs";
 import { formatIstRangeInclusive } from "@/lib/format-ist";
@@ -60,6 +61,7 @@ const CARD_TITLES: Record<DashboardCardId, string> = {
   stockout_risk: "Stockout risk",
   dead_stock: "Dead stock",
   saved_query_panel: "Saved queries",
+  custom_query: "Query builder",
 };
 
 const CARD_DESCRIPTIONS: Partial<Record<DashboardCardId, string>> = {
@@ -81,6 +83,7 @@ const CARD_DESCRIPTIONS: Partial<Record<DashboardCardId, string>> = {
   stockout_risk: "<14 days of cover at current burn rate",
   dead_stock: "On hand, no sale in 60+ days",
   saved_query_panel: "Pick a curated query, run it",
+  custom_query: "Write SQL with {{from}}, {{to}}, {{min_val}}, {{max_val}} placeholders",
 };
 
 type ChartCapableCard = "trends" | "channel_mix" | "sales_qty" | "sales_pos" | "inbound_qty";
@@ -517,6 +520,18 @@ export function HomeContent() {
     );
   }
 
+  if (isVisible("custom_query")) {
+    renderers.custom_query = (
+      <CardFrame
+        title={CARD_TITLES.custom_query}
+        description={CARD_DESCRIPTIONS.custom_query}
+        actions={{ available: noFilterActions, onAction: (a) => handleCardAction("custom_query", a) }}
+      >
+        <CustomQueryCard />
+      </CardFrame>
+    );
+  }
+
   return (
     <AppPageShell>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
@@ -816,6 +831,13 @@ function renderDetail(
         </DetailWrap>
       );
 
+    case "custom_query":
+      return (
+        <DetailWrap source="Ad-hoc SQL query">
+          <CustomQueryCard />
+        </DetailWrap>
+      );
+
     default:
       /** Every known DashboardCardId is handled above; this branch is defensive only. */
       return (
@@ -922,6 +944,7 @@ function exportCardCsv(id: DashboardCardId, data: HomeSummary | null): void {
         vendor_quality: ["acceptance_rate_pct", data.vendor_quality.acceptance_rate_pct.value],
         inventory_snapshot: ["units_on_hand", data.inventory_snapshot.units_on_hand],
         saved_query_panel: ["", ""],
+        custom_query: ["", ""],
       };
       const row = map[id] ?? [id, ""];
       downloadCsv(name, ["metric", "value"], [row]);
