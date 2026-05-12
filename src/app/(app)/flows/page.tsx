@@ -19,20 +19,22 @@ import { cn } from "@/lib/utils";
 
 const GRN_LIFECYCLE = `
 flowchart TD
-    PO["PO Generated in eAutomate"] --> GRN_OPEN
+    PO["Inbound PO in Zap
+(created in Zap or carried over
+from historical import)"] --> GRN_OPEN
 
     GRN_OPEN["GRN Opened
 grn_status = OPEN
-Source: eAutomate sync"] --> QTY_UPDATE
+Source: Zap Postgres"] --> QTY_UPDATE
 
     QTY_UPDATE["Quantity Update
 invoice qty / accepted / rejected / shortage
-Source: eAutomate GRN items sync"] --> DN_SHORT{Shortage or
+Source: GRN line snapshot in Postgres"] --> DN_SHORT{Shortage or
 Damage?}
 
-    DN_SHORT -->|Yes| DN_SHORTAGE["eAutomate Debit / Credit Note created
+    DN_SHORT -->|Yes| DN_SHORTAGE["GRN Debit / Credit Note
 shortage / damage / vendor adjustment
-See eAutomate DCN flow"]
+See GRN DCN flow"]
     DN_SHORT -->|No| CLOSE_GRN
 
     DN_SHORTAGE --> CLOSE_GRN
@@ -47,7 +49,7 @@ Action: Zap file upload"] --> PENDING_AUDIT
 
     PENDING_AUDIT["Pending Audit Queue
 inbound_grn_pending_audit
-Source: eAutomate sync flag"] --> AUDIT_ACTION
+Source: Zap DB queue"] --> AUDIT_ACTION
 
     AUDIT_ACTION["Audit completed
 grn_audit_status = CLOSED
@@ -115,10 +117,11 @@ stateDiagram-v2
     EXPORTED --> CLOSED : Upload CN copy
 `;
 
-const EA_DCN = `
+const GRN_DCN = `
 flowchart TD
-    EA_SYNC["eAutomate Sync
-GRN details ingested"] --> NOTE_EXISTS{DCN exists
+    GRN_INGEST["GRN details available in Zap
+(historically imported or
+captured at GRN time)"] --> NOTE_EXISTS{DCN exists
 on this GRN?}
 
     NOTE_EXISTS -->|No — no shortage or damage| END_NONE["No DCN — GRN proceeds normally"]
@@ -194,13 +197,13 @@ inventory_receipt_status = DONE"]
 
 const OUTBOUND_PO_LIFECYCLE = `
 flowchart TD
-    SYNC["PO synced from eAutomate
-sync:outbound-pos:all writes
-outbound_purchase_orders"] --> NEW["Status: NEW
+    SYNC["Outbound PO present in Zap
+(created in Zap or carried over
+from historical import)"] --> NEW["Status: NEW
 appears on /outbound list"]
 
     NEW --> ACK["Ops clicks Acknowledge
-POST eautomate-actions
+POST /outbound/purchase-orders/:id/actions
 action=acknowledge"]
 
     ACK --> WIP_DECISION{Mark WIP?}
@@ -210,7 +213,8 @@ appears on /outbound/wip"]
 
     WIP --> CONS["Create consignment
 POST /consignments
-* one upstream eAutomate write *"]
+persists outbound_consignments
+in Zap Postgres"]
 
     CONS --> DISPATCH["Mark dispatched
 outbound_consignments updated
@@ -262,20 +266,21 @@ const OUTBOUND_CONSIGNMENT_DISPATCH = `
 flowchart TD
     PO_WIP["PO is_wip = YES
 required to start consignment"] --> NEW_CONS["POST /consignments
-Zap → eAutomate workflow"]
+handled by Zap backend"]
 
-    NEW_CONS --> EA_CREATE{eAutomate
-returns 200?}
-    EA_CREATE -->|No| FAIL["Error surfaced to UI
-no zap row created"]
+    NEW_CONS --> EA_CREATE{Zap backend
+accepts payload?}
+    EA_CREATE -->|No| FAIL["Validation / error
+surfaced to UI
+no consignment row created"]
     EA_CREATE -->|Yes| UPSERT["UPSERT outbound_consignments
-from response payload"]
+in Zap Postgres"]
 
     UPSERT --> PICK["Warehouse picks SKUs
 into numbered boxes"]
 
     PICK --> LABELS["Generate labels
-POST eautomate-actions
+POST /outbound/purchase-orders/:id/actions
 action=generate_phase1_box_labels
 or generate_product_labels"]
 
@@ -336,8 +341,9 @@ flowchart TD
     SOURCE -->|Import| BULK["Bulk Operations:
 upload spreadsheet
 to /listings/bulk"]
-    SOURCE -->|eAutomate sync| SYNC["sync:secondary-listings
-populates secondary_listings"]
+    SOURCE -->|Historical import| SYNC["Legacy import scripts
+seeded secondary_listings
+(one-time backfill)"]
 
     FORM --> ROW["INSERT listings
 or update existing
@@ -347,8 +353,8 @@ valid?}
     VALIDATE -->|No| BULK_ERR["Errors per row
 on bulk-result page"]
     VALIDATE -->|Yes| ROW
-    SYNC --> ENRICH["Enrich JSONB
-secondary_listings_eautomate_enrichment"]
+    SYNC --> ENRICH["Enrichment JSONB persisted
+in secondary listings table"]
 
     ROW --> AVAILABLE["Listing visible in
 /listings/warehouse grid
@@ -629,7 +635,7 @@ flowchart LR
   S --> L[Linked to the<br/>PO or GRN record]
   D[User clicks download] --> CHK{File in<br/>Zap Storage?}
   CHK -->|Yes| GET[Streamed to user]
-  CHK -->|No| MISS["Shown as 'not yet mirrored'<br/>— ops to run sync"]
+  CHK -->|No| MISS["Shown as 'not yet uploaded'<br/>— ops to attach the file"]
 `;
 
 const BIZ_CROSS_MODULE = `
@@ -772,10 +778,17 @@ export default function InboundFlowsPage() {
       </p>
 
       <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
+        <span className="font-medium">Source of truth:</span> Zap runs entirely on its own PostgreSQL database — UI and
+        APIs read and write Postgres only. Records you see with <code className="text-[11px]">source = eautomate</code>{" "}
+        were brought in by a one-time historical import; there is no live, request-time dependency on eAutomate in
+        production.
+      </div>
+
+      <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
         <span className="font-medium">Engineers:</span> the architectural rules behind every flow live in{" "}
         <code className="text-[11px]">docs/zap-doctrine.md</code>{" "}
-        — read it before changing anything that crosses the zap ↔ eAutomate boundary, allocates new ids,
-        or modifies sync behaviour.
+        — read it before changing anything that affects data boundaries, ID allocation, or the historical
+        import pipeline.
       </div>
 
       {/* ── Group A: Inbound technical flows ───────────────────────────────── */}
@@ -848,12 +861,12 @@ export default function InboundFlowsPage() {
 
         <AccordionSection
           group="inbound"
-          title="eAutomate Credit / Debit Note — Shortage & Damage"
-          description="Synced from eAutomate during GRN details ingest. Covers both note types, missing-number path, upload, and reverse note."
+          title="GRN Credit / Debit Note — Shortage & Damage"
+          description="Captured against the GRN (either entered in Zap or carried over from the historical import). Covers both note types, missing-number path, upload, and reverse note."
           badge="inbound_grn_debit_credit_notes"
           badgeVariant="secondary"
         >
-          <MermaidDiagram chart={EA_DCN} className="mb-6" />
+          <MermaidDiagram chart={GRN_DCN} className="mb-6" />
 
           <Table>
             <TableHeader>
@@ -891,12 +904,12 @@ export default function InboundFlowsPage() {
               <TableRow>
                 <TableHead className="text-xs" />
                 <TableHead className="text-xs">Zap Debit Note</TableHead>
-                <TableHead className="text-xs">eAutomate DCN</TableHead>
+                <TableHead className="text-xs">GRN DCN (shortage / damage)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {[
-                ["Source", "Created in Zap by accounts team", "Synced from eAutomate automatically"],
+                ["Source", "Created in Zap by accounts team", "Captured against the GRN — either entered in Zap or carried over from the historical import"],
                 ["Trigger", "Rate discrepancy found at audit", "Shortage / damage reported at GRN time"],
                 ["Timing", "After audit (grn_audit_status=CLOSED)", "During GRN sync (before audit)"],
                 ["Table", "inbound_zap_debit_notes", "inbound_grn_debit_credit_notes"],
@@ -920,7 +933,7 @@ export default function InboundFlowsPage() {
         <AccordionSection
           group="outbound"
           title="Outbound PO Lifecycle"
-          description="From eAutomate sync through Acknowledge, WIP, consignment, dispatch, pending invoice, and PO close."
+          description="From PO appearing in Zap (created in Zap or carried over from the historical import) through Acknowledge, WIP, consignment, dispatch, pending invoice, and PO close."
           badge="outbound_purchase_orders · is_wip · calculated_po_status"
           badgeVariant="outline"
         >
@@ -940,7 +953,7 @@ export default function InboundFlowsPage() {
         <AccordionSection
           group="outbound"
           title="Consignment Dispatch"
-          description="The one upstream eAutomate write in the outbound flow. Includes label generation and dispatch marking."
+          description="Consignment creation persists to Zap Postgres. Includes label generation and dispatch marking."
           badge="outbound_consignments"
           badgeVariant="secondary"
         >
@@ -963,7 +976,7 @@ export default function InboundFlowsPage() {
         <AccordionSection
           group="listings"
           title="Warehouse Listing Creation"
-          description="Three sources land into the same listing row: manual form entry, bulk spreadsheet import, or eAutomate sync."
+          description="Three sources land into the same listing row: manual form entry, bulk spreadsheet import, or the one-time historical import."
           badge="listings · secondary_listings"
           badgeVariant="outline"
           defaultOpen
@@ -1076,7 +1089,7 @@ export default function InboundFlowsPage() {
         <AccordionSection
           group="business"
           title="Workflow 2 — Channel Order Fulfilment (Outbound)"
-          description="Channel → Ops → Warehouse → Logistics. The one upstream write happens at consignment dispatch."
+          description="Channel → Ops → Warehouse → Logistics. End-to-end fulfilment runs entirely within Zap."
         >
           <MermaidDiagram chart={BIZ_OUTBOUND} />
         </AccordionSection>
@@ -1116,7 +1129,7 @@ export default function InboundFlowsPage() {
         <AccordionSection
           group="business"
           title="Workflow 7 — Files & Attachments"
-          description="Uploads land in Zap Storage. Missing files now surface as 'not yet mirrored' instead of falling back to eAutomate."
+          description="Uploads land in Zap Storage. Missing files surface as 'not yet uploaded' for ops to attach — files are served from Zap only."
         >
           <MermaidDiagram chart={BIZ_FILES} />
         </AccordionSection>
