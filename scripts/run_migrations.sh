@@ -92,7 +92,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/059_vendor_purchase_orders_source.sql \
          migrations/060_inbound_grns_source.sql \
          migrations/061_bins_manage_permission.sql \
-         migrations/062_bins_id_sequence.sql; do
+         migrations/062_bins_id_sequence.sql \
+         migrations/063_debit_note_lines_rejected_short_qty.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

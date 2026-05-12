@@ -13,6 +13,8 @@ export type DebitNoteLine = {
   sku_id: string | null;
   sku_description: string | null;
   quantity: number;
+  rejected_quantity: number;
+  short_quantity: number;
   vendor_price: number;
   audit_price: number;
   price_diff: number;
@@ -49,6 +51,8 @@ export type AuditLine = {
   sku_id: string | null;
   sku_description: string | null;
   quantity: number;
+  rejected_quantity: number;
+  short_quantity: number;
   vendor_price: number;
   audit_price: number;
   price_diff: number;
@@ -73,6 +77,18 @@ const ACCEPTED_QTY_KEYS = [
   "accepted_quantity", "acceptedQuantity",
   "grn_accepted_quantity", "current_grn_accepted_quantity",
   "currentGrnAcceptedQuantity",
+];
+
+const REJECTED_QTY_KEYS = [
+  "rejected_quantity", "rejectedQuantity",
+  "grn_rejected_quantity", "current_grn_rejected_quantity",
+  "currentGrnRejectedQuantity",
+];
+
+const SHORT_QTY_KEYS = [
+  "shortage_quantity", "shortageQuantity",
+  "grn_shortage_quantity", "current_grn_shortage_quantity",
+  "currentGrnShortageQuantity",
 ];
 
 /** PO snapshot lines (inbound_po_detail_lines) may use these for quantity before GRN receipt. */
@@ -149,7 +165,8 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
     ),
     query(
       `SELECT id, debit_note_id, grn_id, line_index, sku_id, sku_description,
-              quantity, vendor_price, audit_price, price_diff, debit_amount
+              quantity, rejected_quantity, short_quantity,
+              vendor_price, audit_price, price_diff, debit_amount
        FROM inbound_zap_debit_note_lines WHERE debit_note_id = $1
        ORDER BY line_index`,
       [noteId]
@@ -189,6 +206,8 @@ async function fetchNoteById(noteId: number): Promise<DebitNote> {
       sku_id: l.sku_id ?? null,
       sku_description: l.sku_description ?? null,
       quantity: toNum(l.quantity),
+      rejected_quantity: toNum(l.rejected_quantity),
+      short_quantity: toNum(l.short_quantity),
       vendor_price: toNum(l.vendor_price),
       audit_price: toNum(l.audit_price),
       price_diff: toNum(l.price_diff),
@@ -310,12 +329,16 @@ export async function getAuditPreview(grnIdRaw: unknown): Promise<AuditLine[]> {
     const vendorPrice = pickNum(raw, RECEIVED_PRICE_KEYS);
     const auditPrice = pickNum(raw, AUDIT_PRICE_KEYS);
     const quantity = pickNum(raw, ACCEPTED_QTY_KEYS);
+    const rejectedQty = pickNum(raw, REJECTED_QTY_KEYS);
+    const shortQty = pickNum(raw, SHORT_QTY_KEYS);
     const diff = vendorPrice - auditPrice;
     return {
       line_index: toNum(item.line_index),
       sku_id: (item.sku_id as string | null) ?? (pickStr(raw, SKU_KEYS) || null),
       sku_description: pickStr(raw, DESCRIPTION_KEYS) || null,
       quantity,
+      rejected_quantity: rejectedQty,
+      short_quantity: shortQty,
       vendor_price: vendorPrice,
       audit_price: auditPrice,
       price_diff: diff,
@@ -376,12 +399,16 @@ export async function generateDebitNote(
       const vendorPrice = pickNum(raw, RECEIVED_PRICE_KEYS);
       const auditPrice = pickNum(raw, AUDIT_PRICE_KEYS);
       const quantity = pickNum(raw, ACCEPTED_QTY_KEYS);
+      const rejectedQty = pickNum(raw, REJECTED_QTY_KEYS);
+      const shortQty = pickNum(raw, SHORT_QTY_KEYS);
       const diff = vendorPrice - auditPrice;
       return {
         line_index: toNum(item.line_index),
         sku_id: (item.sku_id as string | null) ?? (pickStr(raw, SKU_KEYS) || null),
         sku_description: pickStr(raw, DESCRIPTION_KEYS) || null,
         quantity,
+        rejected_quantity: rejectedQty,
+        short_quantity: shortQty,
         vendor_price: vendorPrice,
         audit_price: auditPrice,
         price_diff: diff,
@@ -444,13 +471,14 @@ export async function generateDebitNote(
       await client.query(
         `INSERT INTO inbound_zap_debit_note_lines
            (debit_note_id, grn_id, line_index, sku_id, sku_description,
-            quantity, vendor_price, audit_price, price_diff, debit_amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            quantity, rejected_quantity, short_quantity,
+            vendor_price, audit_price, price_diff, debit_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           noteId, grnId, l.line_index, l.sku_id, l.sku_description,
-          l.quantity.toFixed(4), l.vendor_price.toFixed(4),
-          l.audit_price.toFixed(4), l.price_diff.toFixed(4),
-          l.debit_amount.toFixed(4),
+          l.quantity.toFixed(4), l.rejected_quantity.toFixed(4), l.short_quantity.toFixed(4),
+          l.vendor_price.toFixed(4), l.audit_price.toFixed(4),
+          l.price_diff.toFixed(4), l.debit_amount.toFixed(4),
         ]
       );
     }
@@ -663,8 +691,8 @@ export async function buildTallyCsv(
   const lines: string[] = [
     csvRow([
       "VoucherType", "Date", "VoucherNo", "PartyName",
-      "StockItem", "Quantity", "InvoicePrice", "AuditRate",
-      "RateDiff", "Amount(Debit)", "Narration",
+      "StockItem", "Quantity", "RejectedQty", "ShortQty",
+      "InvoicePrice", "AuditRate", "RateDiff", "Amount(Debit)", "Narration",
     ]),
   ];
 
@@ -677,6 +705,8 @@ export async function buildTallyCsv(
         note.vendor_name ?? "",
         l.sku_id ?? "",
         Number(l.quantity),
+        Number(l.rejected_quantity),
+        Number(l.short_quantity),
         Number(l.vendor_price),
         Number(l.audit_price),
         Number(l.price_diff),
@@ -687,7 +717,7 @@ export async function buildTallyCsv(
   }
 
   lines.push(
-    csvRow(["", "", "", "", "TOTAL", "", "", "", "", Number(note.total_debit_amount), ""])
+    csvRow(["", "", "", "", "TOTAL", "", "", "", "", "", "", Number(note.total_debit_amount), ""])
   );
 
   const csv = lines.join("\r\n");
@@ -775,8 +805,9 @@ export async function buildInvoiceExcel(
 
   const noteRes = await query(
     `SELECT n.note_reference, n.dn_number, n.total_debit_amount, n.status,
-            nl.sku_id, nl.sku_description, nl.quantity, nl.vendor_price,
-            nl.audit_price, nl.price_diff, nl.debit_amount
+            nl.sku_id, nl.sku_description, nl.quantity,
+            nl.rejected_quantity, nl.short_quantity,
+            nl.vendor_price, nl.audit_price, nl.price_diff, nl.debit_amount
      FROM inbound_zap_debit_notes n
      LEFT JOIN inbound_zap_debit_note_lines nl ON nl.debit_note_id = n.id
      WHERE n.grn_id = $1
@@ -831,10 +862,11 @@ export async function buildInvoiceExcel(
 
   // Debit Note lines sheet (if present)
   if (noteRes.rows.length > 0 && noteRes.rows[0].sku_id != null) {
-    const dnHeaders = ["SKU ID", "Description", "Qty", "Vendor Price", "Audit Price", "Price Diff", "Debit Amount"];
+    const dnHeaders = ["SKU ID", "Description", "Qty", "Rejected Qty", "Short Qty", "Vendor Price", "Audit Price", "Price Diff", "Debit Amount"];
     const dnRows = noteRes.rows.map((r) => [
       r.sku_id ?? "", r.sku_description ?? "",
-      r.quantity, r.vendor_price, r.audit_price, r.price_diff, r.debit_amount,
+      r.quantity, r.rejected_quantity ?? 0, r.short_quantity ?? 0,
+      r.vendor_price, r.audit_price, r.price_diff, r.debit_amount,
     ]);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([dnHeaders, ...dnRows]), "Debit Note");
   }

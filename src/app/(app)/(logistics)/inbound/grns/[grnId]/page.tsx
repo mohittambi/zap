@@ -252,6 +252,8 @@ type AuditLine = {
   sku_id: string | null;
   sku_description: string | null;
   quantity: number;
+  rejected_quantity: number;
+  short_quantity: number;
   vendor_price: number;
   audit_price: number;
   price_diff: number;
@@ -265,6 +267,8 @@ type DebitNoteLine = {
   sku_id: string | null;
   sku_description: string | null;
   quantity: number;
+  rejected_quantity: number;
+  short_quantity: number;
   vendor_price: number;
   audit_price: number;
   price_diff: number;
@@ -4060,6 +4064,8 @@ export default function InboundGrnDetailPage() {
                           <TableHead className="text-xs">SKU</TableHead>
                           <TableHead className="text-xs">Description</TableHead>
                           <TableHead className="text-right text-xs">Accepted Qty</TableHead>
+                          <TableHead className="text-right text-xs">Rejected Qty</TableHead>
+                          <TableHead className="text-right text-xs">Short Qty</TableHead>
                           <TableHead className="text-right text-xs">Vendor Price</TableHead>
                           <TableHead className="text-right text-xs">Audit Price</TableHead>
                           <TableHead className="text-right text-xs">Diff/unit</TableHead>
@@ -4076,6 +4082,12 @@ export default function InboundGrnDetailPage() {
                             <TableCell className="font-mono text-xs">{l.sku_id ?? "—"}</TableCell>
                             <TableCell className="max-w-[180px] truncate text-xs">{l.sku_description || "—"}</TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums">{Number(l.quantity).toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.rejected_quantity) > 0 ? Number(l.rejected_quantity).toFixed(3) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.short_quantity) > 0 ? Number(l.short_quantity).toFixed(3) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums">
                               {Number(l.vendor_price) > 0 ? `₹${Number(l.vendor_price).toFixed(4)}` : "—"}
                             </TableCell>
@@ -4210,6 +4222,8 @@ export default function InboundGrnDetailPage() {
                           <TableHead className="text-xs">SKU</TableHead>
                           <TableHead className="text-xs">Description</TableHead>
                           <TableHead className="text-right text-xs">Qty</TableHead>
+                          <TableHead className="text-right text-xs">Rejected Qty</TableHead>
+                          <TableHead className="text-right text-xs">Short Qty</TableHead>
                           <TableHead className="text-right text-xs">Invoice ₹</TableHead>
                           <TableHead className="text-right text-xs">Audit ₹</TableHead>
                           <TableHead className="text-right text-xs">Diff ₹</TableHead>
@@ -4222,6 +4236,12 @@ export default function InboundGrnDetailPage() {
                             <TableCell className="font-mono text-xs">{l.sku_id ?? "—"}</TableCell>
                             <TableCell className="max-w-[160px] truncate text-xs">{l.sku_description || "—"}</TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums">{Number(l.quantity).toFixed(3)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.rejected_quantity) > 0 ? Number(l.rejected_quantity).toFixed(3) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                              {Number(l.short_quantity) > 0 ? Number(l.short_quantity).toFixed(3) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums">₹{Number(l.vendor_price).toFixed(4)}</TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums">₹{Number(l.audit_price).toFixed(4)}</TableCell>
                             <TableCell className="text-right font-mono text-xs tabular-nums text-red-600 dark:text-red-400">
@@ -4233,7 +4253,7 @@ export default function InboundGrnDetailPage() {
                           </TableRow>
                         ))}
                         <TableRow className="bg-muted/40 font-semibold">
-                          <TableCell colSpan={6} className="text-right text-xs">Total</TableCell>
+                          <TableCell colSpan={8} className="text-right text-xs">Total</TableCell>
                           <TableCell className="text-right font-mono text-xs tabular-nums text-red-600 dark:text-red-400">
                             ₹{Number(debitNote.total_debit_amount).toFixed(2)}
                           </TableCell>
