@@ -58,7 +58,7 @@ export async function DELETE(request: Request, context: Ctx) {
       return NextResponse.json(
         {
           error:
-            "Only partially created purchase orders (PARTIAL status) can be deleted, or PO was not found.",
+            "Only draft or partially created purchase orders can be deleted, or PO was not found.",
         },
         { status: 400 }
       );

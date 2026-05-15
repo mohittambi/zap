@@ -164,9 +164,7 @@ export async function POST(request: Request) {
       throw new AppError("Select a valid PO type", 400);
     }
 
-    const isDraft = files.length === 0;
-
-    if (!isDraft) {
+    if (files.length > 0) {
       if (files.length !== MAX_PO_FILES) {
         throw new AppError(
           "Upload exactly two files: one PDF and one spreadsheet (CSV or Excel). Maximum 2 files, 2MB each.",
@@ -210,8 +208,8 @@ export async function POST(request: Request) {
       po_issue_date: poIssueDate,
       expiry_date: expiryDate,
       po_type: poType,
-      po_creation_status: isDraft ? "DRAFT" : "SUBMITTED",
-      is_wip: isDraft ? "NO" : "YES",
+      po_creation_status: "DRAFT",
+      is_wip: "NO",
       company_name: companyName,
       created_by: user.email,
     });
@@ -233,7 +231,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ id, po_number, draft: isDraft });
+    return NextResponse.json({ id, po_number, draft: true });
   } catch (err) {
     if (createdId != null) {
       await outboundPoService.deleteOutboundPurchaseOrderById(createdId).catch(() => {});

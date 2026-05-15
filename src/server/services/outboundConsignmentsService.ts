@@ -685,6 +685,52 @@ export async function upsertOutboundConsignmentDeliveryLocationsFromApi(
   return n;
 }
 
+export async function createOutboundConsignmentInZap(
+  po: {
+    id: number;
+    po_number: string;
+    company_id: number | null;
+    company_name: string | null;
+    delivery_city: string | null;
+    po_type: string | null;
+    sold_via: string | null;
+  },
+  createdBy: string
+): Promise<OutboundConsignmentRow> {
+  let company_id = po.company_id;
+  if (company_id != null) {
+    const chk = await query(`SELECT 1 FROM companies WHERE id = $1 LIMIT 1`, [company_id]);
+    if (chk.rows.length === 0) company_id = null;
+  }
+
+  const r = await query(
+    `INSERT INTO outbound_consignments (
+       id, source, company_id, company_name, location,
+       sold_via, po_number, po_type,
+       consignment_status, invoice_number_status, invoice_upload_status,
+       boxes_count, sku_count, total_quantity,
+       raw, created_at, created_by, synced_at
+     ) VALUES (
+       nextval('outbound_consignments_zap_id_seq'),
+       'zap',
+       $1, $2, $3, $4, $5, $6,
+       'OPEN', 'PENDING', 'PENDING',
+       0, 0, 0,
+       '{}'::jsonb, NOW(), $7, NOW()
+     )
+     RETURNING id, company_id, company_name, location, sold_via, po_number, po_type,
+               source, consignment_status, invoice_number_status, invoice_number,
+               invoice_upload_status, invoice_file_path, invoice_file_name,
+               invoice_uploaded_at, invoice_uploaded_by,
+               boxes_count, sku_count, total_quantity,
+               transporter_name, vehicle_number, docket_number,
+               created_at, marked_rtd_at, marked_rtd_by, raw, synced_at`,
+    [company_id, po.company_name, po.delivery_city, po.sold_via, po.po_number, po.po_type, createdBy]
+  );
+
+  return rowToApi(r.rows[0] as Record<string, unknown>);
+}
+
 export async function attachConsignmentInvoice(
   consignmentId: number,
   filePath: string,

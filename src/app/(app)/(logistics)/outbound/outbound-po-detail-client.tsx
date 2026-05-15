@@ -97,9 +97,6 @@ function postDispatchCategory(f: EaFile): PostDispatchKind | null {
   return null;
 }
 
-function originalEaFiles(files: EaFile[]): EaFile[] {
-  return files.filter((f) => postDispatchCategory(f) == null);
-}
 
 function eaFilesForKind(files: EaFile[], kind: PostDispatchKind): EaFile[] {
   return files.filter((f) => postDispatchCategory(f) === kind);
@@ -248,56 +245,13 @@ const SUMMARY_ROWS: { key: string; label: string; format?: "rs" | "pct" }[] = [
   { key: "total_after_tax", label: "Po Value After Tax", format: "rs" },
 ];
 
-const SUMMARY_CHIP_ACCENT: Record<string, string> = {
-  sku_count:
-    "border-l-[3px] border-sky-500 from-sky-50/95 to-transparent dark:from-sky-950/30",
-  total_demand:
-    "border-l-[3px] border-violet-500 from-violet-50/95 to-transparent dark:from-violet-950/30",
-  total_pending:
-    "border-l-[3px] border-amber-500 from-amber-50/95 to-transparent dark:from-amber-950/30",
-  total_packed:
-    "border-l-[3px] border-emerald-500 from-emerald-50/95 to-transparent dark:from-emerald-950/30",
-  sku_fill_rate:
-    "border-l-[3px] border-indigo-500 from-indigo-50/95 to-transparent dark:from-indigo-950/30",
-  quantity_fill_rate:
-    "border-l-[3px] border-fuchsia-500 from-fuchsia-50/95 to-transparent dark:from-fuchsia-950/30",
-  total_dispatched:
-    "border-l-[3px] border-teal-500 from-teal-50/95 to-transparent dark:from-teal-950/30",
-  boxes_packed:
-    "border-l-[3px] border-cyan-600 from-cyan-50/95 to-transparent dark:from-cyan-950/25",
-  boxes_dispatched:
-    "border-l-[3px] border-blue-500 from-blue-50/95 to-transparent dark:from-blue-950/30",
-  total_consignments:
-    "border-l-[3px] border-slate-500 from-slate-50/95 to-transparent dark:from-slate-950/35",
-  total_before_tax:
-    "border-l-[3px] border-orange-500 from-orange-50/95 to-transparent dark:from-orange-950/25",
-  total_after_tax:
-    "border-l-[3px] border-orange-600 from-orange-50/98 to-transparent dark:from-orange-950/30",
-};
-
-const SUMMARY_GROUP_DEFS: { title: string; keys: readonly string[]; gridClassName: string }[] = [
-  {
-    title: "Line fulfilment",
-    keys: [
-      "sku_count",
-      "total_demand",
-      "total_pending",
-      "total_packed",
-      "sku_fill_rate",
-      "quantity_fill_rate",
-    ],
-    gridClassName: "grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6",
-  },
-  {
-    title: "Dispatch and logistics",
-    keys: ["total_dispatched", "boxes_packed", "boxes_dispatched", "total_consignments"],
-    gridClassName: "grid grid-cols-2 gap-3 sm:grid-cols-4",
-  },
-  {
-    title: "Commercial",
-    keys: ["total_before_tax", "total_after_tax"],
-    gridClassName: "grid grid-cols-1 gap-3 sm:grid-cols-2",
-  },
+const SUMMARY_KPI_PAIRS: [string, string][] = [
+  ["sku_count", "sku_fill_rate"],
+  ["total_demand", "quantity_fill_rate"],
+  ["total_pending", "total_consignments"],
+  ["total_packed", "total_dispatched"],
+  ["boxes_packed", "boxes_dispatched"],
+  ["total_before_tax", "total_after_tax"],
 ];
 
 function omitGraphicsReportFromAnalytics(ao: Record<string, unknown>): Record<string, unknown> {
@@ -393,31 +347,6 @@ function Field({
   );
 }
 
-function OutboundAnalyticsStatChip({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border bg-gradient-to-br px-3 py-2.5 shadow-sm backdrop-blur-sm",
-        className
-      )}
-    >
-      <p className="text-muted-foreground mb-1 truncate text-[10px] font-semibold uppercase tracking-wide">
-        {label}
-      </p>
-      <p className="font-mono text-lg leading-tight font-semibold tracking-tight break-words tabular-nums">
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function EditableRow({
   label,
@@ -456,21 +385,21 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canMutate = hasPermission("purchase_orders", "create");
-  const canWritePo = hasPermission("purchase_orders", "write");
+
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<DetailPayload | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = React.useState(false);
+  const [cancelRemarks, setCancelRemarks] = React.useState("");
   const [finalizing, setFinalizing] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [csvErrors, setCsvErrors] = React.useState<{ row: number; field: string; message: string }[]>([]);
   const [csvMissingColumns, setCsvMissingColumns] = React.useState<string[]>([]);
   const [dlBusy, setDlBusy] = React.useState<number | string | null>(null);
-  const [eaZapFile, setEaZapFile] = React.useState<File | null>(null);
-  const [eaZapUploadInputKey, setEaZapUploadInputKey] = React.useState(0);
-  const [eaZapUploading, setEaZapUploading] = React.useState(false);
+
   const [stubBusy, setStubBusy] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState("details");
   const [editOpen, setEditOpen] = React.useState(false);
@@ -755,6 +684,29 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     }
   };
 
+  const executeCancelPo = async () => {
+    setCancelModalOpen(false);
+    setStubBusy("cancel");
+    try {
+      const res = await authFetchRaw(
+        `/api/outbound/purchase-orders/${poId}/eautomate-actions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "cancel", remarks: cancelRemarks.trim() }),
+        }
+      );
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      toast.success("Purchase order cancelled");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cancel failed");
+    } finally {
+      setStubBusy(null);
+    }
+  };
+
   const onFinalize = async () => {
     if (!canMutate || !isDraft) return;
     setFinalizing(true);
@@ -845,33 +797,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     }
   };
 
-  const onUploadEaZap = async () => {
-    const f = eaZapFile;
-    if (!f || !canWritePo) return;
-    setEaZapUploading(true);
-    try {
-      const fd = new FormData();
-      fd.set("file", f);
-      const token = getStoredToken();
-      const headers = new Headers();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      const res = await fetch(apiUrl(`/api/outbound/purchase-orders/${poId}/files-zap`), {
-        method: "POST",
-        headers,
-        body: fd,
-      });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(j.error ?? res.statusText);
-      toast.success("File stored in Zap Storage");
-      setEaZapFile(null);
-      setEaZapUploadInputKey((k) => k + 1);
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setEaZapUploading(false);
-    }
-  };
 
   const onDownloadLabelsCSV = () => {
     const headers = [
@@ -1081,155 +1006,34 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const listingsEnvelope = (data.listings ?? {}) as OutboundListingsEnvelope;
 
   const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
-  const zapReady = data.zapStorageConfigured === true;
-  const originalFiles = originalEaFiles(data.eautomateFiles);
-
-  const filesTable = (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Original PO files</CardTitle>
-        {!zapReady && !data.eautomateDownloadConfigured ? (
-          <CardDescription>
-            Upload files to Zap Storage (configure Supabase keys), or set the legacy outbound file URL template on the server to enable downloads from the sync source.
-          </CardDescription>
-        ) : null}
-      </CardHeader>
-      <CardContent className="p-0">
-        {canWritePo && zapReady ? (
-          <div className="flex flex-wrap items-end gap-3 border-b px-3 py-2">
-            <div className="space-y-1">
-              <Label
-                htmlFor="ea-zap-upload"
-                className="text-muted-foreground text-xs"
-              >
-                Upload a copy to Zap Storage
-              </Label>
-              <Input
-                key={eaZapUploadInputKey}
-                id="ea-zap-upload"
-                type="file"
-                className="max-w-xs cursor-pointer"
-                disabled={eaZapUploading}
-                onChange={(e) =>
-                  setEaZapFile(e.target.files?.[0] ?? null)
-                }
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!eaZapFile || eaZapUploading}
-              onClick={() => void onUploadEaZap()}
-            >
-              {eaZapUploading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Upload"
-              )}
-            </Button>
-          </div>
-        ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="px-3 py-2 font-semibold">File ID</th>
-                <th className="px-3 py-2 font-semibold">Uploaded at</th>
-                <th className="px-3 py-2 font-semibold">Uploaded by</th>
-                <th className="px-3 py-2 font-semibold">File name</th>
-                <th className="px-3 py-2 font-semibold">Download</th>
-              </tr>
-            </thead>
-            <tbody>
-              {originalFiles.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-muted-foreground px-3 py-4 text-center">
-                    No synced files yet — open this page again after sync, or upload a copy to Zap Storage.
-                  </td>
-                </tr>
-              ) : (
-                originalFiles.map((f) => (
-                  <tr key={f.eautomate_file_id} className="border-b">
-                    <td className="px-3 py-2 tabular-nums">{f.eautomate_file_id}</td>
-                    <td className="px-3 py-2">{fmtDateTime(f.created_at)}</td>
-                    <td className="px-3 py-2">{f.file_uploaded_by ?? "—"}</td>
-                    <td className="max-w-[240px] truncate px-3 py-2" title={f.file_name}>
-                      {f.file_name}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className="inline-flex"
-                        title={
-                          !(f.zap_storage_path || legacyFetch)
-                            ? "File not available for download. Upload a copy to Zap Storage to enable."
-                            : undefined
-                        }
-                      >
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="text-primary h-8 w-8"
-                          disabled={
-                            !(f.zap_storage_path || legacyFetch) ||
-                            dlBusy === `ea-${f.eautomate_file_id}`
-                          }
-                          aria-label={`Download ${f.file_name}`}
-                          onClick={() => void onDownloadEa(f.eautomate_file_id, f.file_name)}
-                        >
-                          {dlBusy === `ea-${f.eautomate_file_id}` ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Download className="size-4" />
-                          )}
-                        </Button>
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
 
   const summaryTable = (
     <Card className="border-primary/10 shadow-sm overflow-hidden">
-      <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
-        <CardTitle className="text-base">Current purchase order summary</CardTitle>
-        <CardDescription>
-          Live SKU, dispatch and value KPIs — non-metric payloads (such as embedded form data) stay out of
-          this block.
-        </CardDescription>
+      <CardHeader className="border-b pb-3">
+        <CardTitle className="text-base">Current Purchase Order Summary</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-8 p-4 sm:p-6">
-        {SUMMARY_GROUP_DEFS.map(({ title, keys, gridClassName }) => (
-          <section key={title} className="space-y-2">
-            <h3 className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-              {title}
-            </h3>
-            <div className={gridClassName}>
-              {keys.map((key) => {
-                const meta = outboundSummaryMeta(key);
-                if (!meta) return null;
-                const display = formatSummaryMetric(analytics[key], meta.format);
-                return (
-                  <OutboundAnalyticsStatChip
-                    key={key}
-                    label={meta.label}
-                    value={display}
-                    className={
-                      SUMMARY_CHIP_ACCENT[key] ??
-                      "border-l-[3px] border-primary/40 from-muted/50 to-transparent"
-                    }
-                  />
-                );
-              })}
-            </div>
-          </section>
-        ))}
+      <CardContent className="p-4 sm:p-6 space-y-6">
+        <table className="w-full text-sm border-collapse">
+          <tbody>
+            {SUMMARY_KPI_PAIRS.map(([keyA, keyB]) => {
+              const metaA = outboundSummaryMeta(keyA);
+              const metaB = outboundSummaryMeta(keyB);
+              return (
+                <tr key={keyA} className="border-b last:border-0">
+                  <td className="py-2 pr-4 text-muted-foreground font-medium w-1/4">{metaA?.label ?? keyA}</td>
+                  <td className="py-2 pr-8 font-semibold tabular-nums w-1/4">
+                    {metaA ? formatSummaryMetric(analytics[keyA], metaA.format) : "—"}
+                  </td>
+                  <td className="py-2 pr-4 text-muted-foreground font-medium w-1/4">{metaB?.label ?? keyB}</td>
+                  <td className="py-2 font-semibold tabular-nums w-1/4">
+                    {metaB ? formatSummaryMetric(analytics[keyB], metaB.format) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <OutboundPoLineItemsTable listings={listingsEnvelope} />
       </CardContent>
     </Card>
   );
@@ -1239,22 +1043,9 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       <Button
         type="button"
         variant="outline"
-        className="border-primary text-primary hover:bg-primary/5 h-auto min-h-11 w-full whitespace-normal py-2"
-        disabled={!canMutate || stubBusy !== null}
-        onClick={() => void onStubWorkflow("acknowledge")}
-      >
-        {stubBusy === "acknowledge" ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          "Acknowledge Purchase Order"
-        )}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
         className="h-auto min-h-11 w-full whitespace-normal border-red-300 py-2 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
         disabled={!canMutate || stubBusy !== null}
-        onClick={() => void onStubWorkflow("cancel")}
+        onClick={() => { setCancelRemarks(""); setCancelModalOpen(true); }}
       >
         {stubBusy === "cancel" ? (
           <Loader2 className="size-4 animate-spin" />
@@ -1372,8 +1163,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         <TabsContent value="details" className="mt-4 space-y-6">
           <div className="grid gap-6 xl:grid-cols-[1fr_minmax(260px,300px)]">
             <div className="min-w-0 space-y-6">
-              {filesTable}
-
               {po.calculated_po_status ? (
                 <div
                   className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
@@ -1547,16 +1336,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
 
               {summaryTable}
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">SKU line items</CardTitle>
-                  <CardDescription>From listings / paginated sync</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <OutboundPoLineItemsTable listings={listingsEnvelope} />
-                </CardContent>
-              </Card>
-
               {data.zapAttachments.length > 0 ? (
                 <Card>
                   <CardHeader className="pb-2">
@@ -1694,7 +1473,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                   <CardTitle className="text-base">Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
-                  {workflowButtons}
+                  {!(isDraft || isPartial) ? workflowButtons : null}
                   {canMutate && (isDraft || isPartial) ? (
                     <Button
                       type="button"
@@ -2016,7 +1795,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           <DialogHeader>
             <DialogTitle>Edit {editLabel}</DialogTitle>
             <DialogDescription>
-              Saves to Zap and refreshes from eAutomate when configured.
+              Saves directly to the database.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -2063,9 +1842,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           <DialogHeader>
             <DialogTitle>Create New Consignment</DialogTitle>
             <DialogDescription>
-              Calls eAutomate to create a consignment for PO {po.po_number}. A consignment can
-              only be created once a PO is marked as WIP. Override the URL on the server with
-              EAUTOMATE_CREATE_CONSIGNMENT_URL if the default path does not match your build.
+              Creates a new consignment for PO {po.po_number} in this system. A consignment can
+              only be created once a PO is marked as WIP.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -2468,6 +2246,41 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
             </Button>
             <Button variant="destructive" onClick={() => void executeDelete()}>
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel Purchase Order</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel this Purchase Order? Please note that if there is an
+              open/dispatched consignment or the PO is in WIP state, it cannot be cancelled.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="cancel-remarks">Add Cancellation Remarks :</Label>
+            <textarea
+              id="cancel-remarks"
+              value={cancelRemarks}
+              onChange={(e) => setCancelRemarks(e.target.value)}
+              placeholder="Enter reason for cancellation…"
+              rows={4}
+              className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setCancelModalOpen(false)}>
+              Back
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!cancelRemarks.trim()}
+              onClick={() => void executeCancelPo()}
+            >
+              Confirm Cancellation
             </Button>
           </DialogFooter>
         </DialogContent>

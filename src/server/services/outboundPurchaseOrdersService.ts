@@ -735,7 +735,7 @@ export async function acknowledgeOutboundPo(id: number): Promise<void> {
 }
 
 /** Mark PO as cancelled in local DB (reference-system independent). */
-export async function cancelOutboundPo(id: number): Promise<void> {
+export async function cancelOutboundPo(id: number, cancellationRemarks?: string): Promise<void> {
   if (!Number.isFinite(id) || id < 1) {
     throw new AppError("Invalid PO id", 400);
   }
@@ -743,9 +743,10 @@ export async function cancelOutboundPo(id: number): Promise<void> {
     `UPDATE outbound_purchase_orders
      SET calculated_po_status = 'CANCELLED',
          po_fulfillment_status = 'CANCELLED',
+         remarks = COALESCE($2, remarks),
          updated_at = NOW()
      WHERE id = $1`,
-    [id]
+    [id, cancellationRemarks?.trim() || null]
   );
 }
 
@@ -1105,7 +1106,7 @@ export async function deleteOutboundPartialPurchaseOrderById(
 ): Promise<{ deleted: boolean }> {
   const r = await query(
     `DELETE FROM outbound_purchase_orders
-     WHERE id = $1 AND UPPER(TRIM(COALESCE(po_creation_status, ''))) = 'PARTIAL'
+     WHERE id = $1 AND UPPER(TRIM(COALESCE(po_creation_status, ''))) IN ('PARTIAL', 'DRAFT')
      RETURNING id`,
     [id]
   );

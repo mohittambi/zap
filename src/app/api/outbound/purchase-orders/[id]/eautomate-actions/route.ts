@@ -271,7 +271,8 @@ export async function POST(request: Request, context: Ctx) {
     }
 
     if (action === "cancel") {
-      await cancelOutboundPo(id);
+      const remarks = typeof body.remarks === "string" ? body.remarks.trim() : undefined;
+      await cancelOutboundPo(id, remarks);
       const updated = await outboundPoService.getOutboundPurchaseOrderById(id);
       return NextResponse.json({ ok: true, action, po: updated ?? po });
     }
