@@ -38,7 +38,7 @@ export async function GET(request: Request, context: Ctx) {
 
     const { buffer: buf, contentType: detectedType } = await downloadBufferFromBucket(getOutboundBucket(), stored_path);
 
-    return new NextResponse(buf, {
+    return new NextResponse(new Uint8Array(buf), {
       status: 200,
       headers: {
         "Content-Type": content_type || detectedType || "application/octet-stream",
