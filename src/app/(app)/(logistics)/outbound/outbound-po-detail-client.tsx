@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -461,8 +461,12 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [data, setData] = React.useState<DetailPayload | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const [finalizing, setFinalizing] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
+  const [csvErrors, setCsvErrors] = React.useState<{ row: number; field: string; message: string }[]>([]);
+  const [csvMissingColumns, setCsvMissingColumns] = React.useState<string[]>([]);
   const [dlBusy, setDlBusy] = React.useState<number | string | null>(null);
   const [eaZapFile, setEaZapFile] = React.useState<File | null>(null);
   const [eaZapUploadInputKey, setEaZapUploadInputKey] = React.useState(0);
@@ -514,11 +518,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
             ? j.listings
             : (j.po?.listings_snapshot as Record<string, unknown>) ?? {},
       });
-      if (!j.sync?.ok && j.sync?.message) {
-        toast.message("Live sync skipped", { description: j.sync.message });
-      } else if (j.sync?.ok && j.sync?.message) {
-        toast.message("Sync completed with notices", { description: j.sync.message });
-      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to load");
       setData(null);
@@ -593,6 +592,10 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const po = data?.po;
   const isPartial =
     (po?.po_creation_status ?? "").toUpperCase().trim() === "PARTIAL";
+  const isDraft =
+    (po?.po_creation_status ?? "").toUpperCase().trim() === "DRAFT";
+  const hasPdfAttachment = (data?.zapAttachments ?? []).some((a) => a.kind === "pdf");
+  const hasSpreadsheetAttachment = (data?.zapAttachments ?? []).some((a) => a.kind === "spreadsheet");
 
   const openEdit = (field: SaveFieldKey, label: string, value: string) => {
     setEditField(field);
@@ -729,11 +732,13 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     }
   };
 
-  const onDelete = async () => {
-    if (!canMutate || !isPartial) return;
-    if (!window.confirm("Delete this partial purchase order from Zap? This cannot be undone.")) {
-      return;
-    }
+  const onDelete = () => {
+    if (!canMutate || !(isPartial || isDraft)) return;
+    setDeleteConfirmOpen(true);
+  };
+
+  const executeDelete = async () => {
+    setDeleteConfirmOpen(false);
     setDeleting(true);
     try {
       const res = await authFetchRaw(`/api/outbound/purchase-orders/${poId}`, {
@@ -750,9 +755,29 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     }
   };
 
+  const onFinalize = async () => {
+    if (!canMutate || !isDraft) return;
+    setFinalizing(true);
+    try {
+      const res = await authFetchRaw(`/api/outbound/purchase-orders/${poId}/finalize`, {
+        method: "POST",
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      toast.success("Purchase order finalised and submitted");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Finalise failed");
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
   const onUpload = async () => {
     if (!canMutate || !file) return;
     setUploading(true);
+    setCsvErrors([]);
+    setCsvMissingColumns([]);
     try {
       const fd = new FormData();
       fd.set("file", file);
@@ -767,8 +792,17 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         listingsUpdated?: boolean;
+        rowErrors?: { row: number; field: string; message: string }[];
+        missingColumns?: string[];
       };
-      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      if (!res.ok) {
+        if (j.missingColumns && j.missingColumns.length > 0) {
+          setCsvMissingColumns(j.missingColumns);
+        } else if (j.rowErrors && j.rowErrors.length > 0) {
+          setCsvErrors(j.rowErrors);
+        }
+        throw new Error(j.error ?? res.statusText);
+      }
       toast.success(
         j.listingsUpdated
           ? "File uploaded and line items updated from spreadsheet."
@@ -1287,12 +1321,37 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
     <div className="mx-auto max-w-[1800px] space-y-4 px-2 py-4 md:px-4">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" asChild className="gap-1">
-          <Link href={isPartial ? "/outbound/partial" : "/outbound"}>
+          <Link href={isPartial || isDraft ? "/outbound/partial" : "/outbound"}>
             <ArrowLeft className="size-4" />
             Back
           </Link>
         </Button>
       </div>
+
+      {isDraft ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <span>
+            <strong>Draft PO</strong> — Upload one PDF and one spreadsheet in the <em>Original PO files</em> section below, then click <strong>Finalise PO</strong> to submit.
+          </span>
+          {canMutate ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={finalizing || !hasPdfAttachment || !hasSpreadsheetAttachment || stubBusy !== null}
+              onClick={() => void onFinalize()}
+              title={
+                !hasPdfAttachment || !hasSpreadsheetAttachment
+                  ? "Upload one PDF and one spreadsheet before finalising"
+                  : undefined
+              }
+              className="shrink-0"
+            >
+              {finalizing ? <Loader2 className="size-4 shrink-0 animate-spin" /> : null}
+              Finalise PO
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList variant="line" className="bg-primary/15 w-full flex-wrap justify-start gap-1 p-1">
@@ -1501,7 +1560,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               {data.zapAttachments.length > 0 ? (
                 <Card>
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Received PO files</CardTitle>
+                    <CardTitle className="text-base">Original PO files</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -1565,26 +1624,65 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                       </Link>
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="flex flex-wrap items-end gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="po-upload">Choose file</Label>
-                      <Input
-                        id="po-upload"
-                        type="file"
-                        accept=".pdf,.csv,.xlsx,.xls"
-                        className="max-w-xs cursor-pointer"
-                        onChange={(e) => {
-                          setFile(e.target.files?.[0] ?? null);
-                        }}
-                      />
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="po-upload">Choose file</Label>
+                        <Input
+                          id="po-upload"
+                          type="file"
+                          accept=".pdf,.csv,.xlsx,.xls"
+                          className="max-w-xs cursor-pointer"
+                          onChange={(e) => {
+                            setFile(e.target.files?.[0] ?? null);
+                            setCsvErrors([]);
+                            setCsvMissingColumns([]);
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        disabled={!file || uploading}
+                        onClick={() => void onUpload()}
+                      >
+                        {uploading ? "Uploading…" : "Upload"}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      disabled={!file || uploading}
-                      onClick={() => void onUpload()}
-                    >
-                      {uploading ? "Uploading…" : "Upload"}
-                    </Button>
+                    {csvMissingColumns.length > 0 ? (
+                      <div className="rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm">
+                        <p className="font-semibold text-destructive mb-1">Missing required columns:</p>
+                        <ul className="list-disc list-inside text-destructive/90 text-xs space-y-0.5">
+                          {csvMissingColumns.map((col) => (
+                            <li key={col}><code>{col}</code></li>
+                          ))}
+                        </ul>
+                        <p className="text-muted-foreground text-xs mt-1">Download the sample file to see the correct column names.</p>
+                      </div>
+                    ) : csvErrors.length > 0 ? (
+                      <div className="rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm">
+                        <p className="font-semibold text-destructive mb-1">{csvErrors.length} row(s) have errors — fix and re-upload:</p>
+                        <div className="max-h-48 overflow-y-auto">
+                          <table className="w-full text-xs border-collapse">
+                            <thead>
+                              <tr className="text-left text-destructive/70">
+                                <th className="pr-3 py-0.5 font-semibold">Row</th>
+                                <th className="pr-3 py-0.5 font-semibold">Field</th>
+                                <th className="py-0.5 font-semibold">Issue</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {csvErrors.map((e, i) => (
+                                <tr key={i} className="border-t border-destructive/10">
+                                  <td className="pr-3 py-0.5 tabular-nums text-destructive/80">{e.row}</td>
+                                  <td className="pr-3 py-0.5"><code className="text-destructive/90">{e.field}</code></td>
+                                  <td className="py-0.5 text-destructive/80">{e.message}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
               ) : null}
@@ -1597,12 +1695,12 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 </CardHeader>
                 <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
                   {workflowButtons}
-                  {canMutate && isPartial ? (
+                  {canMutate && (isDraft || isPartial) ? (
                     <Button
                       type="button"
                       variant="destructive"
                       disabled={deleting || stubBusy !== null}
-                      onClick={() => void onDelete()}
+                      onClick={onDelete}
                       className="inline-flex h-auto min-h-10 w-full items-center justify-center gap-2 whitespace-normal py-2"
                     >
                       {deleting ? (
@@ -1613,11 +1711,11 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                       <span>Delete this partial purchase order</span>
                     </Button>
                   ) : (
-                    <p className="text-muted-foreground text-xs leading-relaxed">
-                      {isPartial
-                        ? "You need create permission on purchase orders to delete partial POs."
-                        : "Delete is only available for partially created (PARTIAL) POs."}
-                    </p>
+                    !(isDraft || isPartial) && (
+                      <p className="text-muted-foreground text-xs leading-relaxed">
+                        Delete is only available for partially created POs.
+                      </p>
+                    )
                   )}
                 </CardContent>
               </Card>
@@ -2351,6 +2449,25 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
             </Button>
             <Button type="button" disabled={phase1Generating} onClick={() => void onGeneratePhase1Labels()}>
               {phase1Generating ? <Loader2 className="size-4 animate-spin" /> : "Generate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete this partial purchase order?</DialogTitle>
+            <DialogDescription>
+              This will permanently remove the PO and all its attachments from Zap. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void executeDelete()}>
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

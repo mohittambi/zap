@@ -5,10 +5,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { href: "/outbound", label: "All Purchase Orders", exact: true },
-  { href: "/outbound/wip", label: "WIP Purchase Orders", exact: true },
   { href: "/outbound/new", label: "Add New Purchase Order", exact: true },
+  { href: "/outbound/wip", label: "WIP Purchase Orders", exact: true },
   { href: "/outbound/partial", label: "Partially Created Purchase Orders", exact: true },
+  { href: "/outbound", label: "All Purchase Orders", exact: true },
   { href: "/outbound/consignments", label: "Consignments", exact: true },
   { href: "/outbound/pending-invoices", label: "Pending Invoices", exact: true },
   { href: "/outbound/boxes", label: "Manage Boxes", exact: true },

@@ -187,7 +187,7 @@ export async function listOutboundPurchaseOrders(opts: {
   }
 
   if (partialOnly) {
-    conditions.push(`UPPER(TRIM(COALESCE(o.po_creation_status, ''))) = 'PARTIAL'`);
+    conditions.push(`UPPER(TRIM(COALESCE(o.po_creation_status, ''))) IN ('PARTIAL', 'DRAFT')`);
   }
 
   if (search && search.trim()) {
@@ -556,6 +556,8 @@ export async function createOutboundPurchaseOrderRow(input: {
   po_issue_date: Date;
   expiry_date: Date;
   po_type: string;
+  po_creation_status?: string;
+  is_wip?: string;
   company_name: string | null;
   created_by: string | null;
 }): Promise<{ id: number; po_number: string }> {
@@ -585,9 +587,9 @@ export async function createOutboundPurchaseOrderRow(input: {
       input.po_issue_date,
       input.expiry_date,
       input.po_type,
-      "SUBMITTED",
+      input.po_creation_status ?? "SUBMITTED",
       input.created_by,
-      "YES",
+      input.is_wip ?? "YES",
       input.company_name,
     ]
   );
@@ -620,6 +622,33 @@ export async function insertOutboundPoAttachment(input: {
 
 export async function deleteOutboundPurchaseOrderById(id: number): Promise<void> {
   await query(`DELETE FROM outbound_purchase_orders WHERE id = $1`, [id]);
+}
+
+export async function finalizeDraftOutboundPo(id: number): Promise<void> {
+  if (!Number.isFinite(id) || id < 1) throw new AppError("Invalid PO id", 400);
+
+  const statusR = await query(
+    `SELECT po_creation_status FROM outbound_purchase_orders WHERE id = $1 LIMIT 1`,
+    [id]
+  );
+  if (statusR.rows.length === 0) throw new AppError("Purchase order not found", 404);
+  const status = String(statusR.rows[0].po_creation_status ?? "").toUpperCase().trim();
+  if (status !== "DRAFT") throw new AppError("Only draft POs can be finalised", 400);
+
+  const attR = await query(
+    `SELECT kind FROM outbound_po_attachments WHERE outbound_po_id = $1`,
+    [id]
+  );
+  const kinds = attR.rows.map((r) => String(r.kind));
+  if (!kinds.includes("pdf")) throw new AppError("Upload a PDF file before finalising", 400);
+  if (!kinds.includes("spreadsheet")) throw new AppError("Upload a spreadsheet file before finalising", 400);
+
+  await query(
+    `UPDATE outbound_purchase_orders
+     SET po_creation_status = 'SUBMITTED', is_wip = 'YES', updated_at = NOW()
+     WHERE id = $1`,
+    [id]
+  );
 }
 
 export async function getOutboundPurchaseOrderById(

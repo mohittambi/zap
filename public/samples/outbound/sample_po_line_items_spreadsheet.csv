@@ -1,3 +1,2 @@
-line_no,sku_id,product_description,qty_ordered,unit_mrp_inr,remarks
-1,EXAMPLE-SKU-001,Sample product line for PO spreadsheet attachment,10,499.00,Replace with real PO lines
-2,EXAMPLE-SKU-002,Second line item,5,899.00,
+company_code_primary,company_code_secondary,demand,hsn_code,title,mrp,rate_without_tax,tax_rate
+Company's primary SKU code. (Makes Barcode),"Unique identifiers other than primary SKU, eg - Style Ids in Myntra, sku-id in zepto etc.",Quantity required by company,Product's HSN code,Product's Title,Product's MRP,Product's price exclusive of taxes,Product's applicable tax rate

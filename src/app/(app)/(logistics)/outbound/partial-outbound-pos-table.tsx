@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 type PartialPoRow = {
   id: number;
   po_number: string;
+  po_creation_status: string | null;
   company_name: string | null;
   company_id: number | null;
   delivery_city: string | null;
@@ -237,6 +238,7 @@ export function PartialOutboundPosTable() {
             <table className="w-max min-w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="bg-muted/50 border-b">
+                  <th className="px-3 py-2 font-semibold">Type</th>
                   <th className="px-3 py-2 min-w-[140px]"><SortHeader label="PO Number" col="po_number" sort={sort} onSort={handleSort} /></th>
                   <th className="px-3 py-2 min-w-[160px]"><SortHeader label="Company Name" col="company_name" sort={sort} onSort={handleSort} /></th>
                   <th className="px-3 py-2 font-semibold">Company ID</th>
@@ -246,6 +248,7 @@ export function PartialOutboundPosTable() {
                   <th className="px-3 py-2"><SortHeader label="Created By" col="created_by" sort={sort} onSort={handleSort} /></th>
                 </tr>
                 <tr className="bg-muted/30 border-b">
+                  <th className="px-2 py-1.5"></th>
                   <th className="px-2 py-1.5">
                     <input
                       aria-label="Filter by PO number"
@@ -287,7 +290,7 @@ export function PartialOutboundPosTable() {
                       onChange={updateMulti(setDeliveryCities)}
                     />
                   </th>
-                  {["expiry", "created", "by"].map((k) => (
+                  {["expiry", "created", "by", "cid"].map((k) => (
                     <th key={`spacer-${k}`} className="px-2 py-1.5"></th>
                   ))}
                 </tr>
@@ -295,6 +298,17 @@ export function PartialOutboundPosTable() {
               <tbody>
                 {(data?.content ?? []).map((row) => (
                   <tr key={row.id} className="border-b hover:bg-muted/30">
+                    <td className="px-3 py-2">
+                      {(row.po_creation_status ?? "").toUpperCase() === "DRAFT" ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                          Zap Draft
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                          eAutomate
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <Link
                         href={`/outbound/po/${row.id}`}

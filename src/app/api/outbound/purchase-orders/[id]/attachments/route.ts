@@ -65,8 +65,41 @@ export async function POST(request: Request, context: Ctx) {
     const buf = Buffer.from(await file.arrayBuffer());
     const fname = safeFilename(file.name);
     const objectPath = path.posix.join("outbound-po", String(poId), fname);
-    await uploadBufferToBucket(getOutboundBucket(), objectPath, buf, file.type || "application/octet-stream");
 
+    if (kind === "spreadsheet") {
+      const result = parseOutboundPoLineItemsSpreadsheet(buf, fname);
+      if (result.missingColumns.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Spreadsheet is missing required columns: ${result.missingColumns.join(", ")}`,
+            missingColumns: result.missingColumns,
+          },
+          { status: 422 }
+        );
+      }
+      if (result.errors.length > 0) {
+        return NextResponse.json(
+          {
+            error: `${result.errors.length} row(s) have validation errors. Fix them and re-upload.`,
+            rowErrors: result.errors,
+          },
+          { status: 422 }
+        );
+      }
+      await uploadBufferToBucket(getOutboundBucket(), objectPath, buf, file.type || "application/octet-stream");
+      await outboundPoService.insertOutboundPoAttachment({
+        outbound_po_id: poId,
+        original_filename: file.name,
+        content_type: file.type || null,
+        size_bytes: buf.length,
+        stored_path: objectPath,
+        kind,
+      });
+      await outboundPoService.updateOutboundPoListingsSnapshot(poId, result);
+      return NextResponse.json({ ok: true, listingsUpdated: result.content.length > 0 });
+    }
+
+    await uploadBufferToBucket(getOutboundBucket(), objectPath, buf, file.type || "application/octet-stream");
     await outboundPoService.insertOutboundPoAttachment({
       outbound_po_id: poId,
       original_filename: file.name,
@@ -75,22 +108,7 @@ export async function POST(request: Request, context: Ctx) {
       stored_path: objectPath,
       kind,
     });
-
-    let listingsUpdated = false;
-    if (kind === "spreadsheet") {
-      try {
-        const envelope = parseOutboundPoLineItemsSpreadsheet(buf, fname);
-        await outboundPoService.updateOutboundPoListingsSnapshot(
-          poId,
-          envelope
-        );
-        listingsUpdated = envelope.content.length > 0;
-      } catch {
-        listingsUpdated = false;
-      }
-    }
-
-    return NextResponse.json({ ok: true, listingsUpdated });
+    return NextResponse.json({ ok: true, listingsUpdated: false });
   } catch (err) {
     return handleApiError(err);
   }

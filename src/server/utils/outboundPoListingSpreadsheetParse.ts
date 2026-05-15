@@ -1,5 +1,50 @@
 import * as XLSX from "xlsx";
 
+export type CsvRowError = {
+  row: number;
+  field: string;
+  message: string;
+};
+
+export type SpreadsheetParseResult = {
+  content: Record<string, unknown>[];
+  errors: CsvRowError[];
+  missingColumns: string[];
+};
+
+/** Fields that must be present and non-empty in every data row. */
+const MANDATORY_FIELDS: ReadonlyArray<string> = [
+  "company_code_primary",
+  "company_code_secondary",
+  "original_demand",
+  "hsn_code",
+  "title",
+  "mrp",
+  "rate_without_tax",
+  "tax_rate",
+];
+
+/** Fields that must be numeric (and >= 0). */
+const NUMERIC_FIELDS = new Set([
+  "box_number",
+  "box_quantity",
+  "original_demand",
+  "dispatched_quantity",
+  "consignment_quantity",
+  "mrp",
+  "rate_without_tax",
+  "tax_rate",
+]);
+
+/** Fields that are integers (truncated). */
+const INT_FIELDS = new Set([
+  "box_number",
+  "box_quantity",
+  "original_demand",
+  "dispatched_quantity",
+  "consignment_quantity",
+]);
+
 function normHeader(h: string): string {
   return h
     .trim()
@@ -34,6 +79,14 @@ function mapHeaderToField(norm: string): string | null {
     created_by: "created_by",
     created_at: "created_at",
     updated_at: "updated_at",
+    hsn_code: "hsn_code",
+    hsn: "hsn_code",
+    title: "title",
+    product_title: "title",
+    rate_without_tax: "rate_without_tax",
+    rate_excl_tax: "rate_without_tax",
+    tax_rate: "tax_rate",
+    gst_rate: "tax_rate",
   };
   if (direct[norm]) return direct[norm];
   if (norm.includes("secondary") && norm.includes("sku")) return "po_secondary_sku";
@@ -47,95 +100,157 @@ function mapHeaderToField(norm: string): string | null {
 
 function coerceCell(field: string, v: unknown): unknown {
   if (v == null || v === "") return null;
-  if (
-    field === "box_number" ||
-    field === "box_quantity" ||
-    field === "original_demand" ||
-    field === "dispatched_quantity" ||
-    field === "consignment_quantity"
-  ) {
+  if (NUMERIC_FIELDS.has(field)) {
     const n = Number(v);
-    return Number.isFinite(n) ? Math.trunc(n) : String(v);
+    if (!Number.isFinite(n)) return String(v); // keep raw string so validation can flag it
+    return INT_FIELDS.has(field) ? Math.trunc(n) : n;
   }
   return typeof v === "number" ? v : String(v).trim();
 }
 
-function parseCsv(buf: Buffer): Record<string, unknown>[] {
-  const text = buf.toString("utf8");
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length < 2) return [];
-  const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
-  const headerCells = lines[0].split(delim).map((s) => s.replace(/^"|"$/g, "").trim());
-  const fieldNames = headerCells.map((h) => {
-    const n = normHeader(h);
-    return mapHeaderToField(n);
-  });
-  const rows: Record<string, unknown>[] = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const cells = lines[i].split(delim).map((s) => s.replace(/^"|"$/g, "").trim());
-    const row: Record<string, unknown> = {};
-    let any = false;
-    for (let c = 0; c < fieldNames.length; c += 1) {
-      const fn = fieldNames[c];
-      if (!fn) continue;
-      const val = coerceCell(fn, cells[c] ?? "");
-      if (val != null && val !== "") {
-        row[fn] = val;
-        any = true;
+type RawRow = Record<string, unknown>;
+
+function validateRow(row: RawRow, rowIndex: number): CsvRowError[] {
+  const errs: CsvRowError[] = [];
+  for (const field of MANDATORY_FIELDS) {
+    const val = row[field];
+    if (val == null || val === "") {
+      errs.push({ row: rowIndex, field, message: `${field} is required` });
+      continue;
+    }
+    if (NUMERIC_FIELDS.has(field)) {
+      const n = Number(val);
+      if (!Number.isFinite(n)) {
+        errs.push({ row: rowIndex, field, message: `${field} must be a number (got "${val}")` });
+        continue;
+      }
+      if (field === "original_demand" && n <= 0) {
+        errs.push({ row: rowIndex, field, message: `${field} must be greater than 0` });
+      }
+      if ((field === "mrp" || field === "rate_without_tax" || field === "tax_rate") && n < 0) {
+        errs.push({ row: rowIndex, field, message: `${field} must be 0 or greater` });
       }
     }
-    if (any) rows.push(row);
   }
-  return rows;
+  return errs;
 }
 
-function parseXlsx(buf: Buffer): Record<string, unknown>[] {
-  const wb = XLSX.read(buf, { type: "buffer" });
-  const name = wb.SheetNames[0];
-  if (!name) return [];
-  const sheet = wb.Sheets[name];
-  const matrix = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    defval: "",
-  }) as unknown[][];
-  if (matrix.length < 2) return [];
-  const headerRow = matrix[0] as unknown[];
-  const fieldNames = headerRow.map((h) => {
-    const s = h == null ? "" : String(h);
-    const n = normHeader(s);
-    return mapHeaderToField(n);
-  });
-  const rows: Record<string, unknown>[] = [];
-  for (let r = 1; r < matrix.length; r += 1) {
-    const line = matrix[r] as unknown[];
-    const row: Record<string, unknown> = {};
-    let any = false;
+function extractFieldNames(headerCells: string[]): (string | null)[] {
+  return headerCells.map((h) => mapHeaderToField(normHeader(h)));
+}
+
+function detectMissingColumns(fieldNames: (string | null)[]): string[] {
+  const present = new Set(fieldNames.filter(Boolean) as string[]);
+  return MANDATORY_FIELDS.filter((f) => !present.has(f));
+}
+
+function buildRows(
+  rawRows: { cells: (string | unknown)[]; index: number }[],
+  fieldNames: (string | null)[]
+): { rows: RawRow[]; errors: CsvRowError[] } {
+  const rows: RawRow[] = [];
+  const errors: CsvRowError[] = [];
+  for (const { cells, index } of rawRows) {
+    const row: RawRow = {};
     for (let c = 0; c < fieldNames.length; c += 1) {
       const fn = fieldNames[c];
       if (!fn) continue;
-      const val = coerceCell(String(fn), line[c]);
-      if (val != null && val !== "") {
-        row[String(fn)] = val;
-        any = true;
+      const coerced = coerceCell(fn, cells[c] ?? "");
+      if (coerced != null && coerced !== "") row[fn] = coerced;
+    }
+    const rowErrors = validateRow(row, index);
+    if (rowErrors.length > 0) {
+      errors.push(...rowErrors);
+    } else {
+      rows.push(row);
+    }
+  }
+  return { rows, errors };
+}
+
+function parseCsv(buf: Buffer): SpreadsheetParseResult {
+  const text = buf.toString("utf8").replace(/^﻿/, ""); // strip BOM
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) {
+    return { content: [], errors: [], missingColumns: MANDATORY_FIELDS.slice() };
+  }
+  const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
+
+  const splitCsvLine = (line: string): string[] => {
+    const cells: string[] = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else {
+        if (ch === '"') inQ = true;
+        else if (ch === delim) { cells.push(cur.trim()); cur = ""; }
+        else cur += ch;
       }
     }
-    if (any) rows.push(row);
+    cells.push(cur.trim());
+    return cells;
+  };
+
+  const headerCells = splitCsvLine(lines[0]);
+  const fieldNames = extractFieldNames(headerCells);
+  const missingColumns = detectMissingColumns(fieldNames);
+  if (missingColumns.length > 0) {
+    return { content: [], errors: [], missingColumns };
   }
-  return rows;
+
+  const rawRows = lines.slice(1).map((line, i) => ({
+    cells: splitCsvLine(line),
+    index: i + 1,
+  }));
+  const { rows, errors } = buildRows(rawRows, fieldNames);
+  return { content: rows, errors, missingColumns: [] };
+}
+
+function parseXlsx(buf: Buffer): SpreadsheetParseResult {
+  const wb = XLSX.read(buf, { type: "buffer" });
+  const name = wb.SheetNames[0];
+  if (!name) return { content: [], errors: [], missingColumns: MANDATORY_FIELDS.slice() };
+  const sheet = wb.Sheets[name];
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][];
+  if (matrix.length < 2) {
+    return { content: [], errors: [], missingColumns: MANDATORY_FIELDS.slice() };
+  }
+
+  const headerRow = (matrix[0] as unknown[]).map((h) =>
+    h == null ? "" : String(h)
+  );
+  const fieldNames = extractFieldNames(headerRow);
+  const missingColumns = detectMissingColumns(fieldNames);
+  if (missingColumns.length > 0) {
+    return { content: [], errors: [], missingColumns };
+  }
+
+  const rawRows = matrix.slice(1).map((line, i) => ({
+    cells: line as unknown[],
+    index: i + 1,
+  }));
+  const { rows, errors } = buildRows(rawRows, fieldNames);
+  return { content: rows, errors, missingColumns: [] };
 }
 
 /**
- * Parse CSV / XLSX into listing line objects; wrap for `listings_snapshot` (content array).
+ * Parse CSV / XLSX into listing line objects with mandatory-field validation.
+ * Returns `errors` (per-row field errors) and `missingColumns` (headers absent from the file).
+ * Only rows that pass validation are included in `content`.
  */
 export function parseOutboundPoLineItemsSpreadsheet(
   buf: Buffer,
   filename: string
-): { content: Record<string, unknown>[] } {
+): SpreadsheetParseResult {
   const lower = filename.toLowerCase();
-  const rows = lower.endsWith(".csv")
+  return lower.endsWith(".csv")
     ? parseCsv(buf)
     : lower.endsWith(".xlsx") || lower.endsWith(".xls")
       ? parseXlsx(buf)
       : parseCsv(buf);
-  return { content: rows };
 }

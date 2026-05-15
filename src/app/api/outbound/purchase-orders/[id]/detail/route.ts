@@ -42,7 +42,7 @@ export async function GET(_request: Request, context: Ctx) {
       listings,
       eautomateFiles,
       zapAttachments,
-      sync: { ok: false, message: "Sync via npm run sync:outbound-po-detail" },
+      sync: { ok: true },
       eautomateDownloadConfigured: outboundPoFileDownloadConfigured(),
       zapStorageConfigured: zapOk,
       /** True when at least one download path can work (Zap Storage or legacy remote template). */

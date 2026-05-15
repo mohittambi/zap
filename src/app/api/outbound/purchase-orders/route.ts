@@ -164,30 +164,34 @@ export async function POST(request: Request) {
       throw new AppError("Select a valid PO type", 400);
     }
 
-    if (files.length !== MAX_PO_FILES) {
-      throw new AppError(
-        "Upload exactly two files: one PDF and one spreadsheet (CSV or Excel). Maximum 2 files, 2MB each.",
-        400
-      );
-    }
-    for (const f of files) {
-      if (f.size > MAX_PO_FILE_BYTES) {
-        throw new AppError(`File "${f.name}" exceeds the 2MB limit`, 400);
-      }
-      if (classifyPoUpload(f) === "other") {
+    const isDraft = files.length === 0;
+
+    if (!isDraft) {
+      if (files.length !== MAX_PO_FILES) {
         throw new AppError(
-          `Unsupported file type: "${f.name}". Use PDF or Excel/CSV.`,
+          "Upload exactly two files: one PDF and one spreadsheet (CSV or Excel). Maximum 2 files, 2MB each.",
           400
         );
       }
-    }
-    const pdfCount = files.filter((f) => classifyPoUpload(f) === "pdf").length;
-    const ssCount = files.filter((f) => classifyPoUpload(f) === "spreadsheet").length;
-    if (pdfCount !== 1 || ssCount !== 1) {
-      throw new AppError(
-        "Provide exactly one PDF and one spreadsheet or CSV (one of each).",
-        400
-      );
+      for (const f of files) {
+        if (f.size > MAX_PO_FILE_BYTES) {
+          throw new AppError(`File "${f.name}" exceeds the 2MB limit`, 400);
+        }
+        if (classifyPoUpload(f) === "other") {
+          throw new AppError(
+            `Unsupported file type: "${f.name}". Use PDF or Excel/CSV.`,
+            400
+          );
+        }
+      }
+      const pdfCount = files.filter((f) => classifyPoUpload(f) === "pdf").length;
+      const ssCount = files.filter((f) => classifyPoUpload(f) === "spreadsheet").length;
+      if (pdfCount !== 1 || ssCount !== 1) {
+        throw new AppError(
+          "Provide exactly one PDF and one spreadsheet or CSV (one of each).",
+          400
+        );
+      }
     }
 
     const soldViaOptions = await outboundPoService.listOutboundSoldViaOptions();
@@ -206,6 +210,8 @@ export async function POST(request: Request) {
       po_issue_date: poIssueDate,
       expiry_date: expiryDate,
       po_type: poType,
+      po_creation_status: isDraft ? "DRAFT" : "SUBMITTED",
+      is_wip: isDraft ? "NO" : "YES",
       company_name: companyName,
       created_by: user.email,
     });
@@ -227,7 +233,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return NextResponse.json({ id, po_number });
+    return NextResponse.json({ id, po_number, draft: isDraft });
   } catch (err) {
     if (createdId != null) {
       await outboundPoService.deleteOutboundPurchaseOrderById(createdId).catch(() => {});

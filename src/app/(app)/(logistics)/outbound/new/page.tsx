@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -39,24 +38,6 @@ function daysInMonth(year: number, monthIndex: number): number {
 }
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-
-function classifyPoUploadLocal(file: File): "pdf" | "spreadsheet" | "other" {
-  const lower = file.name.toLowerCase();
-  const mt = (file.type || "").toLowerCase();
-  if (lower.endsWith(".pdf") || mt.includes("pdf")) return "pdf";
-  if (
-    lower.endsWith(".csv") ||
-    lower.endsWith(".xlsx") ||
-    lower.endsWith(".xls") ||
-    mt.includes("spreadsheet") ||
-    mt.includes("csv") ||
-    mt.includes("excel") ||
-    mt.includes("sheet")
-  ) {
-    return "spreadsheet";
-  }
-  return "other";
-}
 
 type SoldViaOpt = { code: string; label: string };
 type CompanyOpt = { id: number; name: string | null; description: string | null };
@@ -363,7 +344,6 @@ export default function OutboundNewPoPage() {
   const [releaseDate, setReleaseDate] = React.useState<Date | null>(null);
   const [expiryDate, setExpiryDate] = React.useState<Date | null>(null);
   const [poType, setPoType] = React.useState<string | null>(null);
-  const [files, setFiles] = React.useState<File[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
@@ -434,25 +414,6 @@ export default function OutboundNewPoPage() {
       err.expiryDate = "Expiry date must be on or after the release date.";
     }
     if (!poType) err.poType = "Select PO type.";
-    if (files.length !== 2) {
-      err.poFiles = "Choose exactly two files: one PDF and one spreadsheet (CSV or Excel).";
-    } else {
-      const pdfN = files.filter((f) => classifyPoUploadLocal(f) === "pdf").length;
-      const ssN = files.filter((f) => classifyPoUploadLocal(f) === "spreadsheet").length;
-      if (pdfN !== 1 || ssN !== 1) {
-        err.poFiles = "Provide one PDF and one spreadsheet or CSV (one of each, max 2MB per file).";
-      }
-      for (const f of files) {
-        if (classifyPoUploadLocal(f) === "other") {
-          err.poFiles = `Unsupported type: ${f.name}. Use PDF or Excel/CSV only.`;
-          break;
-        }
-        if (f.size > 2 * 1024 * 1024) {
-          err.poFiles = `File "${f.name}" exceeds the 2MB limit.`;
-          break;
-        }
-      }
-    }
     setFieldErrors(err);
     return Object.keys(err).length === 0;
   }, [
@@ -465,11 +426,9 @@ export default function OutboundNewPoPage() {
     releaseDate,
     expiryDate,
     poType,
-    files,
   ]);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const createPo = async () => {
     if (!canCreate) return;
     if (!validateForm()) return;
     setSubmitting(true);
@@ -484,22 +443,24 @@ export default function OutboundNewPoPage() {
       fd.set("poReleaseIso", releaseDate ? releaseDate.toISOString() : "");
       fd.set("poExpiryIso", expiryDate ? expiryDate.toISOString() : "");
       fd.set("poType", poType ?? "");
-      for (const f of files) {
-        fd.append("po_files", f);
-      }
       const res = await authFetch("/api/outbound/purchase-orders", {
         method: "POST",
         body: fd,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? res.statusText);
-      toast.success(`Purchase order ${data.po_number} created`);
+      toast.success(`Draft PO ${data.po_number} created`);
       router.push(`/outbound/po/${data.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Submit failed");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    void createPo();
   };
 
   if (!canCreate) {
@@ -744,57 +705,9 @@ export default function OutboundNewPoPage() {
             ) : null}
           </div>
 
-          <Card className="border-border shadow-sm">
-            <CardContent className="space-y-3 pt-4">
-              <Label htmlFor="po-files">Upload Original PO files :</Label>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                (Maximum 2 files are allowed. File size should not exceed 2MB. Please upload both
-                pdf and spreadsheet version of the PO.){" "}
-                <Link
-                  href="/samples/outbound/sample_po_line_items_spreadsheet.csv"
-                  className="text-primary font-medium underline-offset-2 hover:underline"
-                  download
-                >
-                  Sample spreadsheet (CSV)
-                </Link>
-              </p>
-              <Input
-                id="po-files"
-                type="file"
-                accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                multiple
-                className="min-h-11 cursor-pointer"
-                aria-invalid={!!fieldErrors.poFiles}
-                onChange={(e) => {
-                  const list = e.target.files ? Array.from(e.target.files) : [];
-                  if (list.length > 2) {
-                    toast.message("Only two files are used", {
-                      description: "Select one PDF and one spreadsheet.",
-                    });
-                  }
-                  setFiles(list.slice(0, 2));
-                  setFieldErrors((p) => {
-                    const n = { ...p };
-                    delete n.poFiles;
-                    return n;
-                  });
-                  e.target.value = "";
-                }}
-              />
-              {fieldErrors.poFiles ? (
-                <p className="text-destructive text-xs">{fieldErrors.poFiles}</p>
-              ) : null}
-              {files.length > 0 ? (
-                <ul className="text-muted-foreground font-mono text-xs">
-                  {files.map((f) => (
-                    <li key={f.name}>
-                      {f.name} ({Math.round(f.size / 1024)} KB)
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </CardContent>
-          </Card>
+          <p className="text-muted-foreground text-xs">
+            After creating the PO, upload the original PDF and spreadsheet from the PO detail page to finalise it.
+          </p>
 
           <div className="flex justify-center pt-2">
             <Button
@@ -803,7 +716,7 @@ export default function OutboundNewPoPage() {
               className="bg-primary min-w-[200px] px-8"
               disabled={submitting}
             >
-              {submitting ? "Submitting…" : "Submit"}
+              {submitting ? "Creating…" : "Create PO"}
             </Button>
           </div>
         </form>
