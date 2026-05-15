@@ -1,5 +1,4 @@
 import path from "path";
-import fs from "fs/promises";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
@@ -7,6 +6,7 @@ import { AppError, handleApiError } from "@/server/errors";
 import { parsePagination } from "@/server/validators/pagination";
 import { OUTBOUND_PO_TYPES } from "@/lib/outbound-po-types";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
+import { uploadBufferToBucket, getOutboundBucket } from "@/server/zapStorage";
 
 const MAX_PO_FILES = 2;
 const MAX_PO_FILE_BYTES = 2 * 1024 * 1024;
@@ -112,7 +112,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   let createdId: number | null = null;
-  let uploadDir: string | null = null;
   try {
     const user = await requireAuth(request);
     assertPermission(user, "purchase_orders", "create");
@@ -211,22 +210,19 @@ export async function POST(request: Request) {
       created_by: user.email,
     });
     createdId = id;
-    uploadDir = path.join(process.cwd(), "uploads", "outbound-po", String(id));
-    await fs.mkdir(uploadDir, { recursive: true });
 
     for (const file of files) {
       const kind = classifyPoUpload(file);
       const buf = Buffer.from(await file.arrayBuffer());
       const fname = safeFilename(file.name);
-      const rel = path.posix.join("outbound-po", String(id), fname);
-      const abs = path.join(process.cwd(), "uploads", ...rel.split("/"));
-      await fs.writeFile(abs, buf);
+      const objectPath = path.posix.join("outbound-po", String(id), fname);
+      await uploadBufferToBucket(getOutboundBucket(), objectPath, buf, file.type || "application/octet-stream");
       await outboundPoService.insertOutboundPoAttachment({
         outbound_po_id: id,
         original_filename: file.name,
         content_type: file.type || null,
         size_bytes: buf.length,
-        stored_path: rel,
+        stored_path: objectPath,
         kind,
       });
     }
@@ -235,9 +231,6 @@ export async function POST(request: Request) {
   } catch (err) {
     if (createdId != null) {
       await outboundPoService.deleteOutboundPurchaseOrderById(createdId).catch(() => {});
-    }
-    if (uploadDir) {
-      await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
     }
     return handleApiError(err);
   }
