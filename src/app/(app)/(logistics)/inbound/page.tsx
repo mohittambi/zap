@@ -22,22 +22,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
+import { Badge } from "@/components/ui/badge";
+
+type VendorSpecialty = {
+  id: number;
+  vendor_id: number;
+  vendor_speciality: string;
+};
 
 type Vendor = {
   id: number;
   vendor_name: string;
   vendor_city?: string;
   vendor_gstin?: string;
+  specialties?: VendorSpecialty[];
 };
 
 function matchesSearch(v: Vendor, q: string): boolean {
@@ -47,11 +57,15 @@ function matchesSearch(v: Vendor, q: string): boolean {
   const name = (v.vendor_name ?? "").toLowerCase();
   const city = (v.vendor_city ?? "").toLowerCase();
   const gstin = (v.vendor_gstin ?? "").toLowerCase();
+  const specs = (v.specialties ?? []).some((sp) =>
+    (sp.vendor_speciality ?? "").toLowerCase().includes(s)
+  );
   return (
     idStr.includes(s) ||
     name.includes(s) ||
     city.includes(s) ||
-    gstin.includes(s)
+    gstin.includes(s) ||
+    specs
   );
 }
 
@@ -59,6 +73,7 @@ export default function InboundVendorsPage() {
   const router = useRouter();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("vendors", "create");
+  const canDelete = hasPermission("vendors", "delete");
 
   const [rows, setRows] = React.useState<Vendor[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -75,6 +90,9 @@ export default function InboundVendorsPage() {
   const [formPostal, setFormPostal] = React.useState("");
   const [formGstin, setFormGstin] = React.useState("");
   const [formPhone, setFormPhone] = React.useState("");
+
+  const [deleteTarget, setDeleteTarget] = React.useState<Vendor | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -107,6 +125,21 @@ export default function InboundVendorsPage() {
     setFormPostal("");
     setFormGstin("");
     setFormPhone("");
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/vendors/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success(`Vendor "${deleteTarget.vendor_name}" deleted`);
+      setDeleteTarget(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function submitCreate() {
@@ -149,7 +182,7 @@ export default function InboundVendorsPage() {
     <div className="mx-auto max-w-6xl space-y-6 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Inbound"
-        description="Select a vendor to review SKUs and stock levels. Search by name, city, GSTIN, or ID."
+        description="Select a vendor to review SKUs and stock levels. Search by name, city, GSTIN, specialty, or ID."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -188,16 +221,16 @@ export default function InboundVendorsPage() {
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
-            <div className="space-y-2 px-6 py-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
+            <div className="grid grid-cols-1 gap-4 px-6 py-4 sm:grid-cols-2 lg:grid-cols-3">
+              {["sk1", "sk2", "sk3", "sk4", "sk5", "sk6"].map((k) => (
+                <Skeleton key={k} className="h-28 w-full rounded-lg" />
+              ))}
             </div>
           ) : rows.length === 0 ? (
             <div className="px-6 py-8">
               <EmptyState
                 title="No vendors"
-                description="Sync from eautomate, seed the database, or add a vendor."
+                description="No vendors have been added yet. Add a vendor to get started."
               />
             </div>
           ) : filtered.length === 0 ? (
@@ -208,42 +241,135 @@ export default function InboundVendorsPage() {
               />
             </div>
           ) : (
-            <div className="overflow-x-auto px-2 pb-4 md:px-0">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50">
-                    <TableHead className="w-24">ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>City</TableHead>
-                    <TableHead className="hidden md:table-cell">GSTIN</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((v) => (
-                    <TableRow key={v.id} className="hover:bg-muted/30">
-                      <TableCell className="font-mono text-sm">{v.id}</TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/inbound/vendors/${v.id}`}
-                          className="text-primary font-medium underline-offset-4 hover:underline"
-                        >
+            <div className="grid grid-cols-1 gap-4 px-6 pb-6 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((v) => {
+                const initials = (v.vendor_name ?? "?")
+                  .split(" ")
+                  .slice(0, 2)
+                  .map((w) => w[0]?.toUpperCase() ?? "")
+                  .join("");
+                return (
+                  <Link
+                    key={v.id}
+                    href={`/inbound/vendors/${v.id}`}
+                    className="group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="bg-primary/10 text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold">
+                        {initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-foreground group-hover:text-primary truncate font-semibold leading-snug transition-colors">
                           {v.vendor_name ?? "—"}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {v.vendor_city ?? "—"}
-                      </TableCell>
-                      <TableCell className="hidden font-mono text-xs md:table-cell">
-                        {v.vendor_gstin ?? "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        </p>
+                        <p className="text-muted-foreground mt-0.5 text-xs">
+                          ID{" "}
+                          <span className="font-mono">{v.id}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 text-xs">
+                      {v.vendor_city ? (
+                        <div className="text-muted-foreground flex items-center gap-1.5">
+                          <svg
+                            className="h-3 w-3 shrink-0"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+                            <circle cx="12" cy="9" r="2.5" />
+                          </svg>
+                          <span className="truncate">{v.vendor_city}</span>
+                        </div>
+                      ) : null}
+                      {v.vendor_gstin ? (
+                        <div className="text-muted-foreground flex items-center gap-1.5">
+                          <svg
+                            className="h-3 w-3 shrink-0"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <rect x="2" y="7" width="20" height="14" rx="2" />
+                            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+                          </svg>
+                          <span className="font-mono tracking-wide">
+                            {v.vendor_gstin}
+                          </span>
+                        </div>
+                      ) : null}
+                      {(v.specialties?.length ?? 0) > 0 ? (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {(v.specialties ?? []).map((sp) => (
+                            <Badge
+                              key={sp.id}
+                              variant="secondary"
+                              className="bg-primary/10 text-primary border-primary/20 max-w-full truncate px-2 py-0 text-[10px] font-medium"
+                              title={sp.vendor_speciality}
+                            >
+                              {sp.vendor_speciality}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    {canDelete ? (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive absolute right-3 top-3 rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        title="Delete vendor"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDeleteTarget(v);
+                        }}
+                      >
+                        <svg
+                          className="h-4 w-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                      </button>
+                    ) : null}
+                  </Link>
+                );
+              })}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete vendor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.vendor_name}</strong> (ID {deleteTarget?.id}).
+              This cannot be undone. Vendors with existing purchase orders cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row gap-3 sm:justify-end">
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={createOpen}
@@ -327,7 +453,7 @@ export default function InboundVendorsPage() {
               />
             </div>
           </div>
-          <DialogFooter className="flex flex-row gap-2 border-0 bg-transparent p-0 sm:justify-end">
+          <DialogFooter className="flex-row gap-3 sm:justify-end">
             <Button
               type="button"
               variant="outline"

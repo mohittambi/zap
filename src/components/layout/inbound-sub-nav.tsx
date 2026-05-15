@@ -43,6 +43,11 @@ const tabs: { href: string; label: string; match: (p: string | null) => boolean 
     match: (p) => !!p && p.startsWith("/inbound/pending-invoice-collection"),
   },
   {
+    href: "/inbound/pending-accounts",
+    label: "Pending Accounts",
+    match: (p) => !!p && p.startsWith("/inbound/pending-accounts"),
+  },
+  {
     href: "/inbound/pending-debit-credit",
     label: "Pending Debit & Credit Notes",
     match: (p) => !!p && p.startsWith("/inbound/pending-debit-credit"),

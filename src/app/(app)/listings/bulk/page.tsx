@@ -153,8 +153,7 @@ export default function BulkOperationsPage() {
               <span className="font-mono">company_details</span>,{" "}
               <span className="font-mono">labels_data</span>
               ); secondary also includes <span className="font-mono">sku_wise_details_raw</span>.
-              Master SKU export includes images, dimensions, and{" "}
-              <span className="font-mono">eautomate_bins</span> (after migration 035).
+              Master SKU export includes images, dimensions, and a <span className="font-mono">bins</span> column (bin-level stock detail).
             </p>
             <button
               type="button"

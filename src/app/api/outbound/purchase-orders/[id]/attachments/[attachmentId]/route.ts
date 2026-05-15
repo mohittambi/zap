@@ -1,10 +1,9 @@
-import path from "path";
-import fs from "fs/promises";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
+import { downloadBufferFromBucket, getOutboundBucket } from "@/server/zapStorage";
 
 type Ctx = { params: Promise<{ id: string; attachmentId: string }> };
 
@@ -37,13 +36,12 @@ export async function GET(request: Request, context: Ctx) {
     const original_filename = String(r.rows[0].original_filename);
     const content_type = r.rows[0].content_type as string | null;
 
-    const abs = path.join(process.cwd(), "uploads", ...stored_path.split("/"));
-    const buf = await fs.readFile(abs);
+    const { buffer: buf, contentType: detectedType } = await downloadBufferFromBucket(getOutboundBucket(), stored_path);
 
-    return new NextResponse(buf, {
+    return new NextResponse(new Uint8Array(buf), {
       status: 200,
       headers: {
-        "Content-Type": content_type || "application/octet-stream",
+        "Content-Type": content_type || detectedType || "application/octet-stream",
         "Content-Disposition": `attachment; filename="${safeFilename(original_filename)}"`,
       },
     });

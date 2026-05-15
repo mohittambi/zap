@@ -124,6 +124,9 @@ async function upsertPo(client, row) {
       $1, $2, $3, $4::date, $5, $6, $7::timestamptz, $8::timestamptz, $9::timestamptz,
       $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
     )
+    /* DO NOT include `source` in the UPDATE SET below: a row tagged as
+       'zap' (locally-created) must keep that tag forever. Synced rows
+       default to 'eautomate' on first insert via the column DEFAULT. */
     ON CONFLICT (po_id) DO UPDATE SET
       vendor_id = EXCLUDED.vendor_id,
       vendor_name = EXCLUDED.vendor_name,

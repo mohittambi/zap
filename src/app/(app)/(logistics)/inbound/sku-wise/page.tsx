@@ -21,7 +21,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +30,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Package, BoxIcon, WarehouseIcon, ArrowUpRightIcon } from "lucide-react";
 
 type LotRow = Record<string, unknown>;
 
@@ -342,6 +344,37 @@ function rowKey(r: LotRow, i: number): string {
   return `row-${i}`;
 }
 
+function StatTile({
+  label,
+  value,
+  mono = true,
+}: {
+  label: string;
+  value: string | number | null;
+  mono?: boolean;
+}) {
+  const display = value != null && value !== "" ? String(value) : "—";
+  return (
+    <div className="bg-muted/50 rounded-lg border p-3">
+      <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
+        {label}
+      </p>
+      <p className={cn("text-sm font-semibold", mono && "font-mono")}>{display}</p>
+    </div>
+  );
+}
+
+function statusVariant(
+  status: string
+): "default" | "secondary" | "destructive" | "outline" {
+  if (!status) return "outline";
+  const s = status.toLowerCase();
+  if (s.includes("cancel")) return "destructive";
+  if (s.includes("publish")) return "default";
+  if (s.includes("modif")) return "secondary";
+  return "outline";
+}
+
 function LotDetailsSheet({
   row,
   open,
@@ -352,123 +385,237 @@ function LotDetailsSheet({
   onOpenChange: (next: boolean) => void;
 }) {
   const sku = row ? skuIdOf(row) : "";
+  const po = row ? poIdOf(row) : "";
+  const vid = row ? vendorIdOf(row) : "";
+  const vendorName = row ? vendorNameOf(row) : "";
+  const status = row ? displayPoStatus(statusOf(row)) : "";
+  const exp = row ? expiryOf(row) : "";
+  const tone = row ? expiryTone(exp) : "unknown";
+
   const category = row ? listingField(row, ["category"]) : "";
   const description = row ? listingField(row, ["description"]) : "";
   const dimension = row ? listingField(row, ["dimension"]) : "";
   const material = row ? listingField(row, ["material_info", "materialInfo"]) : "";
   const bulk = row ? listingNum(row, ["bulk_price", "bulkPrice"]) : null;
-  const avail = row ? pickNumRow(row, ["available_quantity", "availableQuantity"]) : null;
+  const img = row ? pickImageUrl(row) : "";
+
+  const orderedQty = row ? qtyOf(row) : "—";
+  const fulfilledQty = row ? fulfilledQtyDisplay(row) : "—";
+  const availQty = row ? availQtyDisplay(row) : "—";
+  const costReceived = row ? costReceivedDisplay(row) : "—";
+
   const bins = row ? binsOf(row) : [];
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Listing details</SheetTitle>
-          <SheetDescription>
-            {sku ? (
-              <>
-                SKU{" "}
-                <Link
-                  href={`/listings/${encodeURIComponent(sku)}`}
-                  className="text-primary font-medium underline-offset-4 hover:underline"
-                >
-                  {sku}
-                </Link>
-              </>
-            ) : (
-              "Nested listing from eautomate"
-            )}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="flex flex-col gap-6 px-4 pb-6">
-          <dl className="grid gap-3 text-sm">
-            {category ? (
-              <div>
-                <dt className="text-muted-foreground font-medium">Category</dt>
-                <dd>{category}</dd>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-[480px]">
+        {/* Image banner */}
+        {img ? (
+          <div className="relative h-40 w-full shrink-0 overflow-hidden bg-muted">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={img}
+              alt=""
+              className="h-full w-full object-contain"
+            />
+          </div>
+        ) : (
+          <div className="bg-muted/60 flex h-28 w-full shrink-0 items-center justify-center">
+            <Package className="text-muted-foreground/30 size-14" />
+          </div>
+        )}
+
+        <div className="flex flex-col gap-5 p-5 pb-8">
+          {/* Header */}
+          <SheetHeader className="gap-1 p-0 text-left">
+            <div className="flex flex-wrap items-center gap-2">
+              <SheetTitle className="text-base leading-snug">
+                {sku ? (
+                  <Link
+                    href={`/listings/${encodeURIComponent(sku)}`}
+                    className="text-primary inline-flex items-center gap-1 underline-offset-4 hover:underline"
+                  >
+                    {sku}
+                    <ArrowUpRightIcon className="size-3.5 shrink-0 opacity-60" />
+                  </Link>
+                ) : (
+                  "Listing details"
+                )}
+              </SheetTitle>
+              {status ? (
+                <Badge variant={statusVariant(status)}>{status}</Badge>
+              ) : null}
+              {category ? (
+                <Badge variant="outline">{category}</Badge>
+              ) : null}
+            </div>
+            <SheetDescription className="text-xs">
+              {sku ? "SKU listing — click to open full detail page" : "Nested listing from import"}
+            </SheetDescription>
+          </SheetHeader>
+
+          {/* PO / vendor context */}
+          {(po || vid) ? (
+            <div className="bg-muted/40 flex flex-col gap-2 rounded-lg border p-3 text-sm">
+              {po && vid ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                    <BoxIcon className="size-3.5" />
+                    PO
+                  </span>
+                  <Link
+                    href={`/inbound/vendors/${encodeURIComponent(vid)}/purchase-orders/${encodeURIComponent(po)}`}
+                    className="text-primary font-mono text-xs font-semibold underline-offset-4 hover:underline"
+                  >
+                    {po}
+                  </Link>
+                </div>
+              ) : po ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                    <BoxIcon className="size-3.5" />
+                    PO
+                  </span>
+                  <span className="font-mono text-xs font-semibold">{po}</span>
+                </div>
+              ) : null}
+              {vid ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                    <WarehouseIcon className="size-3.5" />
+                    Vendor
+                  </span>
+                  <Link
+                    href={`/inbound/vendors/${encodeURIComponent(vid)}`}
+                    className="text-primary font-mono text-xs underline-offset-4 hover:underline"
+                  >
+                    {vendorName || vid}
+                    {vendorName && vid !== vendorName ? (
+                      <span className="text-muted-foreground ml-1 font-normal">
+                        ({vid})
+                      </span>
+                    ) : null}
+                  </Link>
+                </div>
+              ) : null}
+              {exp ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs font-medium">Expiry</span>
+                  <span
+                    className={cn(
+                      "text-xs font-semibold",
+                      tone === "expired" && "text-destructive",
+                      tone === "soon" && "text-amber-600 dark:text-amber-400",
+                      tone === "ok" && "text-emerald-600 dark:text-emerald-400",
+                      tone === "unknown" && "text-muted-foreground"
+                    )}
+                  >
+                    {formatExpiryDisplay(exp)}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Quantity stats */}
+          <div>
+            <p className="text-muted-foreground mb-2 text-[10px] font-medium uppercase tracking-wide">
+              Quantities
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <StatTile label="Ordered" value={orderedQty} />
+              <StatTile label="Fulfilled" value={fulfilledQty} />
+              <StatTile label="Available" value={availQty} />
+              <StatTile label="Cost received" value={costReceived} />
+            </div>
+          </div>
+
+          {/* Product attributes */}
+          {(material || dimension || bulk != null) ? (
+            <>
+              <Separator />
+              <div className="flex flex-wrap gap-2">
+                {material ? (
+                  <div className="bg-muted/50 rounded-md border px-3 py-1.5">
+                    <p className="text-muted-foreground mb-0.5 text-[10px] font-medium uppercase tracking-wide">Material</p>
+                    <p className="text-xs font-medium">{material}</p>
+                  </div>
+                ) : null}
+                {dimension ? (
+                  <div className="bg-muted/50 rounded-md border px-3 py-1.5">
+                    <p className="text-muted-foreground mb-0.5 text-[10px] font-medium uppercase tracking-wide">Dimension</p>
+                    <p className="text-xs font-medium">{dimension}</p>
+                  </div>
+                ) : null}
+                {bulk != null ? (
+                  <div className="bg-muted/50 rounded-md border px-3 py-1.5">
+                    <p className="text-muted-foreground mb-0.5 text-[10px] font-medium uppercase tracking-wide">Bulk price</p>
+                    <p className="font-mono text-xs font-semibold">₹{bulk}</p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-            {material ? (
-              <div>
-                <dt className="text-muted-foreground font-medium">Material</dt>
-                <dd>{material}</dd>
-              </div>
-            ) : null}
-            {dimension ? (
-              <div>
-                <dt className="text-muted-foreground font-medium">Dimension</dt>
-                <dd>{dimension}</dd>
-              </div>
-            ) : null}
-            {bulk != null ? (
-              <div>
-                <dt className="text-muted-foreground font-medium">Bulk price</dt>
-                <dd className="font-mono">{bulk}</dd>
-              </div>
-            ) : null}
-            {avail != null ? (
-              <div>
-                <dt className="text-muted-foreground font-medium">
-                  Available quantity
-                </dt>
-                <dd className="font-mono">{avail}</dd>
-              </div>
-            ) : null}
-          </dl>
+            </>
+          ) : null}
+
+          {/* Description */}
           {description ? (
-            <div>
-              <h3 className="text-muted-foreground mb-1 text-xs font-medium uppercase tracking-wide">
-                Description
-              </h3>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                {description}
-              </p>
-            </div>
-          ) : null}
-          {bins.length > 0 ? (
-            <div>
-              <h3 className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
-                Bins
-              </h3>
-              <div className="overflow-x-auto rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-muted/60">
-                      <TableHead className="text-xs">Bin</TableHead>
-                      <TableHead className="text-right text-xs">Avail</TableHead>
-                      <TableHead className="text-right text-xs">WH id</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bins.map((b, i) => {
-                      const binId = pickRoot(b, ["bin_id", "binId"]);
-                      const wh = pickNumRoot(b, ["warehouse_id", "warehouseId"]);
-                      const aq = pickNumRoot(b, [
-                        "available_quantity",
-                        "availableQuantity",
-                      ]);
-                      return (
-                        <TableRow key={`${binId}-${i}`}>
-                          <TableCell className="font-mono text-xs">
-                            {binId || "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {aq != null ? aq : "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {wh != null ? wh : "—"}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+            <>
+              <Separator />
+              <div>
+                <p className="text-muted-foreground mb-1.5 text-[10px] font-medium uppercase tracking-wide">
+                  Description
+                </p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {description}
+                </p>
               </div>
-            </div>
+            </>
           ) : null}
+
+          {/* Bins */}
+          {bins.length > 0 ? (
+            <>
+              <Separator />
+              <div>
+                <p className="text-muted-foreground mb-2 text-[10px] font-medium uppercase tracking-wide">
+                  Bins ({bins.length})
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {bins.map((b, i) => {
+                    const binId = pickRoot(b, ["bin_id", "binId"]);
+                    const wh = pickNumRoot(b, ["warehouse_id", "warehouseId"]);
+                    const aq = pickNumRoot(b, ["available_quantity", "availableQuantity"]);
+                    return (
+                      <div
+                        key={`${binId}-${i}`}
+                        className="bg-muted/40 flex items-center justify-between rounded-md border px-3 py-2 text-xs"
+                      >
+                        <span className="font-mono font-medium">{binId || "—"}</span>
+                        <div className="text-muted-foreground flex items-center gap-3">
+                          {wh != null ? (
+                            <span>WH {wh}</span>
+                          ) : null}
+                          <span
+                            className={cn(
+                              "font-semibold tabular-nums",
+                              aq != null && aq > 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-foreground"
+                            )}
+                          >
+                            {aq != null ? `${aq} avail` : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+
           {row && !listingOf(row) ? (
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-center text-xs">
               No nested listing payload for this row.
             </p>
           ) : null}
@@ -531,7 +678,7 @@ export default function InboundSkuWisePage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="SKU Wise View"
-        description="Purchase order lines by SKU from eautomate (lot listings). Links open Zap listing, vendor, or PO context where available."
+        description="Purchase order lines by SKU (lot listings). Links open Zap listing, vendor, or PO context where available."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -571,25 +718,9 @@ export default function InboundSkuWisePage() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 px-4 py-6">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : null}
-          {!loading && rows.length === 0 ? (
-            <div className="px-4 py-8">
-              <EmptyState
-                title="No lot listings"
-                description="Configure EAUTOMATE_COOKIE on the Zap server (.env.local), or adjust search. Data loads live from eautomate."
-              />
-            </div>
-          ) : null}
-          {!loading && rows.length > 0 ? (
-            <>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                     <TableRow className="bg-muted/60 hover:bg-muted/60">
                       {showImages ? (
                         <TableHead className="w-14 whitespace-nowrap">
@@ -628,9 +759,31 @@ export default function InboundSkuWisePage() {
                         Details
                       </TableHead>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((r, idx) => {
+              </TableHeader>
+              <TableBody>
+                {loading
+                  ? Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: showImages ? 17 : 16 }).map((__, j) => (
+                          <TableCell key={j} className="py-2">
+                            <Skeleton className="h-5 w-full" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : rows.length === 0
+                  ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={showImages ? 17 : 16}
+                        className="text-muted-foreground py-10 text-center text-sm"
+                      >
+                        No lot listings match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : null}
+                {!loading && rows.map((r, idx) => {
                       const sku = skuIdOf(r);
                       const po = poIdOf(r);
                       const vid = vendorIdOf(r);
@@ -654,7 +807,7 @@ export default function InboundSkuWisePage() {
                                   rel="noopener noreferrer"
                                   className="relative block size-10 overflow-hidden rounded border bg-muted"
                                 >
-                                  {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary eautomate CDN hosts */}
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary remote image hosts */}
                                   <img
                                     src={img}
                                     alt=""
@@ -767,40 +920,38 @@ export default function InboundSkuWisePage() {
                           </TableCell>
                         </TableRow>
                       );
-                    })}
-                  </TableBody>
-                </Table>
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          {totalPages > 1 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm">
+              <span className="text-muted-foreground">
+                Page {currentPage} of {totalPages} (~{total} rows)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= totalPages || loading}
+                  onClick={() =>
+                    setPage((p) => Math.min(totalPages, p + 1))
+                  }
+                >
+                  Next
+                </Button>
               </div>
-              {totalPages > 1 ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm">
-                  <span className="text-muted-foreground">
-                    Page {currentPage} of {totalPages} (~{total} rows)
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage <= 1 || loading}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage >= totalPages || loading}
-                      onClick={() =>
-                        setPage((p) => Math.min(totalPages, p + 1))
-                      }
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-            </>
+            </div>
           ) : null}
         </CardContent>
       </Card>

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ListFilter } from "lucide-react";
+import { CircleHelp, ListFilter } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,14 @@ import {
   CardContent,
   CardHeader,
 } from "@/components/ui/card";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
   Table,
   TableBody,
@@ -55,6 +63,14 @@ type GrnListResponse = {
   content: GrnRow[];
 };
 
+const PENDING_AUDITS_WORKFLOW = `
+flowchart TD
+  openPage["Open this pending list"] --> seeList["Each row is one GRN waiting for audit"]
+  seeList --> review["Review quantities invoice vs received and other columns"]
+  review --> markBtn["Mark Audited"]
+  markBtn --> done["Audited GRNs no longer appear here"]
+`;
+
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
   month: "short",
@@ -85,6 +101,12 @@ function statusToneClass(value: string | null): string {
   return "";
 }
 
+function isAuditDone(value: string | null): boolean {
+  if (!value) return false;
+  const up = value.trim().toUpperCase();
+  return up === "CLOSED" || up === "AUDITED" || up === "DONE" || up === "COMPLETED";
+}
+
 function FilterableHead({
   label,
   className,
@@ -111,6 +133,10 @@ export default function InboundPendingAuditsPage() {
   const [searchApplied, setSearchApplied] = React.useState("");
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [markingId, setMarkingId] = React.useState<number | null>(null);
+  const [workflowOpen, setWorkflowOpen] = React.useState(false);
+  const [workflowChartMounted, setWorkflowChartMounted] =
+    React.useState(false);
 
   const perPage = 100;
 
@@ -143,6 +169,23 @@ export default function InboundPendingAuditsPage() {
     setSearchApplied(searchDraft.trim());
   };
 
+  async function markAudited(grnId: number) {
+    setMarkingId(grnId);
+    try {
+      await apiFetch(`/api/inbound/grns/${grnId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grn_audit_status: "CLOSED" }),
+      });
+      toast.success(`GRN ${grnId} marked as Audited`);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to mark audited");
+    } finally {
+      setMarkingId(null);
+    }
+  }
+
   const totalPages =
     data && data.total > 0
       ? Math.ceil(data.total / data.per_page_count)
@@ -150,10 +193,67 @@ export default function InboundPendingAuditsPage() {
 
   return (
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
-      <AppPageTitle
-        title="Pending Audits"
-        description="GRNs returned by eautomate pending-for-audit API. Run npm run sync:grns:pending-audit to refresh the queue."
-      />
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <AppPageTitle
+          className="mb-0 min-w-0 flex-1"
+          title="Pending Audits"
+          description="GRNs waiting to be audited."
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-2 self-end sm:mt-1 sm:shrink-0 sm:self-start"
+          onClick={() => {
+            setWorkflowOpen(true);
+            setWorkflowChartMounted(true);
+          }}
+        >
+          <CircleHelp className="h-4 w-4" aria-hidden />
+          How this queue works
+        </Button>
+      </div>
+
+      <Sheet
+        open={workflowOpen}
+        onOpenChange={(open) => {
+          setWorkflowOpen(open);
+          if (open) {
+            setWorkflowChartMounted(true);
+          }
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
+        >
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>How this queue works</SheetTitle>
+            <SheetDescription>
+              Steps for each row on this screen. Scroll for the diagram.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 p-4">
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              When you open this page, you see every GRN that still needs your audit
+              for this workflow. Review vendor, PO, quantities, and invoice vs
+              received box counts in the columns, then record completion with{" "}
+              <strong className="text-foreground">Mark Audited</strong> on the far
+              right of the row. While the update runs the button shows{" "}
+              <strong className="text-foreground">Saving…</strong>; when the audit
+              is already closed it shows{" "}
+              <strong className="text-foreground">Audited</strong> and is
+              disabled. Rows that finish this step disappear from this list.
+            </p>
+            {workflowChartMounted ? (
+              <MermaidDiagram
+                chart={PENDING_AUDITS_WORKFLOW}
+                className="w-full overflow-x-auto"
+              />
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-end sm:justify-between">
@@ -191,7 +291,7 @@ export default function InboundPendingAuditsPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No grns were found"
-                description="Run npm run migrate (026), sync vendors, then npm run sync:grns:pending-audit with EAUTOMATE_COOKIE. The list matches the last pending-audit sync."
+                description="No GRNs are currently in the pending audit queue."
               />
             </div>
           ) : null}
@@ -199,6 +299,10 @@ export default function InboundPendingAuditsPage() {
             <>
               <p className="text-muted-foreground border-b px-4 py-2 text-sm">
                 Showing {data.curr_page_count} of {data.total} grn(s).
+              </p>
+              <p className="text-muted-foreground border-b bg-muted/30 px-4 py-2 text-xs">
+                Scroll right on the table to reach{" "}
+                <strong className="text-foreground">Mark Audited</strong>.
               </p>
               <div className="overflow-x-auto">
                 <Table>
@@ -250,10 +354,20 @@ export default function InboundPendingAuditsPage() {
                       <TableHead className="whitespace-nowrap">
                         GRN opened at
                       </TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.content.map((row, idx) => (
+                      (() => {
+                        const audited = isAuditDone(row.grn_audit_status);
+                        const actionLabel =
+                          markingId === row.grn_id
+                            ? "Saving…"
+                            : audited
+                              ? "Audited"
+                              : "Mark Audited";
+                        return (
                       <TableRow
                         key={row.grn_id}
                         className={cn(
@@ -337,7 +451,20 @@ export default function InboundPendingAuditsPage() {
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatDisplayDateTime(row.created_at)}
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 whitespace-nowrap px-2 text-xs"
+                            disabled={markingId === row.grn_id || audited}
+                            onClick={() => void markAudited(row.grn_id)}
+                          >
+                            {actionLabel}
+                          </Button>
+                        </TableCell>
                       </TableRow>
+                        );
+                      })()
                     ))}
                   </TableBody>
                 </Table>

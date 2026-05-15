@@ -298,11 +298,19 @@ async function main() {
         queuedIds.push(id);
       }
     }
-    await client.query(`TRUNCATE inbound_grn_pending_audit`);
+    // Doctrine #10 (workflow ownership): zap owns the pending queues for any
+    // GRN that exists in zap. Sync only refreshes rows it created — never
+    // touches grn_ids whose source = 'zap'.
+    await client.query(
+      `DELETE FROM inbound_grn_pending_audit
+        WHERE grn_id IN (SELECT grn_id FROM inbound_grns WHERE source = 'eautomate')`
+    );
     for (const gid of queuedIds) {
-      await client.query(`INSERT INTO inbound_grn_pending_audit (grn_id) VALUES ($1)`, [
-        gid,
-      ]);
+      await client.query(
+        `INSERT INTO inbound_grn_pending_audit (grn_id) VALUES ($1)
+           ON CONFLICT (grn_id) DO NOTHING`,
+        [gid]
+      );
     }
     await client.query("COMMIT");
     const parts = [

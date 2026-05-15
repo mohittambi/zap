@@ -1,5 +1,8 @@
 // @ts-nocheck
 import { query } from '@/server/db';
+import { AppError } from '@/server/errors';
+import * as companySkuService from '@/server/services/companySkuService';
+import { insertLog } from '@/server/services/secondaryListingsLogsService';
 
 function jsonbCompanyDetails(row) {
   const v = row?.company_details;
@@ -141,7 +144,12 @@ function formatListingForSkuWise(row) {
   };
 }
 
-export async function getPacksAndCombosPaginated(searchKeyword, page, count) {
+export async function getPacksAndCombosPaginated(
+  searchKeyword,
+  page,
+  count,
+  opts: { sort?: 'sku_asc' | 'sku_desc' | null } = {},
+) {
   const offset = (page - 1) * count;
   const fromClause = `
     (SELECT parent_sku_id AS pack_combo_sku_id FROM pack_combos
@@ -156,6 +164,9 @@ export async function getPacksAndCombosPaginated(searchKeyword, page, count) {
     whereClause = 'WHERE pack_combo_sku_id ILIKE $1';
   }
 
+  const orderBy =
+    opts.sort === 'sku_desc' ? 'pack_combo_sku_id DESC' : 'pack_combo_sku_id ASC';
+
   const countResult = await query(
     `SELECT COUNT(*)::int AS total FROM (SELECT DISTINCT pack_combo_sku_id FROM ${fromClause}) u ${whereClause}`,
     params
@@ -169,7 +180,7 @@ export async function getPacksAndCombosPaginated(searchKeyword, page, count) {
     SELECT pack_combo_sku_id FROM (
       SELECT DISTINCT pack_combo_sku_id FROM ${fromClause}
     ) u ${whereClause}
-    ORDER BY pack_combo_sku_id LIMIT $${limitParam} OFFSET $${offsetParam}
+    ORDER BY ${orderBy} LIMIT $${limitParam} OFFSET $${offsetParam}
   `;
 
   const listResult = await query(listQuery, listParams);
@@ -184,17 +195,93 @@ export async function getPacksAndCombosPaginated(searchKeyword, page, count) {
   };
 }
 
-export async function getSecondaryListingsPaginated(searchKeyword, page, count) {
+export type SecondaryListingsOpts = {
+  skuType?: string;
+  category?: string | null;
+  tagIds?: number[];
+  stockState?: 'in_stock' | 'out_of_stock' | null;
+  sort?: 'sku_asc' | 'sku_desc' | 'qty_asc' | 'qty_desc' | 'created_desc' | null;
+};
+
+function secondaryOrderBy(sort: SecondaryListingsOpts['sort']): string {
+  switch (sort) {
+    case 'sku_desc':
+      return 'sl.secondary_sku DESC';
+    case 'qty_asc':
+      return 'sl.available_quantity ASC, sl.secondary_sku ASC';
+    case 'qty_desc':
+      return 'sl.available_quantity DESC, sl.secondary_sku ASC';
+    case 'created_desc':
+      return 'sl.synced_at DESC NULLS LAST, sl.secondary_sku ASC';
+    case 'sku_asc':
+    default:
+      return 'sl.secondary_sku ASC';
+  }
+}
+
+export async function getSecondaryListingsPaginated(
+  searchKeyword,
+  page,
+  count,
+  skuTypeOrOpts?: string | SecondaryListingsOpts,
+) {
+  const opts: SecondaryListingsOpts =
+    typeof skuTypeOrOpts === 'string'
+      ? { skuType: skuTypeOrOpts }
+      : skuTypeOrOpts ?? {};
   const offset = (page - 1) * count;
-  let whereClause = '';
-  const params = [];
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  // Whether we need to JOIN to listings (only if filtering by category)
+  const needsListings = !!opts.category;
+
   if (searchKeyword) {
     params.push(`%${searchKeyword}%`);
-    whereClause = `WHERE secondary_sku ILIKE $1 OR master_sku ILIKE $1 OR inventory_sku_id ILIKE $1 OR COALESCE(pack_combo_sku_id::text,'') ILIKE $1`;
+    conditions.push(
+      `(sl.secondary_sku ILIKE $${params.length} OR sl.master_sku ILIKE $${params.length} OR sl.inventory_sku_id ILIKE $${params.length} OR COALESCE(sl.pack_combo_sku_id::text,'') ILIKE $${params.length})`
+    );
+  }
+  if (opts.skuType && opts.skuType !== 'ALL') {
+    params.push(opts.skuType.toUpperCase());
+    conditions.push(`sl.sku_type = $${params.length}`);
+  }
+  if (opts.category) {
+    if (opts.category === '(uncategorised)') {
+      conditions.push(`(l.category IS NULL OR TRIM(l.category) IN ('', '-'))`);
+    } else {
+      params.push(opts.category);
+      conditions.push(`l.category = $${params.length}`);
+    }
+  }
+  if (opts.stockState === 'in_stock') {
+    conditions.push(`sl.available_quantity > 0`);
+  } else if (opts.stockState === 'out_of_stock') {
+    conditions.push(`COALESCE(sl.available_quantity, 0) = 0`);
+  }
+  if (opts.tagIds && opts.tagIds.length > 0) {
+    const tagIdsIdx = params.length + 1;
+    const tagCountIdx = params.length + 2;
+    params.push(opts.tagIds, opts.tagIds.length);
+    conditions.push(
+      `sl.master_sku IN (
+        SELECT sku_id FROM sku_tag_assignments
+        WHERE tag_id = ANY($${tagIdsIdx})
+        GROUP BY sku_id HAVING COUNT(DISTINCT tag_id) = $${tagCountIdx}
+      )`
+    );
   }
 
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const joinClause = needsListings
+    ? `LEFT JOIN listings l ON l.sku_id = sl.master_sku`
+    : '';
+  const orderBy = secondaryOrderBy(opts.sort);
+
   const countResult = await query(
-    `SELECT COUNT(*)::int AS total FROM secondary_listings ${whereClause}`,
+    `SELECT COUNT(*)::int AS total
+     FROM   secondary_listings sl
+     ${joinClause}
+     ${whereClause}`,
     params
   );
   const total = countResult.rows[0].total;
@@ -202,12 +289,15 @@ export async function getSecondaryListingsPaginated(searchKeyword, page, count) 
   const limitParam = params.length + 1;
   const offsetParam = params.length + 2;
   const listParams = [...params, count, offset];
-  const listQuery = `SELECT id, secondary_sku, master_sku, inventory_sku_id, pack_combo_sku_id,
-     sku_type, inventory_bypass_status, ais_quantity, available_quantity,
-     company_details, labels_data, synced_at,
-     CASE WHEN jsonb_typeof(company_details) = 'array' THEN jsonb_array_length(company_details) ELSE 0 END AS associated_companies_count
-     FROM secondary_listings ${whereClause}
-     ORDER BY id LIMIT $${limitParam} OFFSET $${offsetParam}`;
+  const listQuery = `SELECT sl.id, sl.secondary_sku, sl.master_sku, sl.inventory_sku_id, sl.pack_combo_sku_id,
+     sl.sku_type, sl.inventory_bypass_status, sl.ais_quantity, sl.available_quantity,
+     sl.company_details, sl.labels_data, sl.synced_at,
+     CASE WHEN jsonb_typeof(sl.company_details) = 'array' THEN jsonb_array_length(sl.company_details) ELSE 0 END AS associated_companies_count
+     FROM secondary_listings sl
+     ${joinClause}
+     ${whereClause}
+     ORDER BY ${orderBy}
+     LIMIT $${limitParam} OFFSET $${offsetParam}`;
 
   const listResult = await query(listQuery, listParams);
   const content = listResult.rows.map((r) => ({
@@ -385,6 +475,13 @@ export async function getSkuWiseDetails(secondarySku) {
     );
   }
 
+  const cssAssocs =
+    await companySkuService.fetchCompanyAssociationsForSecondarySku(secondarySku);
+  secondary_sku_company_details = mergeSecondaryCompanies(
+    cssAssocs,
+    secondary_sku_company_details
+  );
+
   const labelsMergedFromRaw = mergeSecondaryLabels(
     extractLabelsFromSkuWiseRaw(rawUnwrapped),
     extractLabelsFromSkuWiseRaw(skuWiseRaw)
@@ -407,4 +504,69 @@ export async function getSkuWiseDetails(secondarySku) {
     pack_combo_childs,
     pack_combo_components,
   };
+}
+
+/**
+ * Persist label fields into secondary_listings.labels_data (JSON merge).
+ * Mandatory fields are enforced by the API route before calling this.
+ */
+export async function updateLabelsData(
+  secondarySku,
+  fields,
+  createdBy?: string
+) {
+  const secondary_sku = String(secondarySku ?? '').trim();
+  if (!secondary_sku) throw new AppError('secondary_sku is required', 400);
+
+  const patch = {
+    secondary_sku,
+    ean_code:
+      fields.ean_code != null ? String(fields.ean_code).trim() || 'NA' : 'NA',
+    size: fields.size != null ? String(fields.size).trim() : '',
+    color: fields.color != null ? String(fields.color).trim() : '',
+    one_set_contains:
+      fields.one_set_contains != null ? String(fields.one_set_contains).trim() : '',
+    mrp:
+      fields.mrp != null && fields.mrp !== ''
+        ? Number(fields.mrp)
+        : NaN,
+    material: fields.material != null ? String(fields.material).trim() : '',
+  };
+
+  if (!patch.size) throw new AppError('size is required', 400);
+  if (!patch.color) throw new AppError('color is required', 400);
+  if (!patch.one_set_contains) throw new AppError('one_set_contains is required', 400);
+  if (!Number.isFinite(patch.mrp)) throw new AppError('mrp must be a valid number', 400);
+  if (!patch.material) throw new AppError('material is required', 400);
+
+  const oldR = await query(
+    `SELECT labels_data FROM secondary_listings WHERE secondary_sku = $1`,
+    [secondary_sku]
+  );
+  const old_labels = oldR.rows[0]?.labels_data ?? null;
+
+  const r = await query(
+    `UPDATE secondary_listings
+     SET labels_data = COALESCE(labels_data, '{}'::jsonb) || $1::jsonb
+     WHERE secondary_sku = $2
+     RETURNING labels_data`,
+    [JSON.stringify(patch), secondary_sku]
+  );
+  if (r.rows.length === 0) {
+    throw new AppError('Secondary SKU not found', 404);
+  }
+  const labels_data = jsonbLabelsData(r.rows[0]);
+
+  if (createdBy) {
+    await insertLog({
+      secondary_sku,
+      operation: 'UPDATE_LABELS',
+      field_name: 'labels_data',
+      old_value: old_labels,
+      new_value: patch,
+      created_by: createdBy,
+    });
+  }
+
+  return { secondary_sku_labels_data: labels_data };
 }

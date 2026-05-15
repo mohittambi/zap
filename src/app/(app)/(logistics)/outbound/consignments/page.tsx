@@ -7,7 +7,7 @@ export default function OutboundConsignmentsPage() {
     <div className="mx-auto max-w-[1800px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="Consignments"
-        description="Data from Zap (sync: npm run sync:outbound-consignments). Companies: npm run sync:outbound-companies. Delivery locations are refreshed by the consignments sync."
+        description="Outbound consignments and their associated companies and delivery locations."
       />
       <Suspense fallback={<p className="text-muted-foreground text-sm">Loading…</p>}>
         <OutboundConsignmentsTable />

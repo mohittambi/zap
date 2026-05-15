@@ -4,7 +4,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   FileText,
@@ -14,9 +14,25 @@ import {
   Download,
   Plus,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { formatGrnLabel, formatPoLabel } from "@/lib/idDisplay";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  deriveDisplayName,
+  deriveFillPct,
+  deriveLocation,
+  derivePoDisplayStatus,
+  isZapCancelled as deriveIsZapCancelled,
+  numberStringOrDash,
+} from "@/lib/inboundPoDetailUi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import {
   Card,
   CardContent,
@@ -27,6 +43,25 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -42,7 +77,44 @@ type PoGrnRow = {
   raw: JsonRecord;
 };
 
+type CreatedGrnRow = { grn_id: number };
+
+function parseNonNegativeInt(s: string): number | null {
+  const t = s.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
+type PoDetailHeader = {
+  po_id: number;
+  vendor_id: number;
+  vendor_name: string | null;
+  vendor_city: string | null;
+  vendor_state: string | null;
+  expected_date: string | null;
+  status: string | null;
+  po_remarks: string | null;
+  created_by: string | null;
+  modified_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  date_published: string | null;
+  sku_count: number;
+  total_quantity: number;
+  number_of_grns: number;
+  total_invoice_quantity: number;
+  total_accepted_quantity: number;
+  total_rejected_quantity: number;
+  sku_fill_rate: number;
+  quantity_fill_rate: number;
+  /** Drives ZP- prefix in the page title. Doctrine #5. */
+  source: "zap" | "eautomate";
+};
+
 type PoDetailBundle = {
+  header: PoDetailHeader;
   snapshot: {
     po_id: number;
     vendor_id: number;
@@ -157,6 +229,9 @@ function listingImageUrl(L: JsonRecord | null | undefined): string | null {
 function statusPublishedClass(s: string | null | undefined): string {
   if (!s) return "";
   const up = s.trim().toUpperCase();
+  if (up === "CANCELLED") {
+    return "bg-destructive/15 text-destructive border-destructive/30";
+  }
   if (up === "PUBLISHED" || up === "ACTIVE") {
     return "bg-emerald-600/15 text-emerald-700 dark:text-emerald-400 border-emerald-600/30";
   }
@@ -172,10 +247,6 @@ function statusClosedClass(s: string | null | undefined): string {
   return "";
 }
 
-function notInEautomate() {
-  toast.message("This action is only available in eautomate.");
-}
-
 function grnIdFromRow(g: PoGrnRow): number | null {
   if (g.grn_id != null && Number.isFinite(Number(g.grn_id))) return Number(g.grn_id);
   const p = pick(g.raw, ["grn_id", "grnId"]);
@@ -186,10 +257,42 @@ function grnIdFromRow(g: PoGrnRow): number | null {
 
 export default function InboundPoDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const vendorId = typeof params.id === "string" ? params.id : "";
   const poId = typeof params.poId === "string" ? params.poId : "";
   const [bundle, setBundle] = React.useState<PoDetailBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [modifyOpen, setModifyOpen] = React.useState(false);
+  const [modifyNotes, setModifyNotes] = React.useState("");
+  const [cancelOpen, setCancelOpen] = React.useState(false);
+  const [actionBusy, setActionBusy] = React.useState(false);
+
+  const [newGrnOpen, setNewGrnOpen] = React.useState(false);
+  const [newGrnInvoice, setNewGrnInvoice] = React.useState("");
+  const [newGrnBoxInvoice, setNewGrnBoxInvoice] = React.useState("");
+  const [newGrnActualBox, setNewGrnActualBox] = React.useState("");
+  const [newGrnBusy, setNewGrnBusy] = React.useState(false);
+
+  const newGrnCanSubmit =
+    newGrnInvoice.trim() !== "" &&
+    parseNonNegativeInt(newGrnBoxInvoice) !== null &&
+    parseNonNegativeInt(newGrnActualBox) !== null;
+
+  const reloadBundle = React.useCallback(async () => {
+    if (!vendorId || !poId) return;
+    setLoading(true);
+    try {
+      const data = await apiFetch<PoDetailBundle>(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details`
+      );
+      setBundle(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load PO");
+      setBundle(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [vendorId, poId]);
 
   React.useEffect(() => {
     if (!vendorId || !poId) {
@@ -201,7 +304,7 @@ export default function InboundPoDetailPage() {
       setLoading(true);
       try {
         const data = await apiFetch<PoDetailBundle>(
-          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details?refresh=1`
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/details`
         );
         if (!c) setBundle(data);
       } catch (e) {
@@ -218,9 +321,157 @@ export default function InboundPoDetailPage() {
     };
   }, [vendorId, poId]);
 
+  const downloadPoDocument = async (format: "pdf" | "xlsx") => {
+    setActionBusy(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/document?format=${format}`
+        ),
+        { headers }
+      );
+      if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${poId}_purchase_order.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`${format.toUpperCase()} download started`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const downloadGrnReport = async () => {
+    setActionBusy(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(
+          `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/grn-report`
+        ),
+        { headers }
+      );
+      if (!res.ok) throw new Error((await res.text()).slice(0, 200));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `po-${poId}-grn-report.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV download started");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openModify = () => {
+    const raw = bundle?.snapshot?.po_raw as Record<string, unknown> | undefined;
+    const n = raw?.zap_notes;
+    setModifyNotes(typeof n === "string" ? n : "");
+    setModifyOpen(true);
+  };
+
+  const saveModify = async () => {
+    const notes = modifyNotes.trim();
+    if (!notes) {
+      toast.error("Notes are required");
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await apiFetch(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/modify`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ zap_notes: notes }),
+        }
+      );
+      toast.success("PO notes saved");
+      setModifyOpen(false);
+      await reloadBundle();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const confirmCancel = async () => {
+    setActionBusy(true);
+    try {
+      await apiFetch(
+        `/api/inbound/vendors/${encodeURIComponent(vendorId)}/purchase-orders/${encodeURIComponent(poId)}/cancel`,
+        { method: "PATCH" }
+      );
+      toast.success("Purchase order marked as cancelled");
+      setCancelOpen(false);
+      await reloadBundle();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Cancel failed");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openNewGrn = () => {
+    setNewGrnInvoice("");
+    setNewGrnBoxInvoice("");
+    setNewGrnActualBox("");
+    setNewGrnOpen(true);
+  };
+
+  const submitNewGrn = async () => {
+    const vid = Number(vendorId);
+    const pid = Number(poId);
+    const boxInv = parseNonNegativeInt(newGrnBoxInvoice);
+    const boxAct = parseNonNegativeInt(newGrnActualBox);
+    if (
+      !Number.isFinite(vid) ||
+      !Number.isFinite(pid) ||
+      newGrnInvoice.trim() === "" ||
+      boxInv === null ||
+      boxAct === null
+    ) {
+      return;
+    }
+    setNewGrnBusy(true);
+    try {
+      const row = await apiFetch<CreatedGrnRow>(`/api/inbound/grns`, {
+        method: "POST",
+        body: JSON.stringify({
+          vendor_id: vid,
+          po_id: pid,
+          vendor_invoice_number: newGrnInvoice.trim(),
+          box_count_invoice: boxInv,
+          actual_box_count_received: boxAct,
+        }),
+      });
+      toast.success("Draft GRN created");
+      setNewGrnOpen(false);
+      router.push(`/inbound/grns/${row.grn_id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create GRN");
+    } finally {
+      setNewGrnBusy(false);
+    }
+  };
+
   const snap = bundle?.snapshot;
+  const header = bundle?.header;
   const poRaw = snap?.po_raw ?? {};
-  const vendorRaw = snap?.vendor_raw ?? {};
   const nameBySku = React.useMemo(
     () => buildSkuNameMap(snap?.sku_names_raw),
     [snap?.sku_names_raw]
@@ -230,48 +481,49 @@ export default function InboundPoDetailPage() {
     [snap?.vendor_listings_raw]
   );
 
-  const poStatus = pick(poRaw, ["status", "po_status", "Status"]);
-  const totalSkus = pick(poRaw, ["sku_count", "skuCount"]);
-  const totalReq = pick(poRaw, ["total_quantity", "totalQuantity"]);
-  const totalInv = pick(poRaw, [
-    "total_invoice_quantity",
-    "totalInvoiceQuantity",
-  ]);
-  const totalAcc = pick(poRaw, [
-    "total_accepted_quantity",
-    "totalAcceptedQuantity",
-  ]);
-  const totalRej = pick(poRaw, [
-    "total_rejected_quantity",
-    "totalRejectedQuantity",
-  ]);
-  const skuFill = pick(poRaw, ["sku_fill_rate", "skuFillRate"]);
-  const qtyFill = pick(poRaw, ["quantity_fill_rate", "quantityFillRate"]);
+  /** Latest upstream activity across all GRNs on this PO. Reflects when ops
+   * actually touched a GRN in eAutomate (closed, audited, etc.) — not when
+   * zap last pulled the data. Falls back to the PO's own updated_at. */
+  const latestGrnActivityIso = React.useMemo<string | null>(() => {
+    let best: number | null = null;
+    const consider = (raw: unknown): void => {
+      if (!raw || typeof raw !== "object") return;
+      const r = raw as Record<string, unknown>;
+      for (const key of ["updated_at", "createdAt", "created_at", "updatedAt"]) {
+        const v = r[key];
+        if (typeof v !== "string" || !v) continue;
+        const t = new Date(v).getTime();
+        if (Number.isFinite(t) && (best == null || t > best)) best = t;
+      }
+    };
+    for (const g of bundle?.grns ?? []) consider(g.raw);
+    if (best == null) {
+      consider(snap?.po_raw);
+    }
+    return best == null ? null : new Date(best).toISOString();
+  }, [bundle?.grns, snap?.po_raw]);
 
-  const invN = Number(totalInv) || 0;
-  const accN = Number(totalAcc) || 0;
-  const rejN = Number(totalRej) || 0;
-  const acceptPct =
-    invN > 0 ? Math.round((accN / invN) * 1000) / 10 : null;
-  const rejectPct =
-    invN > 0 ? Math.round((rejN / invN) * 1000) / 10 : null;
+  const isZapCancelled = deriveIsZapCancelled(poRaw.zap_status);
+  const poStatus = derivePoDisplayStatus(isZapCancelled, header?.status ?? null);
+  const totalSkus = numberStringOrDash(header?.sku_count);
+  const totalReq = numberStringOrDash(header?.total_quantity);
+  const totalInv = numberStringOrDash(header?.total_invoice_quantity);
+  const totalRej = numberStringOrDash(header?.total_rejected_quantity);
+  const skuFill = numberStringOrDash(header?.sku_fill_rate);
+  const qtyFill = numberStringOrDash(header?.quantity_fill_rate);
 
-  const vendorName = pick(vendorRaw, [
-    "vendor_name",
-    "vendorName",
-    "name",
-  ]);
-  const vendorCity = pick(vendorRaw, ["vendor_city", "vendorCity", "city"]);
-  const vendorState = pick(vendorRaw, ["vendor_state", "vendorState", "state"]);
-  const location =
-    vendorCity !== "—" || vendorState !== "—"
-      ? [vendorCity, vendorState].filter((x) => x !== "—").join(", ")
-      : "—";
+  const invN = header?.total_invoice_quantity ?? 0;
+  const accN = header?.total_accepted_quantity ?? 0;
+  const rejN = header?.total_rejected_quantity ?? 0;
+  const acceptPct = deriveFillPct(accN, invN);
+  const rejectPct = deriveFillPct(rejN, invN);
 
-  const expiryRaw =
-    poRaw.expected_date ?? poRaw.expectedDate ?? poRaw.expiry_date;
-  const expiryStr =
-    expiryRaw != null && expiryRaw !== "" ? String(expiryRaw) : null;
+  const vendorName = deriveDisplayName(header?.vendor_name);
+  const location = deriveLocation(header?.vendor_city, header?.vendor_state);
+
+  const expiryStr = header?.expected_date ?? null;
+  const createdBy = deriveDisplayName(header?.created_by);
+  const createdAtStr = header?.created_at ?? null;
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
@@ -289,8 +541,12 @@ export default function InboundPoDetailPage() {
       </div>
 
       <AppPageTitle
-        title={loading ? "Purchase order" : `PO ${poId}`}
-        description="Synced from eautomate into the PO detail cache."
+        title={
+          loading
+            ? "Purchase order"
+            : `PO ${formatPoLabel(poId, header?.source ?? null)}`
+        }
+        description="Line items, GRNs, and summary for this purchase order."
       />
 
       {loading ? (
@@ -302,9 +558,7 @@ export default function InboundPoDetailPage() {
           <CardHeader>
             <CardTitle className="text-base">Not found</CardTitle>
             <CardDescription>
-              Could not load this PO. Check vendor id and PO id, eautomate
-              credentials, and run npm run sync:po:details with --vendor and
-              --po.
+              Could not load this purchase order. Check that the vendor ID and PO ID are correct.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -352,35 +606,42 @@ export default function InboundPoDetailPage() {
               </p>
               <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
                 <span>PO expiry: {formatDt(expiryStr)}</span>
-                <span>
-                  PO created by:{" "}
-                  {pick(poRaw, ["created_by", "createdBy"])}
-                </span>
-                <span>
-                  Creation time:{" "}
-                  {formatDt(
-                    String(poRaw.created_at ?? poRaw.createdAt ?? "") || null
-                  )}
-                </span>
+                <span>PO created by: {createdBy}</span>
+                <span>Creation time: {formatDt(createdAtStr)}</span>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="gap-2"
-              onClick={notInEautomate}
-            >
-              <FileText className="size-4" />
-              Generate PO document
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="gap-2"
+                    disabled={actionBusy}
+                  >
+                    <FileText className="size-4" />
+                    Generate PO document
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuItem onClick={() => void downloadPoDocument("pdf")}>
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void downloadPoDocument("xlsx")}>
+                  Download as Excel (.xlsx)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               type="button"
               variant="default"
               className="gap-2"
-              onClick={notInEautomate}
+              disabled={actionBusy}
+              onClick={openModify}
             >
               <Pencil className="size-4" />
               Modify PO
@@ -389,7 +650,8 @@ export default function InboundPoDetailPage() {
               type="button"
               variant="default"
               className="gap-2"
-              onClick={notInEautomate}
+              disabled={actionBusy || isZapCancelled}
+              onClick={() => setCancelOpen(true)}
             >
               <XCircle className="size-4" />
               Cancel PO
@@ -402,14 +664,6 @@ export default function InboundPoDetailPage() {
               { label: "Total required qty", value: totalReq },
               { label: "Total received qty", value: totalInv },
               { label: "Total rejected qty", value: totalRej },
-              {
-                label: "SKU fill rate",
-                value: skuFill === "—" ? skuFill : `${skuFill}%`,
-              },
-              {
-                label: "Quantity fill rate",
-                value: qtyFill === "—" ? qtyFill : `${qtyFill}%`,
-              },
             ].map((m) => (
               <Card key={m.label} className="border-primary/10">
                 <CardHeader className="pb-1 pt-3">
@@ -418,6 +672,21 @@ export default function InboundPoDetailPage() {
                   </CardDescription>
                   <CardTitle className="text-lg font-semibold">
                     {m.value}
+                  </CardTitle>
+                </CardHeader>
+              </Card>
+            ))}
+            {[
+              { label: "SKU fill rate", value: skuFill },
+              { label: "Quantity fill rate", value: qtyFill },
+            ].map((m) => (
+              <Card key={m.label} className="border-primary/10">
+                <CardHeader className="pb-1 pt-3">
+                  <CardDescription className="text-xs uppercase">
+                    {m.label}
+                  </CardDescription>
+                  <CardTitle className="pt-1">
+                    <FillRateBar value={m.value === "—" ? null : Number(m.value)} />
                   </CardTitle>
                 </CardHeader>
               </Card>
@@ -556,13 +825,30 @@ export default function InboundPoDetailPage() {
               <div className="bg-primary text-primary-foreground rounded-md px-3 py-2 text-sm font-semibold">
                 GRN section
               </div>
+              <p className="text-muted-foreground text-[11px] leading-snug">
+                <span>GRN rows are mirrored from eAutomate via </span>
+                <code className="text-[10px]">npm run sync:po:details*</code>
+                <span>.</span>
+                {latestGrnActivityIso ? (
+                  <>
+                    <span> Latest GRN activity upstream: </span>
+                    <span className="text-foreground font-medium">
+                      {formatDt(latestGrnActivityIso)}
+                    </span>
+                    <span>.</span>
+                  </>
+                ) : (
+                  <span> No GRN activity yet for this PO.</span>
+                )}
+              </p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  onClick={notInEautomate}
+                  disabled={actionBusy || newGrnBusy}
+                  onClick={openNewGrn}
                 >
                   <Plus className="size-3.5" />
                   Open new GRN
@@ -572,7 +858,8 @@ export default function InboundPoDetailPage() {
                   size="sm"
                   variant="secondary"
                   className="gap-1"
-                  onClick={notInEautomate}
+                  disabled={actionBusy}
+                  onClick={() => void downloadGrnReport()}
                 >
                   <Download className="size-3.5" />
                   Download GRN report
@@ -582,8 +869,17 @@ export default function InboundPoDetailPage() {
                 {bundle.grns.map((g) => {
                   const r = g.raw;
                   const gid = grnIdFromRow(g);
-                  const href =
-                    gid != null ? `/inbound/grns/${gid}` : null;
+                  /** zap_origin is set by mergePoGrnSources for rows that came
+                   * from inbound_grns (zap-canonical). Snapshot-only rows
+                   * (positive grn_id without a matching inbound_grns row) 404
+                   * on click — render as a non-link with a tooltip instead. */
+                  const isZapBacked = r.zap_origin === "zap" || r.zap_origin === "draft";
+                  const href = gid != null && isZapBacked ? `/inbound/grns/${gid}` : null;
+                  const grnSource: "zap" | "draft" | "eautomate" = isZapBacked
+                    ? (r.zap_origin as "zap" | "draft")
+                    : "eautomate";
+                  const grnLabel =
+                    gid != null ? formatGrnLabel(gid, grnSource) : "—";
                   return (
                     <Card key={g.sort_index} className="border-primary/20">
                       <CardHeader className="pb-2">
@@ -593,10 +889,19 @@ export default function InboundPoDetailPage() {
                               href={href}
                               className="text-primary underline-offset-4 hover:underline"
                             >
-                              GRN #{gid}
+                              GRN {grnLabel}
                             </Link>
                           ) : (
-                            <span>GRN</span>
+                            <span
+                              className="text-foreground"
+                              title={
+                                gid != null
+                                  ? "This GRN exists upstream but has not been imported into zap. Run `npm run sync:grns:all` to enable navigation."
+                                  : "GRN id not available"
+                              }
+                            >
+                              GRN {grnLabel}
+                            </span>
                           )}
                         </CardTitle>
                       </CardHeader>
@@ -641,17 +946,156 @@ export default function InboundPoDetailPage() {
               </div>
               {bundle.grns.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  No GRNs ingested for this PO.
+                  No GRNs linked to this PO.
                 </p>
               ) : null}
             </div>
           </div>
 
-          {snap.synced_at ? (
-            <p className="text-muted-foreground text-center text-xs">
-              Detail cache synced at {formatDt(snap.synced_at)}
-            </p>
-          ) : null}
+          <Dialog
+            open={newGrnOpen}
+            onOpenChange={(open) => {
+              setNewGrnOpen(open);
+              if (!open) {
+                setNewGrnInvoice("");
+                setNewGrnBoxInvoice("");
+                setNewGrnActualBox("");
+              }
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Open New GRN</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-2">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-vendor-invoice"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Vendor Invoice Number
+                  </Label>
+                  <Input
+                    id="new-grn-vendor-invoice"
+                    placeholder="Enter vendor invoice number"
+                    value={newGrnInvoice}
+                    onChange={(e) => setNewGrnInvoice(e.target.value)}
+                    disabled={newGrnBusy}
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-box-invoice"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Box Count in Invoice
+                  </Label>
+                  <Input
+                    id="new-grn-box-invoice"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    placeholder="Enter box count"
+                    value={newGrnBoxInvoice}
+                    onChange={(e) => setNewGrnBoxInvoice(e.target.value)}
+                    disabled={newGrnBusy}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="new-grn-actual-box"
+                    className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Actual Box Count Received
+                  </Label>
+                  <Input
+                    id="new-grn-actual-box"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    placeholder="Enter actual box count"
+                    value={newGrnActualBox}
+                    onChange={(e) => setNewGrnActualBox(e.target.value)}
+                    disabled={newGrnBusy}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={newGrnBusy}
+                  onClick={() => setNewGrnOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={newGrnBusy || !newGrnCanSubmit}
+                  onClick={() => void submitNewGrn()}
+                >
+                  {newGrnBusy ? "Submitting…" : "Submit"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={modifyOpen} onOpenChange={setModifyOpen}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>PO internal notes</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2 py-2">
+                <p className="text-muted-foreground text-xs">
+                  Notes are stored on this PO record only; they do not change vendor master data.
+                </p>
+                <textarea
+                  value={modifyNotes}
+                  onChange={(e) => setModifyNotes(e.target.value)}
+                  placeholder="Notes"
+                  className={cn(
+                    "border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring",
+                    "flex min-h-[120px] w-full rounded-md border px-3 py-2 text-sm shadow-sm",
+                    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                  )}
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setModifyOpen(false)}>
+                  Close
+                </Button>
+                <Button type="button" disabled={actionBusy} onClick={() => void saveModify()}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel this purchase order?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This records the PO as cancelled in the app. It does not cancel the order in an external system.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={actionBusy}>Back</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={actionBusy}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void confirmCancel();
+                  }}
+                >
+                  Confirm cancel
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       ) : null}
     </div>

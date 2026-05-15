@@ -6,6 +6,10 @@
  * After a successful POST, also upserts warehouse listings (with eautomate_bins) and pack_combos
  * from response.pack_combo_childs (migration 035). Requires listings.id from eAutomate on each child listing.
  *
+ * GET+POST merge: paginated rows keep pack_combo / linkage when sku_wise POST omits or nulls root
+ * fields; POST keys secondary_sku_listing / master_* / inventory_* warehouse rows are upserted.
+ * When POST returns empty pack_combo_childs we still stub the combo parent listing so Zap listings resolve.
+ *
  * If POST returns 5xx (e.g. remote Laravel "could not open storage/logs/laravel.log"), the script
  * still upserts using the GET row so company_details / labels_data from paginated are not lost.
  * Optional: --post-retries N --post-retry-base-ms 500. --get-only skips POST entirely when GET is complete.
@@ -185,10 +189,62 @@ function unwrapSkuWisePayload(data) {
   return data;
 }
 
+function isVacuousScalar(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string" && v.trim() === "") return true;
+  return false;
+}
+
+/**
+ * Merge paginated GET row with POST sku_wise_details. eAutomate often omits or nulls root
+ * fields on POST while paginated GET has pack_combo / master linkage; empty labels arrays
+ * or `{}` labels on POST must not wipe GET payload.
+ */
 function deepMergeListing(getRow, postPayload) {
   const a = getRow && typeof getRow === "object" ? { ...getRow } : {};
   const b = postPayload && typeof postPayload === "object" ? { ...postPayload } : {};
-  return { ...a, ...b };
+  const merged = { ...a, ...b };
+
+  const scalarKeys = [
+    "pack_combo_sku_id",
+    "master_sku",
+    "inventory_sku_id",
+    "secondary_sku",
+    "sku_type",
+    "id",
+    "ais_quantity",
+    "inventory_bypass_status",
+    "available_quantity",
+  ];
+  for (const key of scalarKeys) {
+    if (!isVacuousScalar(merged[key])) continue;
+    const gv = a[key];
+    if (!isVacuousScalar(gv)) merged[key] = gv;
+  }
+
+  const gCo = Array.isArray(a.secondary_sku_company_details) ? a.secondary_sku_company_details : [];
+  const mCo = Array.isArray(merged.secondary_sku_company_details)
+    ? merged.secondary_sku_company_details
+    : [];
+  if (mCo.length === 0 && gCo.length > 0) merged.secondary_sku_company_details = gCo;
+
+  const gl =
+    a.secondary_sku_labels_data &&
+    typeof a.secondary_sku_labels_data === "object" &&
+    !Array.isArray(a.secondary_sku_labels_data)
+      ? a.secondary_sku_labels_data
+      : {};
+  const ml =
+    merged.secondary_sku_labels_data &&
+    typeof merged.secondary_sku_labels_data === "object" &&
+    !Array.isArray(merged.secondary_sku_labels_data)
+      ? merged.secondary_sku_labels_data
+      : {};
+  const mlEmpty = Object.keys(ml).length === 0;
+  merged.secondary_sku_labels_data =
+    mlEmpty && Object.keys(gl).length > 0 ? { ...gl } : { ...gl, ...ml };
+
+  return merged;
 }
 
 function parseEautomateTimestamptz(v) {
@@ -356,19 +412,31 @@ async function ensurePackParentListing(client, merged) {
 async function ingestSkuWiseIntoWarehouse(client, unwrapped, merged) {
   if (!unwrapped || typeof unwrapped !== "object") return;
 
-  for (const key of ["master_sku_listing", "pack_combo_sku_listing", "inventory_sku_listing"]) {
+  // eAutomate POST uses secondary_sku_listing (warehouse row for secondary_sku).
+  const listingKeys = [
+    "secondary_sku_listing",
+    "warehouse_secondary_listing",
+    "master_sku_listing",
+    "pack_combo_sku_listing",
+    "inventory_sku_listing",
+  ];
+  for (const key of listingKeys) {
     const L = unwrapped[key];
     if (L && typeof L === "object" && L.sku_id) {
       await upsertListingFromEautomate(client, L);
     }
   }
 
-  const childs = unwrapped.pack_combo_childs;
-  if (!Array.isArray(childs) || childs.length === 0) return;
-
   const parent =
     merged.pack_combo_sku_id != null ? String(merged.pack_combo_sku_id).slice(0, 100) : "";
-  if (!parent || parent === "NA") return;
+  const hasValidParent = Boolean(parent && parent !== "NA");
+  /** Combo parent stub from paginated GET so listings has a row before pack_combos ingest. */
+  if (hasValidParent) await ensurePackParentListing(client, merged);
+
+  const childs = Array.isArray(unwrapped.pack_combo_childs) ? unwrapped.pack_combo_childs : [];
+  if (childs.length === 0) return;
+
+  if (!hasValidParent) return;
 
   for (const c of childs) {
     const compSku = String(
@@ -388,8 +456,6 @@ async function ingestSkuWiseIntoWarehouse(client, unwrapped, merged) {
       await ensureMinimalListingStub(client, compSku);
     }
   }
-
-  await ensurePackParentListing(client, merged);
 
   await client.query(`DELETE FROM pack_combos WHERE parent_sku_id = $1`, [parent]);
   for (const c of childs) {

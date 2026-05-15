@@ -22,9 +22,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import {
+  buildInboundPurchaseOrdersQuery,
+  displayPoStatus,
+  expiryTone,
+  formatExpiryDateDisplay,
+  formatInboundListDateTime as formatDisplayDateTime,
+  inboundPoRowsToCsv,
+} from "@/lib/inboundPoGrnPendingUi";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download } from "lucide-react";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { formatPoLabel, stripIdPrefix } from "@/lib/idDisplay";
 
 type PoRow = {
   po_id: number;
@@ -46,6 +57,8 @@ type PoRow = {
   total_rejected_quantity: number;
   sku_fill_rate: number;
   quantity_fill_rate: number;
+  /** 'zap' → ZP- prefix in display; 'eautomate' → bare. Doctrine #5. */
+  source?: "zap" | "eautomate";
 };
 
 type PoListResponse = {
@@ -61,62 +74,69 @@ type VendorOpt = {
   vendor_name: string;
 };
 
-const displayFormatter = new Intl.DateTimeFormat("en-IN", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true,
-});
+type SortableColumn =
+  | "po_id"
+  | "vendor_id"
+  | "vendor_name"
+  | "status"
+  | "sku_count"
+  | "total_quantity"
+  | "number_of_grns"
+  | "total_invoice_quantity"
+  | "total_accepted_quantity"
+  | "total_rejected_quantity"
+  | "sku_fill_rate"
+  | "quantity_fill_rate"
+  | "po_remarks"
+  | "created_at"
+  | "updated_at"
+  | "date_published"
+  | "expected_date"
+  | "created_by";
 
-function formatDisplayDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return displayFormatter.format(d);
-}
+type SortState = { col: SortableColumn; dir: "asc" | "desc" } | null;
 
-function parseExpectedDateOnly(s: string | null): Date | null {
-  if (!s) return null;
-  const m = s.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  return new Date(
-    Number(m[1]),
-    Number(m[2]) - 1,
-    Number(m[3]),
-    12,
-    0,
-    0,
-    0
+function SortHeader({
+  label,
+  col,
+  sort,
+  onSort,
+  align,
+}: Readonly<{
+  label: string;
+  col: SortableColumn;
+  sort: SortState;
+  onSort: (col: SortableColumn) => void;
+  align?: "left" | "right";
+}>) {
+  const active = sort?.col === col;
+  let Icon = ChevronsUpDown;
+  if (active) Icon = sort.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(col)}
+      className={cn(
+        "inline-flex items-center gap-1 font-semibold whitespace-nowrap",
+        "hover:text-primary",
+        active ? "text-primary" : "text-foreground",
+        align === "right" ? "justify-end w-full" : ""
+      )}
+    >
+      {label}
+      <Icon className={cn("size-3", active ? "opacity-100" : "opacity-50")} />
+    </button>
   );
 }
 
-function expiryTone(
-  expected: string | null
-): "expired" | "soon" | "ok" | "unknown" {
-  const d = parseExpectedDateOnly(expected);
-  if (!d || Number.isNaN(d.getTime())) return "unknown";
-  const now = new Date();
-  const startToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate()
-  );
-  const endSoon = new Date(startToday);
-  endSoon.setDate(endSoon.getDate() + 5);
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  if (day < startToday) return "expired";
-  if (day < endSoon) return "soon";
-  return "ok";
-}
-
-function displayPoStatus(status: string | null): string {
-  if (!status) return "—";
-  if (status === "PENDING_PUBLISHED") return "Published";
-  if (status === "MARKED_CANCELLED") return "Cancelled";
-  if (status === "MARKED_MODIFICATION") return "Modification";
-  return status.replace(/_/g, " ");
+function downloadSelectedCsv(rows: PoRow[]): void {
+  const csv = inboundPoRowsToCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `purchase_orders_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 export default function InboundPurchaseOrdersPage() {
@@ -127,8 +147,22 @@ export default function InboundPurchaseOrdersPage() {
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
-  const [vendorFilter, setVendorFilter] = React.useState("");
-  const [vendorApplied, setVendorApplied] = React.useState("");
+  const [poIdColDraft, setPoIdColDraft] = React.useState("");
+  const [poIdColApplied, setPoIdColApplied] = React.useState("");
+  const [appliedVendorIds, setAppliedVendorIds] = React.useState<number[]>([]);
+  const [sort, setSort] = React.useState<SortState>(null);
+
+  const handleSort = React.useCallback((col: SortableColumn) => {
+    setPage(1);
+    setSort((prev) => {
+      if (prev?.col !== col) return { col, dir: "desc" };
+      if (prev.dir === "desc") return { col, dir: "asc" };
+      return null;
+    });
+  }, []);
+  const [selectedPoIds, setSelectedPoIds] = React.useState<Set<number>>(
+    () => new Set()
+  );
   const [data, setData] = React.useState<PoListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -150,16 +184,17 @@ export default function InboundPurchaseOrdersPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({
-        page: String(page),
-        count: "50",
-        search_keyword: searchApplied,
+      const qs = buildInboundPurchaseOrdersQuery({
+        page,
+        count: 50,
+        searchKeyword: searchApplied,
+        vendorIds: appliedVendorIds,
+        poIdFilter: poIdColApplied,
+        sortBy: sort?.col,
+        sortDir: sort?.dir,
       });
-      if (vendorApplied.trim()) {
-        q.set("vendor_id", vendorApplied.trim());
-      }
       const res = await apiFetch<PoListResponse>(
-        `/api/inbound/purchase-orders?${q}`
+        `/api/inbound/purchase-orders?${qs}`
       );
       setData(res);
     } catch (e) {
@@ -168,17 +203,115 @@ export default function InboundPurchaseOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchApplied, vendorApplied]);
+  }, [page, searchApplied, appliedVendorIds, poIdColApplied, sort]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
+  const clearSelection = React.useCallback(() => {
+    setSelectedPoIds(new Set());
+  }, []);
+
+  React.useEffect(() => {
+    clearSelection();
+  }, [page, searchApplied, appliedVendorIds, poIdColApplied, clearSelection]);
+
+  const appliedVendorIdsAsStrings = React.useMemo(
+    () => appliedVendorIds.map(String),
+    [appliedVendorIds]
+  );
+
+  const vendorIdOptions = React.useMemo(
+    () => vendors.map((v) => ({ value: String(v.id), label: String(v.id) })),
+    [vendors]
+  );
+
+  const vendorNameOptions = React.useMemo(
+    () =>
+      vendors.map((v) => ({
+        value: String(v.id),
+        label: v.vendor_name?.trim() ? v.vendor_name : String(v.id),
+      })),
+    [vendors]
+  );
+
+  const onVendorMultiChange = React.useCallback((next: string[]) => {
+    setPage(1);
+    const ids = next
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .sort((a, b) => a - b);
+    setAppliedVendorIds(ids);
+  }, []);
+
   const applyFilters = () => {
     setPage(1);
-    setSearchApplied(searchDraft);
-    setVendorApplied(vendorFilter);
+    /** Strip ZP-/ZG- prefix so a user can paste either the labelled or bare form. */
+    setSearchApplied(stripIdPrefix(searchDraft));
+    setPoIdColApplied(stripIdPrefix(poIdColDraft));
   };
+
+  const selectedRows = React.useMemo(() => {
+    if (!data?.content.length) return [];
+    return data.content.filter((r) => selectedPoIds.has(r.po_id));
+  }, [data, selectedPoIds]);
+
+  const rows = data?.content;
+  const allPageSelected =
+    Array.isArray(rows) &&
+    rows.length > 0 &&
+    rows.every((r) => selectedPoIds.has(r.po_id));
+
+  const somePageSelected =
+    Array.isArray(rows) &&
+    rows.length > 0 &&
+    rows.some((r) => selectedPoIds.has(r.po_id));
+
+  function togglePo(poId: number, checked: boolean) {
+    setSelectedPoIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(poId);
+      else next.delete(poId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPage() {
+    if (!data?.content.length) return;
+    if (allPageSelected) {
+      setSelectedPoIds((prev) => {
+        const next = new Set(prev);
+        for (const r of data.content) next.delete(r.po_id);
+        return next;
+      });
+    } else {
+      setSelectedPoIds((prev) => {
+        const next = new Set(prev);
+        for (const r of data.content) next.add(r.po_id);
+        return next;
+      });
+    }
+  }
+
+  function handleDownloadSelected() {
+    if (selectedRows.length === 0) {
+      toast.error("Select at least one purchase order");
+      return;
+    }
+    downloadSelectedCsv(selectedRows);
+    toast.success(`Downloaded ${selectedRows.length} row(s)`);
+  }
+
+  const headerSelectRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const el = headerSelectRef.current;
+    if (el) {
+      el.indeterminate =
+        Boolean(somePageSelected) && Boolean(data?.content.length) && !allPageSelected;
+    }
+  }, [somePageSelected, allPageSelected, data?.content.length]);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 px-2 py-4 md:px-4">
@@ -187,30 +320,47 @@ export default function InboundPurchaseOrdersPage() {
           title="Purchase Orders"
           description="All inbound purchase orders across vendors. Filter by vendor or search."
         />
-        <div className="flex flex-wrap items-center gap-4 text-xs sm:justify-end">
-          <div className="text-muted-foreground flex items-center gap-3">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
             <span className="flex items-center gap-1.5">
               <span
-                className="inline-block size-2.5 rounded-sm bg-destructive"
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-destructive"
                 aria-hidden
               />
               Expired
             </span>
             <span className="flex items-center gap-1.5">
               <span
-                className="inline-block size-2.5 rounded-sm bg-amber-500"
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-amber-500"
                 aria-hidden
               />
               Expiring in the next 5 days
             </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="inline-block size-2.5 shrink-0 rounded-sm bg-emerald-500"
+                aria-hidden
+              />
+              On track
+            </span>
           </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0 gap-2"
+            disabled={selectedRows.length === 0}
+            onClick={handleDownloadSelected}
+          >
+            <Download className="h-4 w-4" />
+            Download Purchase Orders Data
+          </Button>
         </div>
       </div>
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <div className="flex min-w-[200px] flex-1 flex-col gap-2 sm:max-w-xs">
+          <div className="flex items-end gap-2">
+            <div className="flex flex-col gap-1">
               <Label
                 htmlFor="po-global-search"
                 className="text-muted-foreground text-xs font-medium"
@@ -225,28 +375,8 @@ export default function InboundPurchaseOrdersPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") applyFilters();
                 }}
+                className="h-9 w-72"
               />
-            </div>
-            <div className="flex min-w-[200px] flex-col gap-2 sm:max-w-xs">
-              <Label
-                htmlFor="po-vendor-filter"
-                className="text-muted-foreground text-xs font-medium"
-              >
-                Vendor
-              </Label>
-              <select
-                id="po-vendor-filter"
-                className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
-                value={vendorFilter}
-                onChange={(e) => setVendorFilter(e.target.value)}
-              >
-                <option value="">All vendors</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={String(v.id)}>
-                    {v.vendor_name ?? v.id} ({v.id})
-                  </option>
-                ))}
-              </select>
             </div>
             <Button type="button" variant="secondary" onClick={applyFilters}>
               Apply
@@ -259,53 +389,98 @@ export default function InboundPurchaseOrdersPage() {
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 px-4 py-6">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : null}
-          {!loading && (!data || data.content.length === 0) ? (
-            <div className="px-4 py-8">
-              <EmptyState
-                title="No purchase orders"
-                description="Sync from eautomate (npm run sync:vendor-pos:all) or create POs from a vendor under Inbound → Vendors."
-              />
-            </div>
-          ) : null}
-          {!loading && data && data.content.length > 0 ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                   <TableRow className="bg-muted/60 hover:bg-muted/60">
-                    <TableHead className="w-10" />
-                    <TableHead className="whitespace-nowrap">PO Id</TableHead>
-                    <TableHead className="whitespace-nowrap">Vendor Id</TableHead>
-                    <TableHead className="min-w-[140px]">Vendor Name</TableHead>
-                    <TableHead>PO status</TableHead>
-                    <TableHead className="text-right">Sku Count</TableHead>
-                    <TableHead className="text-right">Total Qty</TableHead>
-                    <TableHead className="whitespace-nowrap">
-                      Was GRN Done?
+                    <TableHead className="w-10 p-2" rowSpan={2}>
+                      <input
+                        ref={headerSelectRef}
+                        type="checkbox"
+                        className="border-input size-4 rounded"
+                        checked={allPageSelected}
+                        onChange={() => toggleSelectAllPage()}
+                        aria-label="Select all POs on this page"
+                      />
                     </TableHead>
-                    <TableHead className="text-right"># GRNs</TableHead>
-                    <TableHead className="text-right">Inv. Qty</TableHead>
-                    <TableHead className="text-right">Acc. Qty</TableHead>
-                    <TableHead className="text-right">Rej. Qty</TableHead>
-                    <TableHead className="text-right">SKU %</TableHead>
-                    <TableHead className="text-right">Qty %</TableHead>
-                    <TableHead className="min-w-[100px]">Remarks</TableHead>
-                    <TableHead className="whitespace-nowrap">Created</TableHead>
-                    <TableHead className="whitespace-nowrap">Published</TableHead>
-                    <TableHead className="whitespace-nowrap">
-                      Expiry date
-                    </TableHead>
-                    <TableHead className="whitespace-nowrap">Updated</TableHead>
-                    <TableHead>Created By</TableHead>
+                    <TableHead className="min-w-[100px]"><SortHeader label="PO Id" col="po_id" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="min-w-[120px]"><SortHeader label="Vendor Id" col="vendor_id" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="min-w-[160px]"><SortHeader label="Vendor Name" col="vendor_name" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead><SortHeader label="PO status" col="status" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Sku Count" col="sku_count" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Total Qty" col="total_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="whitespace-nowrap">Was GRN Done?</TableHead>
+                    <TableHead className="text-right"><SortHeader label="# GRNs" col="number_of_grns" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Inv. Qty" col="total_invoice_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Acc. Qty" col="total_accepted_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Rej. Qty" col="total_rejected_quantity" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="SKU %" col="sku_fill_rate" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="text-right"><SortHeader label="Qty %" col="quantity_fill_rate" sort={sort} onSort={handleSort} align="right" /></TableHead>
+                    <TableHead className="min-w-[100px]"><SortHeader label="Remarks" col="po_remarks" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Created" col="created_at" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Published" col="date_published" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Expiry date" col="expected_date" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead className="whitespace-nowrap"><SortHeader label="Updated" col="updated_at" sort={sort} onSort={handleSort} /></TableHead>
+                    <TableHead><SortHeader label="Created By" col="created_by" sort={sort} onSort={handleSort} /></TableHead>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.content.map((row, idx) => {
+                  <TableRow className="bg-muted/40 border-b">
+                    <TableHead className="p-1">
+                      <Input
+                        className="h-7 text-[11px]"
+                        placeholder="Filter…"
+                        value={poIdColDraft}
+                        onChange={(e) => setPoIdColDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") applyFilters();
+                        }}
+                        aria-label="Filter by PO id"
+                      />
+                    </TableHead>
+                    <TableHead className="p-1">
+                      <MultiSelect
+                        ariaLabel="Filter by vendor id"
+                        placeholder="All vendors"
+                        options={vendorIdOptions}
+                        selected={appliedVendorIdsAsStrings}
+                        onChange={onVendorMultiChange}
+                      />
+                    </TableHead>
+                    <TableHead className="p-1">
+                      <MultiSelect
+                        ariaLabel="Filter by vendor name"
+                        placeholder="All vendors"
+                        options={vendorNameOptions}
+                        selected={appliedVendorIdsAsStrings}
+                        onChange={onVendorMultiChange}
+                      />
+                    </TableHead>
+                    {Array.from({ length: 16 }).map((_, i) => (
+                      <TableHead key={`spacer-${i}`} className="p-1" />
+                    ))}
+                  </TableRow>
+              </TableHeader>
+              <TableBody>
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i}>
+                        {Array.from({ length: 20 }).map((__, j) => (
+                          <TableCell key={j} className="py-2">
+                            <Skeleton className="h-5 w-full" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  ) : !data || data.content.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={20}
+                        className="text-muted-foreground py-10 text-center text-sm"
+                      >
+                        No purchase orders match the current filters.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {!loading && data && data.content.map((row, idx) => {
                     const tone = expiryTone(row.expected_date);
                     const grnDone = row.number_of_grns > 0;
                     return (
@@ -320,8 +495,11 @@ export default function InboundPurchaseOrdersPage() {
                           <input
                             type="checkbox"
                             className="border-input size-4 rounded"
-                            disabled
-                            aria-label={`Select PO ${row.po_id}`}
+                            checked={selectedPoIds.has(row.po_id)}
+                            onChange={(e) =>
+                              togglePo(row.po_id, e.target.checked)
+                            }
+                            aria-label={`Select PO ${formatPoLabel(row.po_id, row.source ?? null)}`}
                           />
                         </TableCell>
                         <TableCell className="font-mono text-xs">
@@ -329,7 +507,7 @@ export default function InboundPurchaseOrdersPage() {
                             href={`/inbound/vendors/${row.vendor_id}/purchase-orders/${row.po_id}`}
                             className="text-primary font-medium underline-offset-4 hover:underline"
                           >
-                            {row.po_id}
+                            {formatPoLabel(row.po_id, row.source ?? null)}
                           </Link>
                         </TableCell>
                         <TableCell className="font-mono text-xs">
@@ -374,11 +552,11 @@ export default function InboundPurchaseOrdersPage() {
                         <TableCell className="text-right font-mono text-xs">
                           {row.total_rejected_quantity}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {row.sku_fill_rate}
+                        <TableCell className="px-2 py-1.5">
+                          <FillRateBar value={row.sku_fill_rate} />
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {row.quantity_fill_rate}
+                        <TableCell className="px-2 py-1.5">
+                          <FillRateBar value={row.quantity_fill_rate} />
                         </TableCell>
                         <TableCell
                           className="text-muted-foreground max-w-[120px] truncate text-xs"
@@ -396,10 +574,16 @@ export default function InboundPurchaseOrdersPage() {
                           className={cn(
                             "whitespace-nowrap text-xs font-medium",
                             tone === "expired" && "text-destructive",
-                            tone === "soon" && "text-amber-600 dark:text-amber-400"
+                            tone === "soon" &&
+                              "text-amber-600 dark:text-amber-400",
+                            tone === "ok" &&
+                              "text-emerald-600 dark:text-emerald-400",
+                            tone === "unknown" && "text-muted-foreground"
                           )}
                         >
-                          {row.expected_date ?? "—"}
+                          {row.expected_date
+                            ? formatExpiryDateDisplay(row.expected_date)
+                            : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatDisplayDateTime(row.updated_at)}
@@ -413,10 +597,9 @@ export default function InboundPurchaseOrdersPage() {
                       </TableRow>
                     );
                   })}
-                </TableBody>
-              </Table>
-            </div>
-          ) : null}
+              </TableBody>
+            </Table>
+          </div>
           {data && data.total > 0 ? (
             <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-xs">
               <span>

@@ -1,4 +1,6 @@
+import * as XLSX from "xlsx";
 import { query } from "@/server/db";
+import { AppError } from "@/server/errors";
 
 export type OutboundConsignmentRow = {
   id: number;
@@ -12,6 +14,10 @@ export type OutboundConsignmentRow = {
   invoice_number_status: string | null;
   invoice_number: string | null;
   invoice_upload_status: string | null;
+  invoice_file_path: string | null;
+  invoice_file_name: string | null;
+  invoice_uploaded_at: string | null;
+  invoice_uploaded_by: string | null;
   boxes_count: number | null;
   sku_count: number | null;
   total_quantity: number | null;
@@ -492,6 +498,10 @@ function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
     invoice_number_status: r.invoice_number_status as string | null,
     invoice_number: r.invoice_number as string | null,
     invoice_upload_status: r.invoice_upload_status as string | null,
+    invoice_file_path: r.invoice_file_path as string | null,
+    invoice_file_name: r.invoice_file_name as string | null,
+    invoice_uploaded_at: r.invoice_uploaded_at ? new Date(r.invoice_uploaded_at as string).toISOString() : null,
+    invoice_uploaded_by: r.invoice_uploaded_by as string | null,
     boxes_count: r.boxes_count != null ? Number(r.boxes_count) : null,
     sku_count: r.sku_count != null ? Number(r.sku_count) : null,
     total_quantity: r.total_quantity != null ? Number(r.total_quantity) : null,
@@ -518,6 +528,7 @@ export async function getOutboundConsignmentById(
   const r = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments WHERE id = $1`,
@@ -530,9 +541,16 @@ export async function getOutboundConsignmentById(
 export async function listOutboundConsignments(opts: {
   page: number;
   limit: number;
+  /** When set, only consignments for this PO number (matches `outbound_purchase_orders.po_number`). */
+  poNumber?: string | null;
   search?: string;
   sortBy?: string;
   sortDir?: "asc" | "desc";
+  /**
+   * When true, only rows that still need invoice capture (no invoice number and/or status contains “pending”).
+   * Powers Outbound → Pending Invoices (web + mobile).
+   */
+  invoicePending?: boolean;
 }) {
   const { page, limit, search } = opts;
   const sortBy = SORT_COLUMNS.has(opts.sortBy ?? "") ? opts.sortBy! : "created_at";
@@ -542,6 +560,13 @@ export async function listOutboundConsignments(opts: {
   const conditions: string[] = [];
   const params: unknown[] = [];
   let p = 1;
+
+  const poNum = opts.poNumber != null ? String(opts.poNumber).trim() : "";
+  if (poNum.length > 0) {
+    conditions.push(`TRIM(COALESCE(po_number, '')) = $${p}`);
+    params.push(poNum);
+    p += 1;
+  }
 
   if (search && search.trim()) {
     const q = `%${search.trim().toLowerCase()}%`;
@@ -557,6 +582,14 @@ export async function listOutboundConsignments(opts: {
     p += 1;
   }
 
+  if (opts.invoicePending) {
+    conditions.push(`(
+      (invoice_number IS NULL OR TRIM(COALESCE(invoice_number, '')) = '')
+      OR COALESCE(LOWER(invoice_upload_status), '') LIKE '%pending%'
+      OR COALESCE(LOWER(invoice_number_status), '') LIKE '%pending%'
+    )`);
+  }
+
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const countR = await query(
@@ -568,6 +601,7 @@ export async function listOutboundConsignments(opts: {
   const listR = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
      FROM outbound_consignments
@@ -649,4 +683,152 @@ export async function upsertOutboundConsignmentDeliveryLocationsFromApi(
     n += 1;
   }
   return n;
+}
+
+export async function attachConsignmentInvoice(
+  consignmentId: number,
+  filePath: string,
+  fileName: string,
+  uploadedBy: string
+): Promise<void> {
+  const existing = await query(
+    `SELECT invoice_number_status FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (existing.rows.length === 0) throw new AppError("Consignment not found", 404);
+  const invoiceStatus = existing.rows[0].invoice_number_status;
+  if (!invoiceStatus) {
+    throw new AppError("Invoice number must be assigned before uploading invoice file", 409);
+  }
+
+  await query(
+    `UPDATE outbound_consignments
+     SET invoice_file_path = $1, invoice_file_name = $2,
+         invoice_uploaded_at = NOW(), invoice_uploaded_by = $3,
+         invoice_upload_status = 'DONE'
+     WHERE id = $4`,
+    [filePath, fileName, uploadedBy, consignmentId]
+  );
+}
+
+/**
+ * Manually assign (or clear) an invoice number on a consignment.
+ * Sets invoice_number_status to 'ASSIGNED' when a number is provided, NULL otherwise.
+ */
+export async function patchOutboundConsignmentInvoiceNumber(
+  consignmentId: number,
+  invoiceNumber: string | null
+): Promise<void> {
+  if (consignmentId < 1 || !Number.isFinite(consignmentId)) {
+    throw new AppError("Invalid consignment id", 400);
+  }
+  const existing = await query(
+    `SELECT id FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (existing.rows.length === 0) throw new AppError("Consignment not found", 404);
+
+  const num = invoiceNumber == null ? null : String(invoiceNumber).trim().slice(0, 200) || null;
+  const status = num ? "ASSIGNED" : null;
+
+  await query(
+    `UPDATE outbound_consignments
+     SET invoice_number = $1,
+         invoice_number_status = $2,
+         updated_at = NOW()
+     WHERE id = $3`,
+    [num, status, consignmentId]
+  );
+}
+
+/** Build an Excel workbook summarising a consignment and its SKU items. */
+export async function buildOutboundConsignmentInvoiceExcel(
+  consignmentId: number
+): Promise<{ buffer: Buffer; filename: string }> {
+  if (!Number.isFinite(consignmentId) || consignmentId < 1) {
+    throw new AppError("Invalid consignment id", 400);
+  }
+
+  const consR = await query(
+    `SELECT id, company_name, location, sold_via, po_number, po_type,
+            consignment_status, invoice_number_status, invoice_number,
+            invoice_upload_status, boxes_count, sku_count, total_quantity,
+            transporter_name, vehicle_number, docket_number,
+            created_at, marked_rtd_at
+     FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (consR.rows.length === 0) throw new AppError("Consignment not found", 404);
+  const c = consR.rows[0];
+
+  const itemsR = await query(
+    `SELECT po_secondary_sku,
+            MAX(company_code_primary) AS company_code_primary,
+            MAX(company_code_secondary) AS company_code_secondary,
+            SUM(COALESCE(box_quantity, 0))::integer AS box_quantity,
+            MAX(original_demand)::integer AS original_demand,
+            SUM(COALESCE(dispatched_quantity, 0))::integer AS dispatched_quantity,
+            SUM(COALESCE(consignment_quantity, 0))::integer AS consignment_quantity,
+            MAX(overall_fill_rate) AS overall_fill_rate
+     FROM outbound_consignment_items
+     WHERE consignment_id = $1
+       AND po_secondary_sku IS NOT NULL
+       AND TRIM(po_secondary_sku) <> ''
+     GROUP BY po_secondary_sku
+     ORDER BY po_secondary_sku ASC`,
+    [consignmentId]
+  );
+
+  const wb = XLSX.utils.book_new();
+
+  const toDate = (v: unknown) => {
+    if (v == null) return "";
+    const d = new Date(v instanceof Date ? v : (v as string));
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN");
+  };
+
+  const summary: unknown[][] = [
+    ["Consignment ID", c.id],
+    ["PO Number", c.po_number ?? ""],
+    ["Company", c.company_name ?? ""],
+    ["Location", c.location ?? ""],
+    ["Sold Via", c.sold_via ?? ""],
+    ["PO Type", c.po_type ?? ""],
+    ["Status", c.consignment_status ?? ""],
+    ["Invoice Number", c.invoice_number ?? ""],
+    ["Invoice Status", c.invoice_number_status ?? ""],
+    ["Invoice Upload", c.invoice_upload_status ?? ""],
+    ["Boxes", c.boxes_count ?? ""],
+    ["SKU Count", c.sku_count ?? ""],
+    ["Total Qty", c.total_quantity ?? ""],
+    ["Transporter", c.transporter_name ?? ""],
+    ["Vehicle No.", c.vehicle_number ?? ""],
+    ["Docket No.", c.docket_number ?? ""],
+    ["Created At", toDate(c.created_at)],
+    ["Marked RTD At", toDate(c.marked_rtd_at)],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+
+  const itemHeaders = [
+    "SKU", "Company Code (Primary)", "Company Code (Secondary)",
+    "Box Qty", "Original Demand", "Dispatched Qty", "Consignment Qty", "Fill Rate",
+  ];
+  const itemRows = itemsR.rows.map((r) => [
+    r.po_secondary_sku ?? "",
+    r.company_code_primary ?? "",
+    r.company_code_secondary ?? "",
+    r.box_quantity ?? 0,
+    r.original_demand ?? "",
+    r.dispatched_quantity ?? 0,
+    r.consignment_quantity ?? 0,
+    r.overall_fill_rate == null ? "" : Number(r.overall_fill_rate),
+  ]);
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows]),
+    "Items"
+  );
+
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer: buf, filename: `Consignment-${consignmentId}-invoice.xlsx` };
 }

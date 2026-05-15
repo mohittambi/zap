@@ -11,28 +11,44 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import {
+  SortableTableHead,
+  SORT_PAIRS,
+} from "@/components/listings/sortable-table-head";
+import { useListQueryState } from "@/hooks/use-list-query-state";
+
+const PAGE_SIZE = 100;
 
 export default function InventoryPacksPage() {
-  const [draft, setDraft] = React.useState("");
-  const [keyword, setKeyword] = React.useState("");
-  const [page, setPage] = React.useState(1);
+  const { state, set } = useListQueryState();
+  const [draft, setDraft] = React.useState(state.search);
   const [data, setData] = React.useState<{
     total: number;
     content: { pack_combo_sku_id: string }[];
   } | null>(null);
   const [loading, setLoading] = React.useState(true);
 
+  React.useEffect(() => {
+    setDraft(state.search);
+  }, [state.search]);
+
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), count: "100" });
-      if (keyword.trim()) q.set("search_keyword", keyword.trim());
+      const q = new URLSearchParams({
+        page: String(state.page),
+        count: String(PAGE_SIZE),
+      });
+      if (state.search.trim()) q.set("search_keyword", state.search.trim());
+      // Pack/combo backend only supports sku_asc / sku_desc; coerce others.
+      const sortParam =
+        state.sort === "sku_desc" ? "sku_desc" : "sku_asc";
+      q.set("sort", sortParam);
       const res = await apiFetch<{
         total: number;
         content: { pack_combo_sku_id: string }[];
@@ -44,7 +60,7 @@ export default function InventoryPacksPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [state.page, state.search, state.sort]);
 
   React.useEffect(() => {
     void load();
@@ -66,22 +82,13 @@ export default function InventoryPacksPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  setPage(1);
-                  setKeyword(draft);
-                }
+                if (e.key === "Enter") set({ search: draft });
               }}
               placeholder="Search pack_combo_sku_id…"
               className="min-h-11"
             />
           </div>
-          <Button
-            className="min-h-11"
-            onClick={() => {
-              setPage(1);
-              setKeyword(draft);
-            }}
-          >
+          <Button className="min-h-11" onClick={() => set({ search: draft })}>
             Apply
           </Button>
         </CardHeader>
@@ -95,7 +102,14 @@ export default function InventoryPacksPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="font-mono">pack_combo_sku_id</TableHead>
+                    <SortableTableHead
+                      pair={SORT_PAIRS.sku}
+                      current={state.sort}
+                      onChange={(v) => set({ sort: v })}
+                      className="font-mono"
+                    >
+                      pack_combo_sku_id
+                    </SortableTableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -111,15 +125,15 @@ export default function InventoryPacksPage() {
               <div className="mt-4 flex justify-between">
                 <Button
                   variant="outline"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
+                  disabled={state.page <= 1}
+                  onClick={() => set({ page: Math.max(1, state.page - 1) })}
                 >
                   Prev
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={data.content.length < 100}
-                  onClick={() => setPage((p) => p + 1)}
+                  disabled={data.content.length < PAGE_SIZE}
+                  onClick={() => set({ page: state.page + 1 })}
                 >
                   Next
                 </Button>

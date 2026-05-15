@@ -1,8 +1,32 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
-import { handleApiError } from "@/server/errors";
+import { AppError, handleApiError } from "@/server/errors";
 import * as inboundGrnsService from "@/server/services/inboundGrnsService";
+
+export async function POST(request: Request) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "purchase_orders", "write");
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const vendorId = Number(body.vendor_id);
+    const poId = Number(body.po_id);
+    if (!Number.isFinite(vendorId) || vendorId < 1 || !Number.isFinite(poId) || poId < 1) {
+      throw new AppError("vendor_id and po_id are required", 400);
+    }
+    const row = await inboundGrnsService.createDraftGrnForPo({
+      vendorId,
+      poId,
+      createdBy: user.email,
+      vendorInvoiceNumber: body.vendor_invoice_number,
+      boxCountInvoice: body.box_count_invoice,
+      actualBoxCountReceived: body.actual_box_count_received,
+    });
+    return NextResponse.json(row, { status: 201 });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
 
 export async function GET(request: Request) {
   try {

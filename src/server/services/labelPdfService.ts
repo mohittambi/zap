@@ -14,6 +14,8 @@ import { toBuffer as barcodeToBuffer } from "bwip-js/node";
  */
 export const LABEL_PAGE_WIDTH_PT = 113.38582677165354;
 export const LABEL_PAGE_HEIGHT_PT = 198.4251968503937;
+export const LABEL_PAGE_WIDTH_75x38_PT = 107.71653543307087;
+export const LABEL_PAGE_HEIGHT_75x38_PT = 212.5984251968504;
 
 const MM_TO_PT = 2.834645669291339;
 
@@ -398,11 +400,16 @@ function drawTextSegments(page: PDFPage, font: PDFFont, segments: TextSeg[]) {
   }
 }
 
-export async function buildRotatedLabelsPdf(rows: LabelRow[]): Promise<Uint8Array> {
+async function buildRotatedLabelsPdfWithDimensions(
+  rows: LabelRow[],
+  widthPt: number,
+  heightPt: number
+): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-  const W = LABEL_PAGE_WIDTH_PT;
+  const W = widthPt;
+  const H = heightPt;
   const contentW = W - 2 * PAGE_MARGIN_H_PT - 4;
 
   for (const row of rows) {
@@ -423,7 +430,7 @@ export async function buildRotatedLabelsPdf(rows: LabelRow[]): Promise<Uint8Arra
     const barRect = bottomBarcodeRect(W);
 
     for (let c = 0; c < count; c++) {
-      const page = pdfDoc.addPage([W, LABEL_PAGE_HEIGHT_PT]);
+      const page = pdfDoc.addPage([W, H]);
       page.setRotation(degrees(90));
 
       drawTextSegments(page, font, buildSegments(row, font, contentW));
@@ -437,6 +444,111 @@ export async function buildRotatedLabelsPdf(rows: LabelRow[]): Promise<Uint8Arra
           height: barRect.height,
         });
       }
+    }
+  }
+
+  return pdfDoc.save();
+}
+
+export async function buildRotatedLabelsPdf(rows: LabelRow[]): Promise<Uint8Array> {
+  return buildRotatedLabelsPdfWithDimensions(
+    rows,
+    LABEL_PAGE_WIDTH_PT,
+    LABEL_PAGE_HEIGHT_PT
+  );
+}
+
+export async function buildLabelsPdf(
+  rows: LabelRow[],
+  labelSize: "70x40" | "75x38"
+): Promise<Uint8Array> {
+  if (labelSize === "75x38") {
+    return buildRotatedLabelsPdfWithDimensions(
+      rows,
+      LABEL_PAGE_WIDTH_75x38_PT,
+      LABEL_PAGE_HEIGHT_75x38_PT
+    );
+  }
+  return buildRotatedLabelsPdf(rows);
+}
+
+function phase1DateStamp(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const mon = date.toLocaleString("en-US", { month: "short" });
+  const year = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const ampm = date.getHours() >= 12 ? "pm" : "am";
+  return `${day} ${mon} ${year}, ${hh}:${mm} ${ampm}`;
+}
+
+export async function buildPhase1BoxLabelsPdf(
+  startBox: number,
+  endBox: number,
+  companyInfo: string,
+  labelSize: "70x40" | "75x38"
+): Promise<Uint8Array> {
+  const from = Math.trunc(startBox);
+  const to = Math.trunc(endBox);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from <= 0 || to < from) {
+    throw new Error("Invalid box-number range");
+  }
+
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pageW = labelSize === "75x38" ? LABEL_PAGE_WIDTH_75x38_PT : LABEL_PAGE_WIDTH_PT;
+  const pageH = labelSize === "75x38" ? LABEL_PAGE_HEIGHT_75x38_PT : LABEL_PAGE_HEIGHT_PT;
+  const companyLine = sanitizeLabelPdfText(companyInfo || "").trim() || "—";
+  const stamp = phase1DateStamp(new Date());
+  const total = to - from + 1;
+  const barRect = bottomBarcodeRect(pageW);
+
+  for (let box = from; box <= to; box++) {
+    const idx = box - from + 1;
+    const page = pdfDoc.addPage([pageW, pageH]);
+    page.setRotation(degrees(90));
+
+    page.drawText(`BOX NO. - ${box}`, {
+      x: TEXT_LEFT_PT,
+      y: pageH - 32,
+      size: 13.5,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    page.drawText(companyLine, {
+      x: TEXT_LEFT_PT,
+      y: pageH - 50,
+      size: 9,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    page.drawText(`Date: ${stamp}`, {
+      x: TEXT_LEFT_PT,
+      y: pageH - 64,
+      size: 9,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    page.drawText(`-- ${idx} of ${total} --`, {
+      x: TEXT_LEFT_PT,
+      y: 22,
+      size: 9,
+      font,
+      color: rgb(0, 0, 0),
+    });
+
+    const boxText = String(box).padStart(4, "0");
+    try {
+      const png = await makeLinearBarcodePng(boxText, "code128");
+      const pngImage = await pdfDoc.embedPng(png);
+      page.drawImage(pngImage, {
+        x: barRect.x,
+        y: barRect.y + 10,
+        width: barRect.width,
+        height: Math.max(20, barRect.height + 8),
+      });
+    } catch {
+      // keep PDF generation resilient even if barcode rendering fails
     }
   }
 

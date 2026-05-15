@@ -140,7 +140,12 @@ function SortHeader({
   );
 }
 
-export function OutboundConsignmentsTable() {
+export function OutboundConsignmentsTable({
+  invoicePending = false,
+}: {
+  /** When true, only consignments that still need invoice capture (same filter as mobile pending-invoices). */
+  invoicePending?: boolean;
+} = {}) {
   const searchParams = useSearchParams();
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
@@ -175,6 +180,7 @@ export function OutboundConsignmentsTable() {
       if (applied.trim()) q.set("search", applied.trim());
       q.set("sort", sort);
       q.set("dir", dir);
+      if (invoicePending) q.set("pending_invoice", "1");
       const res = await apiFetch<Paginated>(`/api/outbound/consignments?${q}`);
       setData(res);
     } catch (e) {
@@ -183,7 +189,7 @@ export function OutboundConsignmentsTable() {
     } finally {
       setLoading(false);
     }
-  }, [page, applied, sort, dir]);
+  }, [page, applied, sort, dir, invoicePending]);
 
   React.useEffect(() => {
     const q = searchParams.get("search")?.trim();
@@ -206,7 +212,8 @@ export function OutboundConsignmentsTable() {
         <p className="text-muted-foreground text-sm">
           {data ? (
             <>
-              Showing {data.curr_page_count} of {data.total} consignment(s).
+              Showing {data.curr_page_count} of {data.total} consignment(s)
+              {invoicePending ? " pending invoice" : ""}.
             </>
           ) : loading ? (
             "Loading…"

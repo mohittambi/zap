@@ -17,10 +17,13 @@ export async function GET(request: Request) {
       limit: 1000,
       maxLimit: 1000,
     });
+    const sortRaw = q.sort ?? "";
+    const sort = sortRaw === "sku_desc" ? "sku_desc" : sortRaw === "sku_asc" ? "sku_asc" : null;
     const data = await inventoryService.getPacksAndCombosPaginated(
       search_keyword,
       page,
-      limit
+      limit,
+      { sort }
     );
     return NextResponse.json(data);
   } catch (err) {

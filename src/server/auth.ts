@@ -10,7 +10,7 @@ export async function loadUserWithRoles(
   userId: number
 ): Promise<AuthUser | null> {
   const userResult = await query(
-    `SELECT id, email, created_at FROM users WHERE id = $1`,
+    `SELECT id, email, created_at FROM users WHERE id = $1 AND COALESCE(is_active, true) = true`,
     [userId]
   );
   if (userResult.rows.length === 0) return null;
@@ -78,7 +78,7 @@ export async function resolveAuthUser(
       if (userId != null && Number.isNaN(userId)) userId = null;
     } else {
       const keyResult = await query(
-        `SELECT id, api_key_hash FROM users WHERE api_key_hash IS NOT NULL`
+        `SELECT id, api_key_hash FROM users WHERE api_key_hash IS NOT NULL AND COALESCE(is_active, true) = true`
       );
       for (const row of keyResult.rows as { id: number; api_key_hash: string }[]) {
         const match = await bcrypt.compare(token, row.api_key_hash);

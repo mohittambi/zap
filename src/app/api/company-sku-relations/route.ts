@@ -16,10 +16,19 @@ export async function GET(request: Request) {
       limit: 100,
       maxLimit: 500,
     });
+    const validSorts = new Set(["sku_asc", "sku_desc", "company_asc", "company_desc"]);
+    const sort = validSorts.has(q.sort)
+      ? (q.sort as "sku_asc" | "sku_desc" | "company_asc" | "company_desc")
+      : null;
+    const companyIdRaw = q.company_id ? Number(q.company_id) : null;
+    const company_id =
+      companyIdRaw != null && Number.isFinite(companyIdRaw) ? companyIdRaw : null;
     const data = await companySkuService.listCompanySkuRelations({
       search_keyword: (q.search_keyword || "").trim(),
       page,
       limit,
+      company_id,
+      sort,
     });
     return NextResponse.json(data);
   } catch (err) {

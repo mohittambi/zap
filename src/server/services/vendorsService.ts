@@ -135,6 +135,55 @@ export async function createVendor(input, actorEmail) {
   return getVendorById(id);
 }
 
+export async function updateVendor(id, input, actorEmail) {
+  const by = str(actorEmail, 100) || null;
+  const setClauses = [];
+  const params = [];
+  let idx = 1;
+
+  const fields = [
+    ['vendor_name', str(input.vendor_name, 200)],
+    ['vendor_address_line', input.vendor_address_line == null ? undefined : str(input.vendor_address_line)],
+    ['vendor_city', input.vendor_city == null ? undefined : str(input.vendor_city, 100)],
+    ['vendor_state', input.vendor_state == null ? undefined : str(input.vendor_state, 100)],
+    ['vendor_postal_code', input.vendor_postal_code == null ? undefined : str(input.vendor_postal_code, 20)],
+    ['vendor_gstin', input.vendor_gstin == null ? undefined : str(input.vendor_gstin, 50)],
+    ['vendor_contact_number', input.vendor_contact_number == null ? undefined : str(input.vendor_contact_number, 50)],
+  ];
+
+  for (const [col, val] of fields) {
+    if (val !== undefined) {
+      if (col === 'vendor_name' && !val) throw new AppError('vendor_name cannot be empty', 400);
+      setClauses.push(`${col} = $${idx++}`);
+      params.push(val || null);
+    }
+  }
+
+  if (setClauses.length === 0) throw new AppError('No fields to update', 400);
+
+  setClauses.push(`modified_by = $${idx++}`);
+  params.push(by);
+  setClauses.push(`updated_at = NOW()`);
+  params.push(id);
+
+  const result = await query(
+    `UPDATE vendors SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id`,
+    params
+  );
+  if (result.rows.length === 0) throw new AppError('Vendor not found', 404);
+  return getVendorById(id);
+}
+
+export async function deleteVendor(id) {
+  const poCheck = await query(`SELECT 1 FROM inbound_purchase_orders WHERE vendor_id = $1 LIMIT 1`, [id]);
+  if (poCheck.rows.length > 0) {
+    throw new AppError('Cannot delete vendor with existing purchase orders', 409);
+  }
+  const result = await query(`DELETE FROM vendors WHERE id = $1 RETURNING id`, [id]);
+  if (result.rows.length === 0) throw new AppError('Vendor not found', 404);
+  return { deleted: true };
+}
+
 export async function getVendorsBySku(skuId) {
   const vsResult = await query(
     `SELECT vs.id, vs.vendor_id, vs.sku_id, vs.cost_price, vs.modified_by, vs.created_at, vs.updated_at,
@@ -326,4 +375,78 @@ export async function getVendorListings(vendorId) {
       listing,
     };
   });
+}
+
+/** Map a listing SKU to this vendor (vendor_sku). */
+export async function addVendorListing(vendorId, skuId, costPrice, actorEmail) {
+  const vid = Number(vendorId);
+  if (!Number.isFinite(vid) || vid < 1) {
+    throw new AppError('Invalid vendor id', 400);
+  }
+  const sku = str(skuId, 100);
+  if (!sku) {
+    throw new AppError('sku_id is required', 400);
+  }
+
+  const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vid]);
+  if (vCheck.rows.length === 0) {
+    throw new AppError('Vendor not found', 404);
+  }
+
+  const listingCheck = await query(`SELECT sku_id FROM listings WHERE sku_id = $1`, [sku]);
+  if (listingCheck.rows.length === 0) {
+    throw new AppError('Listing not found for SKU', 404);
+  }
+
+  let price = null;
+  if (costPrice !== undefined && costPrice !== null && costPrice !== '') {
+    const n = Number(costPrice);
+    if (!Number.isFinite(n) || n < 0) {
+      throw new AppError('Invalid cost_price', 400);
+    }
+    price = n;
+  }
+
+  const by = str(actorEmail, 100) || null;
+
+  const ex = await query(`SELECT id FROM vendor_sku WHERE vendor_id = $1 AND sku_id = $2`, [vid, sku]);
+  if (ex.rows.length > 0) {
+    if (price != null) {
+      await query(
+        `UPDATE vendor_sku SET cost_price = $3, modified_by = $4, updated_at = NOW() WHERE vendor_id = $1 AND sku_id = $2`,
+        [vid, sku, price, by]
+      );
+    }
+    return { ok: true, duplicate: true };
+  }
+
+  const maxR = await query(`SELECT COALESCE(MAX(id), 0)::bigint AS m FROM vendor_sku`);
+  const nextId = Number(maxR.rows[0].m) + 1;
+
+  await query(
+    `INSERT INTO vendor_sku (
+       id, vendor_id, sku_id, cost_price, modified_by, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+    [nextId, vid, sku, price, by]
+  );
+
+  return { ok: true, duplicate: false };
+}
+
+/** Remove vendor–SKU mapping. */
+export async function removeVendorListing(vendorId, skuId) {
+  const vid = Number(vendorId);
+  if (!Number.isFinite(vid) || vid < 1) {
+    throw new AppError('Invalid vendor id', 400);
+  }
+  const sku = str(skuId, 100);
+  if (!sku) {
+    throw new AppError('sku_id is required', 400);
+  }
+
+  const del = await query(`DELETE FROM vendor_sku WHERE vendor_id = $1 AND sku_id = $2 RETURNING id`, [vid, sku]);
+  if (del.rows.length === 0) {
+    throw new AppError('Mapping not found', 404);
+  }
+  return { ok: true };
 }

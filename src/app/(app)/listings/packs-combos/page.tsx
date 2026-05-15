@@ -17,6 +17,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  SortableTableHead,
+  SORT_PAIRS,
+} from "@/components/listings/sortable-table-head";
 
 type PackRow = { pack_combo_sku_id: string };
 
@@ -38,6 +42,7 @@ export default function PacksCombosPage() {
   const [draft, setDraft] = React.useState("");
   const [keyword, setKeyword] = React.useState("");
   const [page, setPage] = React.useState(1);
+  const [sort, setSort] = React.useState<"sku_asc" | "sku_desc">("sku_asc");
   const [list, setList] = React.useState<{
     total: number;
     content: PackRow[];
@@ -50,7 +55,11 @@ export default function PacksCombosPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const q = new URLSearchParams({ page: String(page), count: "50" });
+      const q = new URLSearchParams({
+        page: String(page),
+        count: "50",
+        sort,
+      });
       if (keyword.trim()) q.set("search_keyword", keyword.trim());
       const res = await apiFetch<{ total: number; content: PackRow[] }>(
         `/api/inventory/secondary_listings/packs_and_combos/paginated?${q}`
@@ -62,7 +71,7 @@ export default function PacksCombosPage() {
     } finally {
       setLoading(false);
     }
-  }, [keyword, page]);
+  }, [keyword, page, sort]);
 
   React.useEffect(() => {
     void load();
@@ -129,18 +138,40 @@ export default function PacksCombosPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : (
-            <Table>
+          <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-muted/60 hover:bg-muted/60">
                   <TableHead className="w-12">sr_no.</TableHead>
-                  <TableHead>pack_combo_sku</TableHead>
+                  <SortableTableHead
+                    pair={SORT_PAIRS.sku}
+                    current={sort}
+                    onChange={(v) => {
+                      setSort(v === "sku_desc" ? "sku_desc" : "sku_asc");
+                      setPage(1);
+                    }}
+                  >
+                    pack_combo_sku
+                  </SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {list?.content?.map((row, i) => (
+                {loading
+                  ? Array.from({ length: 6 }).map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-5 w-full" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-full" /></TableCell>
+                      </TableRow>
+                    ))
+                  : !list?.content?.length
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-muted-foreground py-10 text-center text-sm">
+                        No pack/combo SKUs match the current search.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : null}
+                {!loading && list?.content?.map((row, i) => (
                   <React.Fragment key={row.pack_combo_sku_id}>
                     <TableRow
                       className="cursor-pointer hover:bg-muted/50"
@@ -210,10 +241,6 @@ export default function PacksCombosPage() {
                 ))}
               </TableBody>
             </Table>
-          )}
-          {!loading && (!list?.content?.length ? (
-            <p className="text-muted-foreground text-sm">No pack/combo rows for this page.</p>
-          ) : null)}
           <div className="mt-4 flex justify-between gap-2">
             <Button variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
               Previous

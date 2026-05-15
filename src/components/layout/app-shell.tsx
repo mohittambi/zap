@@ -26,6 +26,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { ThemeToggle } from "./theme-toggle";
+import { AppFooter } from "./app-footer";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 
@@ -61,9 +62,11 @@ const moreLinks = [
   { href: "/vendors", label: "Vendors" },
   { href: "/warehouses", label: "Warehouses" },
   { href: "/bins", label: "Bins" },
+  { href: "/bins/changes", label: "Bin Changes" },
+  { href: "/reorder", label: "Reorder Alerts" },
   { href: "/forms", label: "Forms" },
-  { href: "/purchase-orders", label: "Purchase orders" },
-  { href: "/warehouse-inventory", label: "Warehouse inventory log" },
+  { href: "/purchase-orders", label: "Purchase Orders" },
+  { href: "/warehouse-inventory", label: "Warehouse Inventory Log" },
   { href: "/inventory/packs", label: "Inventory — Packs (legacy)" },
   { href: "/inventory/secondary", label: "Inventory — Secondary (legacy)" },
 ];
@@ -71,9 +74,11 @@ const moreLinks = [
 function NavLinksShell({
   pathname,
   onNavigate,
+  isAdmin,
 }: {
   pathname: string | null;
   onNavigate?: () => void;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   return (
@@ -86,10 +91,10 @@ function NavLinksShell({
             href={href}
             onClick={onNavigate}
             className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium md:py-1.5",
+              "rounded-full px-3 py-2 text-sm font-medium md:py-1.5",
               active
-                ? "bg-primary/15 text-primary underline decoration-2 underline-offset-4"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             {label}
@@ -118,6 +123,20 @@ function NavLinksShell({
                 {label}
               </DropdownMenuItem>
             ))}
+            {isAdmin ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Admin</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => {
+                    router.push("/settings/users");
+                    onNavigate?.();
+                  }}
+                >
+                  User management
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -127,6 +146,7 @@ function NavLinksShell({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout, isAdmin } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
 
@@ -166,13 +186,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SheetTitle>eCraft Zap</SheetTitle>
               </SheetHeader>
               <ScrollArea className="h-[calc(100dvh-5rem)] px-4 py-4">
-                <NavLinksShell pathname={pathname} onNavigate={() => setOpen(false)} />
+                <NavLinksShell
+                  pathname={pathname}
+                  onNavigate={() => setOpen(false)}
+                  isAdmin={isAdmin}
+                />
               </ScrollArea>
             </SheetContent>
           </Sheet>
 
           <Link
-            href="/listings/warehouse"
+            href="/"
             className="shrink-0 text-lg font-semibold tracking-tight text-primary"
           >
             eCraft Zap
@@ -215,6 +239,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       Regenerate API key
                     </DropdownMenuItem>
                   )}
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => router.push("/settings/users")}>
+                      User management
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => logout()}>Sign out</DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -224,6 +253,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <main className="flex-1 pb-[max(1.5rem,env(safe-area-inset-bottom))]">{children}</main>
+      <AppFooter />
     </div>
   );
 }

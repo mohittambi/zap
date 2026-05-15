@@ -3,9 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
-import { buildEautomateGrnFileUrl } from "@/server/eautomate-grn-files";
-import { fetchEautomate } from "@/server/eautomate-proxy";
-import { eautomateConfigured } from "@/server/eautomate-proxy";
+import {
+  downloadBufferFromBucket,
+  getInboundBucket,
+} from "@/server/zapStorage";
 
 type RouteContext = { params: Promise<{ grnId: string; fileId: string }> };
 
@@ -35,24 +36,22 @@ export async function GET(request: Request, context: RouteContext) {
       );
     }
 
-    if (!eautomateConfigured()) {
-      return NextResponse.json(
-        { message: "eAutomate is not configured for file proxy" },
-        { status: 503 }
-      );
-    }
-
     let displayName: string | null = null;
+    let zapPath: string | null = null;
 
     if (kind === "invoice") {
       const r = await query(
-        `SELECT file_name FROM inbound_grn_invoice_files WHERE grn_id = $1 AND file_id = $2`,
+        `SELECT file_name, zap_storage_path FROM inbound_grn_invoice_files WHERE grn_id = $1 AND file_id = $2`,
         [grnId, fileId]
       );
       if (r.rows.length === 0) {
         return NextResponse.json({ message: "File not found for this GRN" }, { status: 404 });
       }
       displayName = r.rows[0].file_name as string | null;
+      zapPath =
+        r.rows[0].zap_storage_path != null
+          ? String(r.rows[0].zap_storage_path)
+          : null;
     } else {
       const noteIdRaw = url.searchParams.get("noteId");
       const noteId = noteIdRaw != null ? Number(noteIdRaw) : NaN;
@@ -63,7 +62,7 @@ export async function GET(request: Request, context: RouteContext) {
         );
       }
       const r = await query(
-        `SELECT file_name FROM inbound_grn_debit_credit_note_files
+        `SELECT file_name, zap_storage_path FROM inbound_grn_debit_credit_note_files
          WHERE grn_id = $1 AND note_id = $2 AND file_id = $3`,
         [grnId, noteId, fileId]
       );
@@ -71,54 +70,42 @@ export async function GET(request: Request, context: RouteContext) {
         return NextResponse.json({ message: "File not found for this GRN" }, { status: 404 });
       }
       displayName = r.rows[0].file_name as string | null;
+      zapPath =
+        r.rows[0].zap_storage_path != null
+          ? String(r.rows[0].zap_storage_path)
+          : null;
     }
 
-    const target = buildEautomateGrnFileUrl(
-      kind === "invoice" ? "invoice" : "debit_note",
-      grnId,
-      fileId,
-      kind === "debit_note" ? Number(url.searchParams.get("noteId")) : undefined
-    );
-    if (!target) {
-      return NextResponse.json(
-        {
-          message:
-            "File download URL is not configured. Set EAUTOMATE_GRN_INVOICE_FILE_URL_PATH or EAUTOMATE_GRN_DCN_FILE_URL_PATH (placeholders {fileId}, {grnId}, {noteId}).",
-        },
-        { status: 501 }
-      );
+    if (zapPath) {
+      try {
+        const { buffer, contentType } = await downloadBufferFromBucket(
+          getInboundBucket(),
+          zapPath
+        );
+        const ct =
+          contentType?.split(";")[0]?.trim() || "application/octet-stream";
+        const fn = safeFilename(displayName);
+        return new NextResponse(new Uint8Array(buffer), {
+          status: 200,
+          headers: {
+            "Content-Type": ct,
+            "Content-Disposition": `attachment; filename="${fn}"`,
+            "Cache-Control": "private, no-store",
+          },
+        });
+      } catch {
+        /* fall through */
+      }
     }
 
-    const upstream = await fetchEautomate(target.toString(), {
-      headers: { Accept: "*/*" },
-      cache: "no-store",
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    if (!upstream.ok) {
-      const text = await upstream.text().catch(() => "");
-      return NextResponse.json(
-        {
-          message: `eAutomate file fetch failed (${upstream.status})`,
-          detail: text.slice(0, 200),
-        },
-        { status: upstream.status >= 500 ? 502 : upstream.status }
-      );
-    }
-
-    const blob = await upstream.arrayBuffer();
-    const contentType =
-      upstream.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream";
-    const fn = safeFilename(displayName);
-
-    return new NextResponse(blob, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `attachment; filename="${fn}"`,
-        "Cache-Control": "private, no-store",
+    /** zap UI never reaches eAutomate. Mirror missing files via the inbound file-sync job. */
+    return NextResponse.json(
+      {
+        message:
+          "File is not in Zap Storage. Run the inbound file sync job to mirror eAutomate files into Zap Storage.",
       },
-    });
+      { status: 404 }
+    );
   } catch (err) {
     return handleApiError(err);
   }

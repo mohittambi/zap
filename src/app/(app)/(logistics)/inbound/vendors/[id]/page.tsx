@@ -5,17 +5,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
@@ -36,32 +34,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { FillRateBar } from "@/components/ui/fill-rate-bar";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown, Download, Search, X } from "lucide-react";
 import {
   InboundVendorListingsTable,
   type VendorListingRow,
 } from "../inbound-vendor-listings-table";
-
-type Specialty = {
-  id: number;
-  vendor_id: number;
-  vendor_speciality: string;
-};
-
-type VendorDetail = {
-  id: number;
-  vendor_name: string;
-  created_by?: string | null;
-  modified_by?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  vendor_address_line?: string;
-  vendor_city?: string;
-  vendor_state?: string;
-  vendor_postal_code?: string;
-  vendor_gstin?: string;
-  vendor_contact_number?: string;
-  specialties?: Specialty[];
-};
+import {
+  VendorDetailsCard,
+  type VendorDetail,
+} from "../vendor-details-card";
 
 type PoRow = {
   po_id: number;
@@ -93,21 +85,138 @@ type PoListResponse = {
   content: PoRow[];
 };
 
-function Field({
-  label,
+type PoLineDraft = { key: string; sku_id: string; quantity: string };
+
+type SearchableSkuSelectProps = {
+  readonly options: readonly VendorListingRow[];
+  readonly value: string;
+  readonly onChange: (skuId: string) => void;
+  readonly ariaLabel?: string;
+  readonly disabled?: boolean;
+};
+
+function SearchableSkuSelect({
+  options,
   value,
-}: Readonly<{ label: string; value: string }>) {
+  onChange,
+  ariaLabel = "Select SKU",
+  disabled,
+}: SearchableSkuSelectProps) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
+
+  React.useEffect(() => {
+    if (!open) setQ("");
+  }, [open]);
+
+  const filtered = React.useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return options.slice();
+    return options.filter((vs) => {
+      const id = vs.sku_id.toLowerCase();
+      const desc = (vs.listing?.description ?? "").toLowerCase();
+      return id.includes(needle) || desc.includes(needle);
+    });
+  }, [options, q]);
+
+  const selectedRow = React.useMemo(
+    () => options.find((vs) => vs.sku_id === value),
+    [options, value]
+  );
+
+  const triggerLabel = React.useMemo(() => {
+    if (!value.trim()) return "Select SKU…";
+    if (selectedRow) {
+      const desc = selectedRow.listing?.description ?? "";
+      const short = desc.length > 48 ? `${desc.slice(0, 45)}…` : desc;
+      return short ? `${selectedRow.sku_id} — ${short}` : selectedRow.sku_id;
+    }
+    return value;
+  }, [value, selectedRow]);
+
   return (
-    <div className="space-y-0.5">
-      <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-        {label}
-      </p>
-      <p className="text-sm break-words">{value || "—"}</p>
-    </div>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={cn(
+          "border-input bg-background hover:bg-accent/50 ring-offset-background focus-visible:ring-ring flex h-9 w-full items-center gap-1.5 rounded-md border px-2 text-left text-sm font-normal focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+          disabled && "pointer-events-none opacity-50"
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
+        <ChevronDown
+          className="text-muted-foreground size-4 shrink-0"
+          aria-hidden
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        className="max-w-[min(420px,calc(100vw-2rem))] min-w-[200px] p-2"
+      >
+        <div
+          className="relative px-0 pb-2"
+          onPointerDown={(e) => {
+            e.preventDefault();
+          }}
+        >
+          <Search
+            className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2"
+            aria-hidden
+          />
+          <Input
+            aria-label={`${ariaLabel} search`}
+            className="h-9 pl-8 text-sm"
+            placeholder="Search SKU or description…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto pr-1">
+          <DropdownMenuGroup>
+            {filtered.length === 0 ? (
+              <div className="text-muted-foreground px-1.5 py-2 text-xs">
+                No SKUs match
+              </div>
+            ) : (
+              filtered.map((vs) => (
+                <DropdownMenuItem
+                  key={`${vs.id}-${vs.sku_id}`}
+                  className="cursor-pointer flex-col items-start gap-0.5 py-1.5 text-sm"
+                  onClick={() => {
+                    onChange(vs.sku_id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="font-mono text-xs">{vs.sku_id}</span>
+                  <span className="text-muted-foreground line-clamp-1 max-w-full text-xs">
+                    {vs.listing?.description ?? "—"}
+                  </span>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuGroup>
+        </div>
+        {value ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-muted-foreground justify-center text-xs font-normal"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              Clear selection
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
-
-type PoLineDraft = { key: string; sku_id: string; quantity: string };
 
 function InboundVendorHubBody() {
   const params = useParams();
@@ -146,7 +255,8 @@ function InboundVendorHubBody() {
 
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createSubmitting, setCreateSubmitting] = React.useState(false);
-  const [expectedDate, setExpectedDate] = React.useState("");
+  const [expectedDateDraft, setExpectedDateDraft] = React.useState("");
+  const [expectedDateConfirmed, setExpectedDateConfirmed] = React.useState("");
   const [poRemarks, setPoRemarks] = React.useState("");
   const [lineDrafts, setLineDrafts] = React.useState<PoLineDraft[]>(() => [
     { key: crypto.randomUUID(), sku_id: "", quantity: "1" },
@@ -225,7 +335,8 @@ function InboundVendorHubBody() {
   }, [createOpen, loadSkusForDialog]);
 
   const resetCreateForm = () => {
-    setExpectedDate("");
+    setExpectedDateDraft("");
+    setExpectedDateConfirmed("");
     setPoRemarks("");
     setLineDrafts([{ key: crypto.randomUUID(), sku_id: "", quantity: "1" }]);
   };
@@ -243,9 +354,38 @@ function InboundVendorHubBody() {
     setLineDrafts((rows) => rows.filter((r) => r.key !== key));
   }, []);
 
+  const downloadPoCsv = async () => {
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const q = new URLSearchParams({
+        vendor_id: id,
+        search_keyword: poSearchApplied,
+      });
+      const res = await fetch(
+        apiUrl(`/api/inbound/vendor-purchase-orders/export?${q}`),
+        { headers }
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `vendor_${id}_purchase_orders.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success("Downloaded PO list CSV");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    }
+  };
+
   const submitCreatePo = async () => {
-    if (!expectedDate.trim()) {
-      toast.error("Expected date is required");
+    if (!expectedDateConfirmed.trim()) {
+      toast.error("Set the expected delivery date using Set");
       return;
     }
     const lines: { sku_id: string; quantity: number }[] = [];
@@ -270,7 +410,7 @@ function InboundVendorHubBody() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendor_id: Number(id),
-          expected_date: expectedDate.trim(),
+          expected_date: expectedDateConfirmed.trim(),
           po_remarks: poRemarks.trim() || undefined,
           lines,
         }),
@@ -306,13 +446,22 @@ function InboundVendorHubBody() {
     );
   }
 
-  const specs = data.specialties ?? [];
-
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
-      <Button variant="ghost" size="sm" asChild className="-ml-2">
-        <Link href="/inbound">← Inbound</Link>
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Button variant="ghost" size="sm" asChild className="-ml-2 w-fit">
+          <Link href="/inbound">← Inbound</Link>
+        </Button>
+        {canCreatePo ? (
+          <Button
+            type="button"
+            className="w-full shrink-0 sm:w-auto"
+            onClick={() => setCreateOpen(true)}
+          >
+            Create New Purchase Order
+          </Button>
+        ) : null}
+      </div>
 
       <AppPageTitle
         title={data.vendor_name || "Vendor"}
@@ -326,7 +475,7 @@ function InboundVendorHubBody() {
         >
           <TabsTrigger value="listings">Listings</TabsTrigger>
           <TabsTrigger value="purchase-orders">Purchase orders</TabsTrigger>
-          <TabsTrigger value="details">Vendor details</TabsTrigger>
+          <TabsTrigger value="details">Contact details</TabsTrigger>
         </TabsList>
 
         <TabsContent value="listings" className="mt-4">
@@ -366,13 +515,20 @@ function InboundVendorHubBody() {
                   >
                     Apply
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Download PO list CSV"
+                    disabled={
+                      poLoading || !poData || poData.total === 0
+                    }
+                    onClick={() => void downloadPoCsv()}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-              {canCreatePo ? (
-                <Button type="button" onClick={() => setCreateOpen(true)}>
-                  Create purchase order
-                </Button>
-              ) : null}
             </CardHeader>
             <CardContent className="p-0">
               {poLoading ? (
@@ -385,7 +541,7 @@ function InboundVendorHubBody() {
                 <div className="px-6 py-8">
                   <EmptyState
                     title="No purchase orders"
-                    description="Create a PO or sync from eautomate to populate this list."
+                    description="Create a PO or run the vendor PO sync to populate this list."
                   />
                 </div>
               ) : null}
@@ -448,11 +604,11 @@ function InboundVendorHubBody() {
                           <TableCell className="text-right font-mono text-xs">
                             {row.total_rejected_quantity}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {row.sku_fill_rate}
+                          <TableCell className="px-2 py-1.5">
+                            <FillRateBar value={row.sku_fill_rate} />
                           </TableCell>
-                          <TableCell className="text-right font-mono text-xs">
-                            {row.quantity_fill_rate}
+                          <TableCell className="px-2 py-1.5">
+                            <FillRateBar value={row.quantity_fill_rate} />
                           </TableCell>
                           <TableCell className="text-muted-foreground whitespace-nowrap text-xs">
                             {row.date_published ?? "—"}
@@ -505,46 +661,7 @@ function InboundVendorHubBody() {
         </TabsContent>
 
         <TabsContent value="details" className="mt-4 space-y-6">
-          <Card className="border-primary/10 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Contact &amp; address</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <Field label="GSTIN" value={data.vendor_gstin ?? ""} />
-                <Field label="Contact" value={data.vendor_contact_number ?? ""} />
-                <div className="sm:col-span-2">
-                  <Field label="Address" value={data.vendor_address_line ?? ""} />
-                </div>
-                <Field label="City" value={data.vendor_city ?? ""} />
-                <Field label="State" value={data.vendor_state ?? ""} />
-                <Field label="Postal code" value={data.vendor_postal_code ?? ""} />
-                <Field label="Created by" value={data.created_by ?? ""} />
-                <Field label="Updated" value={data.updated_at ?? ""} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/10 shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-base">Specialties</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {specs.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No specialties recorded.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {specs.map((s) => (
-                    <Badge key={s.id} variant="secondary">
-                      {s.vendor_speciality}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <VendorDetailsCard data={data} vendorId={id} onSaved={setData} />
         </TabsContent>
       </Tabs>
 
@@ -555,24 +672,56 @@ function InboundVendorHubBody() {
           if (!open) resetCreateForm();
         }}
       >
-        <DialogContent className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[min(90vh,640px)] w-[min(96vw,640px)] overflow-x-hidden overflow-y-auto sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>New purchase order</DialogTitle>
+            <DialogTitle className="break-words">
+              Create Purchase Order
+              <span className="text-muted-foreground ml-2 text-sm font-normal">
+                · Vendor ID: {id}
+              </span>
+            </DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="po-exp">Expected date</Label>
-              <Input
-                id="po-exp"
-                type="date"
-                value={expectedDate}
-                onChange={(e) => setExpectedDate(e.target.value)}
-              />
+          <div className="grid gap-4 min-w-0">
+            <div className="space-y-2">
+              <Label htmlFor="po-exp">Expected Delivery Date</Label>
+              <div className="flex flex-wrap items-end gap-2">
+                <Input
+                  id="po-exp"
+                  className="min-w-[10rem] flex-1"
+                  type="date"
+                  value={expectedDateDraft}
+                  onChange={(e) => setExpectedDateDraft(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    if (!expectedDateDraft.trim()) {
+                      toast.error("Choose a date first");
+                      return;
+                    }
+                    setExpectedDateConfirmed(expectedDateDraft.trim());
+                  }}
+                >
+                  Set
+                </Button>
+              </div>
+              {expectedDateConfirmed ? (
+                <Badge variant="outline" className="border-green-600/60 text-green-700 dark:text-green-400">
+                  Expected delivery: {expectedDateConfirmed}
+                </Badge>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Pick a date, then click Set to confirm.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="po-rm">Remarks (optional)</Label>
-              <Input
+              <Label htmlFor="po-rm">PO remarks</Label>
+              <textarea
                 id="po-rm"
+                rows={3}
+                className="border-input bg-background ring-offset-background focus-visible:ring-ring flex min-h-[80px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
                 value={poRemarks}
                 onChange={(e) => setPoRemarks(e.target.value)}
                 placeholder="Notes for this PO"
@@ -602,26 +751,20 @@ function InboundVendorHubBody() {
               {lineDrafts.map((row) => (
                 <div
                   key={row.key}
-                  className="grid grid-cols-[1fr_5rem_auto] items-end gap-2"
+                  className="grid grid-cols-[minmax(0,1fr)_4.5rem_auto] items-end gap-2"
                 >
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-1">
                     <Label className="text-xs">SKU</Label>
-                    <select
-                      className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 w-full rounded-md border px-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+                    <SearchableSkuSelect
+                      options={vendorSkus}
                       value={row.sku_id}
-                      onChange={(e) =>
-                        updateLineDraft(row.key, { sku_id: e.target.value })
+                      onChange={(skuId) =>
+                        updateLineDraft(row.key, { sku_id: skuId })
                       }
-                    >
-                      <option value="">Select SKU…</option>
-                      {vendorSkus.map((vs) => (
-                        <option key={vs.sku_id} value={vs.sku_id}>
-                          {vs.sku_id}
-                        </option>
-                      ))}
-                    </select>
+                      ariaLabel={`Select SKU for line ${row.key}`}
+                    />
                   </div>
-                  <div className="space-y-1">
+                  <div className="min-w-0 space-y-1">
                     <Label className="text-xs">Qty</Label>
                     <Input
                       inputMode="numeric"
@@ -634,18 +777,19 @@ function InboundVendorHubBody() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     className="text-destructive shrink-0"
+                    aria-label="Remove line"
                     disabled={lineDrafts.length <= 1}
                     onClick={() => removeLineDraft(row.key)}
                   >
-                    Remove
+                    <X className="size-4" />
                   </Button>
                 </div>
               ))}
             </div>
           </div>
-          <DialogFooter className="gap-2 sm:justify-end">
+          <DialogFooter className="flex-row gap-3 sm:justify-end">
             <Button
               type="button"
               variant="outline"

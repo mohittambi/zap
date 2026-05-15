@@ -19,6 +19,10 @@ export async function GET(request: Request) {
     const search = typeof q.search === "string" ? q.search : undefined;
     const sortBy = typeof q.sort === "string" ? q.sort : undefined;
     const sortDir = q.dir === "asc" ? "asc" : "desc";
+    const invoicePending =
+      q.pending_invoice === "1" ||
+      q.pending_invoice === "true" ||
+      q.invoice_pending === "1";
 
     const data = await listOutboundConsignments({
       page,
@@ -26,6 +30,7 @@ export async function GET(request: Request) {
       search,
       sortBy,
       sortDir,
+      invoicePending,
     });
     return NextResponse.json(data);
   } catch (err) {

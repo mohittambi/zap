@@ -1,0 +1,41 @@
+import { NextResponse } from "next/server";
+import { requireAuth } from "@/server/auth";
+import { assertPermission } from "@/server/rbac";
+import { handleApiError, AppError } from "@/server/errors";
+import { findSavedQuery } from "@/server/queries/homeSavedQueries";
+
+// POST /api/home/queries/[id]/run — run a saved query with the given params.
+export async function POST(
+  request: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await requireAuth(request);
+    assertPermission(user, "bins", "read");
+    const { id } = await ctx.params;
+    const def = findSavedQuery(id);
+    if (!def) throw new AppError("Unknown query", 404);
+
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const allowedKeys = new Set(def.params.map((p) => p.name));
+    const cleaned: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(body)) {
+      if (allowedKeys.has(k)) cleaned[k] = v;
+    }
+    for (const p of def.params) {
+      if (p.required && (cleaned[p.name] == null || cleaned[p.name] === "")) {
+        throw new AppError(`Missing required param "${p.name}"`, 400);
+      }
+    }
+
+    const result = await def.run(cleaned, user);
+    return NextResponse.json({
+      id: def.id,
+      label: def.label,
+      resultShape: def.resultShape,
+      ...result,
+    });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}

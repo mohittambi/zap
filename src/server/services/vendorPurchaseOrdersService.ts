@@ -52,6 +52,8 @@ function rowToListItem(r) {
     total_rejected_quantity: Number(r.total_rejected_quantity ?? 0),
     sku_fill_rate: Number(r.sku_fill_rate ?? 0),
     quantity_fill_rate: Number(r.quantity_fill_rate ?? 0),
+    /** Drives display label: 'zap' → ZP-{po_id}, 'eautomate' → bare. Doctrine #5. */
+    source: r.source === "zap" ? "zap" : "eautomate",
   };
 }
 
@@ -94,7 +96,7 @@ export async function listVendorPurchaseOrdersWithFilters(opts) {
     ? [vendorId, likeParam, perPage, offset]
     : [vendorId, perPage, offset];
   const listSql = `
-    SELECT po.po_id, po.vendor_id, po.vendor_name, po.expected_date, po.created_by, po.modified_by,
+    SELECT po.po_id, po.vendor_id, po.vendor_name, po.source, po.expected_date, po.created_by, po.modified_by,
            po.created_at, po.updated_at, po.date_published, po.status, po.po_remarks,
            po.sku_count, po.total_quantity, po.number_of_grns, po.total_invoice_quantity,
            po.total_accepted_quantity, po.total_rejected_quantity, po.sku_fill_rate, po.quantity_fill_rate
@@ -116,8 +118,44 @@ export async function listVendorPurchaseOrdersWithFilters(opts) {
   };
 }
 
+/** All PO rows for one vendor (for CSV export), same row shape as list items. */
+export async function listVendorPurchaseOrdersAll(opts) {
+  const vendorId = Number(opts.vendorId);
+  if (!Number.isFinite(vendorId) || vendorId < 1) {
+    throw new AppError("vendor_id is required", 400);
+  }
+
+  const kw = str(opts.searchKeyword);
+  const likeParam = kw ? `%${kw.toLowerCase()}%` : null;
+  const searchClause = kw
+    ? ` AND (
+        CAST(po.po_id AS TEXT) ILIKE $2
+        OR LOWER(COALESCE(po.status, '')) LIKE $2
+        OR LOWER(COALESCE(po.po_remarks, '')) LIKE $2
+      )`
+    : "";
+
+  const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vendorId]);
+  if (vCheck.rows.length === 0) {
+    throw new AppError("Vendor not found", 404);
+  }
+
+  const listParams = kw ? [vendorId, likeParam] : [vendorId];
+  const listSql = `
+    SELECT po.po_id, po.vendor_id, po.vendor_name, po.source, po.expected_date, po.created_by, po.modified_by,
+           po.created_at, po.updated_at, po.date_published, po.status, po.po_remarks,
+           po.sku_count, po.total_quantity, po.number_of_grns, po.total_invoice_quantity,
+           po.total_accepted_quantity, po.total_rejected_quantity, po.sku_fill_rate, po.quantity_fill_rate
+    FROM vendor_purchase_orders po
+    WHERE po.vendor_id = $1 ${searchClause}
+    ORDER BY po.created_at DESC NULLS LAST, po.po_id DESC`;
+
+  const listR = await query(listSql, listParams);
+  return listR.rows.map((r) => rowToListItem(r));
+}
+
 /**
- * Paginated list across all vendors (optional vendor_id filter). Same JSON shape as eautomate with_filters.
+ * Paginated list across all vendors (optional `filterVendorIds`). Same JSON shape as eautomate with_filters.
  */
 export async function listAllPurchaseOrdersWithFilters(opts) {
   const page = Math.max(1, Number(opts.page) || 1);
@@ -125,16 +163,19 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
   const offset = (page - 1) * perPage;
   const kw = str(opts.searchKeyword);
 
-  let vendorFilter = null;
-  if (opts.vendorId != null && opts.vendorId !== "") {
-    const v = Number(opts.vendorId);
-    if (!Number.isFinite(v) || v < 1) {
-      throw new AppError("Invalid vendor_id", 400);
-    }
-    vendorFilter = v;
-    const vCheck = await query(`SELECT 1 FROM vendors WHERE id = $1`, [vendorFilter]);
-    if (vCheck.rows.length === 0) {
-      throw new AppError("Vendor not found", 404);
+  /** Non-empty finite vendor ids (>0), deduped. */
+  let filterVendorIds = null;
+  const rawVid = opts.filterVendorIds;
+  if (Array.isArray(rawVid) && rawVid.length > 0) {
+    const ids = [
+      ...new Set(
+        rawVid
+          .map(Number)
+          .filter((n) => Number.isFinite(n) && n >= 1)
+      ),
+    ].sort((a, b) => a - b);
+    if (ids.length > 0) {
+      filterVendorIds = ids;
     }
   }
 
@@ -142,9 +183,9 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
   const params = [];
   let p = 1;
 
-  if (vendorFilter != null) {
-    conditions.push(`po.vendor_id = $${p}`);
-    params.push(vendorFilter);
+  if (filterVendorIds != null && filterVendorIds.length > 0) {
+    conditions.push(`po.vendor_id = ANY($${p}::bigint[])`);
+    params.push(filterVendorIds);
     p += 1;
   }
 
@@ -161,7 +202,42 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
     p += 1;
   }
 
+  const fp = str(opts.filterPoId ?? "");
+  if (fp) {
+    conditions.push(`CAST(po.po_id AS TEXT) ILIKE $${p}`);
+    params.push(`%${fp.toLowerCase()}%`);
+    p += 1;
+  }
+
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  /** Sortable columns and their SQL expressions; allowlisted to prevent injection. */
+  const SORT_COLUMNS = {
+    po_id: "po.po_id",
+    vendor_id: "po.vendor_id",
+    vendor_name: "po.vendor_name",
+    status: "po.status",
+    sku_count: "po.sku_count",
+    total_quantity: "po.total_quantity",
+    number_of_grns: "po.number_of_grns",
+    total_invoice_quantity: "po.total_invoice_quantity",
+    total_accepted_quantity: "po.total_accepted_quantity",
+    total_rejected_quantity: "po.total_rejected_quantity",
+    sku_fill_rate: "po.sku_fill_rate",
+    quantity_fill_rate: "po.quantity_fill_rate",
+    po_remarks: "po.po_remarks",
+    created_at: "po.created_at",
+    updated_at: "po.updated_at",
+    date_published: "po.date_published",
+    expected_date: "po.expected_date",
+    created_by: "po.created_by",
+  };
+  const sortBy = str(opts.sortBy);
+  const sortExpr = sortBy && SORT_COLUMNS[sortBy] ? SORT_COLUMNS[sortBy] : null;
+  const sortDirSql = opts.sortDir === "asc" ? "ASC" : "DESC";
+  const orderBy = sortExpr
+    ? `ORDER BY ${sortExpr} ${sortDirSql} NULLS LAST, po.po_id DESC`
+    : `ORDER BY po.created_at DESC NULLS LAST, po.po_id DESC`;
 
   const countR = await query(
     `SELECT COUNT(*)::int AS total FROM vendor_purchase_orders po ${where}`,
@@ -170,13 +246,13 @@ export async function listAllPurchaseOrdersWithFilters(opts) {
   const total = countR.rows[0].total;
 
   const listSql = `
-    SELECT po.po_id, po.vendor_id, po.vendor_name, po.expected_date, po.created_by, po.modified_by,
+    SELECT po.po_id, po.vendor_id, po.vendor_name, po.source, po.expected_date, po.created_by, po.modified_by,
            po.created_at, po.updated_at, po.date_published, po.status, po.po_remarks,
            po.sku_count, po.total_quantity, po.number_of_grns, po.total_invoice_quantity,
            po.total_accepted_quantity, po.total_rejected_quantity, po.sku_fill_rate, po.quantity_fill_rate
     FROM vendor_purchase_orders po
     ${where}
-    ORDER BY po.created_at DESC NULLS LAST, po.po_id DESC
+    ${orderBy}
     LIMIT $${p} OFFSET $${p + 1}`;
 
   const listR = await query(listSql, [...params, perPage, offset]);
@@ -276,20 +352,25 @@ export async function createVendorPurchaseOrder(input, actorEmail) {
   try {
     await client.query("BEGIN");
 
-    const maxR = await client.query(
-      `SELECT COALESCE(MAX(po_id), 0)::bigint AS m FROM vendor_purchase_orders`
+    /** Allocate from a high-range sequence (10^10+) so zap-created PO ids
+     * cannot collide with eAutomate's id space. Eliminates the entire class
+     * of "sync brought a phantom GRN under my zap PO" bugs. */
+    const seqR = await client.query(
+      `SELECT nextval('vendor_purchase_orders_zap_id_seq')::bigint AS po_id`
     );
-    const poId = Number(maxR.rows[0].m) + 1;
+    const poId = Number(seqR.rows[0].po_id);
 
     await client.query(
       `INSERT INTO vendor_purchase_orders (
         po_id, vendor_id, vendor_name, expected_date, created_by, modified_by,
         created_at, updated_at, date_published, status, po_remarks,
         sku_count, total_quantity, number_of_grns, total_invoice_quantity,
-        total_accepted_quantity, total_rejected_quantity, sku_fill_rate, quantity_fill_rate
+        total_accepted_quantity, total_rejected_quantity, sku_fill_rate, quantity_fill_rate,
+        source
       ) VALUES (
         $1, $2, $3, $4::date, $5, $5, NOW(), NOW(), NULL, 'PENDING', $6,
-        $7, $8, 0, 0, 0, 0, 0, 0
+        $7, $8, 0, 0, 0, 0, 0, 0,
+        'zap'
       )`,
       [
         poId,
@@ -314,7 +395,7 @@ export async function createVendorPurchaseOrder(input, actorEmail) {
     await client.query("COMMIT");
 
     const one = await query(
-      `SELECT po.po_id, po.vendor_id, po.vendor_name, po.expected_date, po.created_by, po.modified_by,
+      `SELECT po.po_id, po.vendor_id, po.vendor_name, po.source, po.expected_date, po.created_by, po.modified_by,
               po.created_at, po.updated_at, po.date_published, po.status, po.po_remarks,
               po.sku_count, po.total_quantity, po.number_of_grns, po.total_invoice_quantity,
               po.total_accepted_quantity, po.total_rejected_quantity, po.sku_fill_rate, po.quantity_fill_rate

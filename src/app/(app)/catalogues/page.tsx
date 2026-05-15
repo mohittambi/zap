@@ -34,23 +34,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
-
-type CatRow = {
-  id: number;
-  catalogue_type: string;
-  name: string;
-  description?: string | null;
-  created_by?: string | null;
-  created_at: string;
-  updated_at?: string | null;
-  sku_count: number;
-  catalogue_name?: string;
-  catalogue_description?: string | null;
-  catalogue_type_legacy?: string;
-};
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  EditCatalogueDialog,
+  type CatRow,
+} from "./edit-catalogue-dialog";
 
 type PageData = {
   total: number;
@@ -72,6 +71,11 @@ export default function CataloguesPage() {
   const [createName, setCreateName] = React.useState("");
   const [createDesc, setCreateDesc] = React.useState("");
   const [createSubmitting, setCreateSubmitting] = React.useState(false);
+
+  const [editTarget, setEditTarget] = React.useState<CatRow | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = React.useState<CatRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -95,6 +99,21 @@ export default function CataloguesPage() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/catalogues/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success("Catalogue deleted");
+      setDeleteTarget(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   async function createCatalogue() {
     if (!createName.trim()) {
@@ -268,19 +287,7 @@ export default function CataloguesPage() {
                 {summaryLine}
               </p>
 
-              {loading && (
-                <div className="px-4 pb-4">
-                  <Skeleton className="h-64 w-full rounded-lg" />
-                </div>
-              )}
-              {!loading && data && !hasRows && (
-                <div className="px-4 pb-8">
-                  <EmptyState title="No catalogues" />
-                </div>
-              )}
-              {!loading && hasRows && data && (
-                <>
-                  <div className="hidden overflow-x-auto lg:block">
+              <div className="hidden overflow-x-auto lg:block">
                     <Table className="min-w-[880px]">
                       <TableHeader>
                         <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -302,10 +309,27 @@ export default function CataloguesPage() {
                           <TableHead className="min-w-[120px] font-semibold">
                             Created By
                           </TableHead>
+                          <TableHead className="w-[130px]" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {data.content.map((row, i) => (
+                        {loading
+                          ? Array.from({ length: 5 }).map((_, i) => (
+                              <TableRow key={i}>
+                                {[1, 2, 3, 4, 5, 6, 7].map((j) => (
+                                  <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>
+                                ))}
+                              </TableRow>
+                            ))
+                          : !hasRows
+                          ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="text-muted-foreground py-10 text-center text-sm">
+                                No catalogues match the current search.
+                              </TableCell>
+                            </TableRow>
+                          )
+                          : data?.content.map((row, i) => (
                           <TableRow
                             key={row.id}
                             className={cn(i % 2 === 1 && "bg-muted/20")}
@@ -335,12 +359,33 @@ export default function CataloguesPage() {
                             <TableCell className="text-sm">
                               {row.created_by ?? "—"}
                             </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => setEditTarget(row)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive h-7 px-2 text-xs"
+                                  onClick={() => setDeleteTarget(row)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
-                        ))}
+                          ))}
                       </TableBody>
                     </Table>
                   </div>
 
+                  {!loading && hasRows && data ? (
                   <div className="flex flex-col gap-3 px-4 lg:hidden">
                     {data.content.map((row) => (
                       <div
@@ -375,11 +420,14 @@ export default function CataloguesPage() {
                           </span>
                           <span>By: {row.created_by ?? "—"}</span>
                         </div>
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setEditTarget(row)}>Edit</Button>
+                          <Button size="sm" variant="ghost" className="text-destructive h-7 px-2 text-xs" onClick={() => setDeleteTarget(row)}>Delete</Button>
+                        </div>
                       </div>
                     ))}
                   </div>
-                </>
-              )}
+                  ) : null}
 
               {!loading && data && (
                 <CardFooter className="flex flex-col gap-3 border-t sm:flex-row sm:items-center sm:justify-between">
@@ -410,6 +458,33 @@ export default function CataloguesPage() {
           </TabsContent>
         </Card>
       </Tabs>
+      <EditCatalogueDialog
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSaved={() => void load()}
+      />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete catalogue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{deleteTarget?.name}</strong> (ID {deleteTarget?.id}).
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

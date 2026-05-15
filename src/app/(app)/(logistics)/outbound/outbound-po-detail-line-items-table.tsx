@@ -66,7 +66,7 @@ export function OutboundPoLineItemsTable({
   if (content.length === 0) {
     return (
       <p className="text-muted-foreground rounded-md border border-dashed p-4 text-sm">
-        No line items synced yet. Open this page when eAutomate is configured to refresh listings.
+        No line items synced yet. Open this page again to refresh listings from the sync pipeline.
       </p>
     );
   }
@@ -145,7 +145,7 @@ export function OutboundPoLineItemsTable({
                     {showImages ? (
                       <td className="px-2 py-1 align-middle">
                         {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element -- remote eAutomate URLs
+                          // eslint-disable-next-line @next/next/no-img-element -- remote image URLs
                           <img
                             src={img}
                             alt=""

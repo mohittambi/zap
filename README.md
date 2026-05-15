@@ -1,8 +1,12 @@
 # Zap (Next.js)
 
-eautomate API mirror — listings, inventory, analytics. Data from PostgreSQL. RBAC-protected **Next.js Route Handlers** under `/api`.
+Logistics and operations platform — listings, inventory, inbound/outbound, catalogues, analytics. Built on **Next.js** (App Router) with **PostgreSQL** as the runtime source of truth, served through RBAC-protected **Route Handlers** under `/api`.
 
-**Project document (features, modules, roadmap-style gaps):** [docs/project-features-modules.md](docs/project-features-modules.md)
+**Documentation index:** [docs/README.md](docs/README.md) (architecture, services, deployment, enhancements)
+
+> **Architectural rules:** before changing anything that affects data boundaries, ID allocation, or the historical import pipeline, read [**docs/zap-doctrine.md**](../docs/zap-doctrine.md) (9 principles, learned from production incidents). AI coding assistants: see [CLAUDE.md](CLAUDE.md).
+>
+> **Runtime note:** Zap serves production traffic entirely from its own PostgreSQL database — no live calls to eAutomate. The `sync:eautomate:*` scripts below were used for the **initial one-time historical import** and remain available for ad-hoc backfills or local development; they are not part of the request path in production.
 
 ## Setup
 
@@ -49,17 +53,19 @@ Rows referencing SKUs, warehouses, or vendors that are **not** present in the wo
 npm run dev    # http://localhost:3000
 ```
 
-### eAutomate: sync everything (orchestrator)
+### Historical import (legacy, optional)
 
-To pull **all** integrated eAutomate data into PostgreSQL in one ordered pass (vendors → inbound POs/GRNs → secondary listings → outbound → PO/GRN detail ingests), use:
+eAutomate was Zap's upstream system during the migration. The data has already been imported into PostgreSQL — production reads exclusively from the database and **does not** call eAutomate at request time. The scripts below are kept for the original one-time historical import and for occasional local backfills; you do not need to run or configure them to operate the app in production.
+
+To replay the full ordered import locally (vendors → inbound POs/GRNs → secondary listings → outbound → PO/GRN detail), use:
 
 ```bash
 npm run sync:eautomate:all
 ```
 
-Options, safety notes, and what each phase does are documented in **[docs/sync-all-eautomate.md](docs/sync-all-eautomate.md)**. For a quick preview of commands without running them: `npm run sync:eautomate:all:dry`.
+Phase-by-phase notes and safety options live in **[docs/sync-all-eautomate.md](docs/sync-all-eautomate.md)**. For a dry-run preview of commands without executing them: `npm run sync:eautomate:all:dry`.
 
-**eAutomate login (optional):** set `EAUTOMATE_LOGIN_USER_ID` and `EAUTOMATE_LOGIN_PASSWORD` in `.env.local` so sync scripts and the Next server can POST `{ userId, password }` to eAutomate **`/public/api/login`**, build `access_token` / `id_token` cookies, and **re-login automatically on HTTP 401** (expired token). With **`EAUTOMATE_WRITE_AUTH_TO_ENV_LOCAL=1`**, each successful login also **rewrites `EAUTOMATE_COOKIE` (and the login lines) into `.env.local`** so tokens stay fresh on disk. Details: [docs/eautomate-public-api-reference.md](docs/eautomate-public-api-reference.md#authentication).
+**eAutomate login env (only needed when running these legacy import scripts):** `EAUTOMATE_LOGIN_USER_ID` and `EAUTOMATE_LOGIN_PASSWORD` in `.env.local` let the import jobs POST `{ userId, password }` to eAutomate **`/public/api/login`** and build `access_token` / `id_token` cookies, refreshing automatically on HTTP 401. With **`EAUTOMATE_WRITE_AUTH_TO_ENV_LOCAL=1`**, each successful login rewrites `EAUTOMATE_COOKIE` (and the login lines) into `.env.local` so tokens stay fresh on disk. Production deployments do not require these variables. Details: [docs/eautomate-public-api-reference.md](docs/eautomate-public-api-reference.md#authentication).
 
 ## Environment
 

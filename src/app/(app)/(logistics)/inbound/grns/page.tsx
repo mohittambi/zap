@@ -48,6 +48,7 @@ type GrnRow = {
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+  zap_receipt_exception: boolean;
   id: number;
 };
 
@@ -136,7 +137,7 @@ export default function InboundGrnsPage() {
     <div className="mx-auto max-w-[1920px] space-y-4 px-2 py-4 md:px-4">
       <AppPageTitle
         title="All GRNs"
-        description="Goods receipt notes from eautomate. Sync with npm run sync:grns:all after vendors are in the database."
+        description="Goods receipt notes across all vendors. Use the search and filters to find specific GRNs."
       />
 
       <Card className="border-primary/10 shadow-sm">
@@ -175,7 +176,7 @@ export default function InboundGrnsPage() {
             <div className="px-4 py-8">
               <EmptyState
                 title="No GRNs"
-                description="Run npm run migrate, sync vendors (npm run sync:vendors:all), then npm run sync:grns:all with EAUTOMATE_COOKIE set."
+                description="No GRNs found. Ensure vendors are configured and data has been imported."
               />
             </div>
           ) : null}
@@ -190,6 +191,9 @@ export default function InboundGrnsPage() {
                     <TableRow className="bg-muted/60 hover:bg-muted/60">
                       <TableHead className="whitespace-nowrap">
                         GRN Id
+                      </TableHead>
+                      <TableHead className="whitespace-nowrap">
+                        Exception
                       </TableHead>
                       <TableHead className="whitespace-nowrap">
                         PO Number
@@ -264,6 +268,16 @@ export default function InboundGrnsPage() {
                           >
                             {row.grn_id}
                           </Link>
+                        </TableCell>
+                        <TableCell>
+                          {row.zap_receipt_exception && (
+                            <span
+                              title="Receipt exception — shortage or rejection recorded"
+                              className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                            >
+                              ⚠ Exception
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           <Link

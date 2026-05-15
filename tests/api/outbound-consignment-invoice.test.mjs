@@ -1,0 +1,189 @@
+/**
+ * Integration tests for outbound consignment invoice upload & download.
+ * Requires a running Next.js server: npm run dev
+ */
+import { describe, it, before } from "node:test";
+import assert from "node:assert";
+
+const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
+let token = "";
+
+async function getToken() {
+  const r = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "admin@example.com", password: "admin123" }),
+  });
+  if (r.status !== 200) return "";
+  return (await r.json()).token ?? "";
+}
+
+async function api(path, opts = {}) {
+  return fetch(`${BASE}${path}`, {
+    ...opts,
+    headers: {
+      ...(opts.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+function skip(label) {
+  console.warn(`Skipping: ${label}`);
+}
+
+before(async () => { token = await getToken(); });
+
+// ── Auth guard ────────────────────────────────────────────────────────────────
+
+describe("Consignment invoice auth guard", () => {
+  it("POST /invoice-upload without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments/1/invoice-upload`, { method: "POST" });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+
+  it("GET /invoice without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments/1/invoice`);
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+
+  it("GET /consignments without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments`);
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+});
+
+// ── Consignment listing ───────────────────────────────────────────────────────
+
+describe("Consignment listing", () => {
+  it("GET /consignments returns 200 with paginated JSON when authorized", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments?page=1&count=5");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+    const body = await r.json();
+    assert.ok("content" in body || Array.isArray(body), "should return paginated content or array");
+  });
+
+  it("GET /consignments/filters returns 200 with filter options", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/filters");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+  });
+
+  it("GET /consignments/[id] returns 404 on non-existent consignment", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/999999999");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 404);
+  });
+});
+
+// ── Invoice upload preconditions ──────────────────────────────────────────────
+
+describe("Consignment invoice upload", () => {
+  it("POST /invoice-upload with no file returns 400", async () => {
+    if (!token) return skip("login failed");
+    const fd = new FormData();
+    const r = await api("/api/outbound/consignments/1/invoice-upload", {
+      method: "POST",
+      body: fd,
+    });
+    if (r.status === 503) return skip("server unreachable");
+    if (r.status === 501) return skip("storage not configured");
+    assert.ok(r.status === 400 || r.status === 404, `expected 400 (no file) or 404 (no consignment), got ${r.status}`);
+  });
+
+  it("POST /invoice-upload on non-existent consignment returns 404", async () => {
+    if (!token) return skip("login failed");
+    const fd = new FormData();
+    fd.append("file", new Blob(["test"], { type: "application/pdf" }), "test.pdf");
+    const r = await api("/api/outbound/consignments/999999999/invoice-upload", {
+      method: "POST",
+      body: fd,
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 404);
+  });
+
+  it("POST /invoice-upload on consignment without invoice_number_status returns 409", async () => {
+    if (!token) return skip("login failed");
+    // Find a consignment without invoice_number_status
+    const listR = await api("/api/outbound/consignments?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+
+    for (const c of consignments) {
+      if (!c.invoice_number_status) {
+        const fd = new FormData();
+        fd.append("file", new Blob(["test"], { type: "application/pdf" }), "test.pdf");
+        const r = await api(`/api/outbound/consignments/${c.id}/invoice-upload`, {
+          method: "POST",
+          body: fd,
+        });
+        // 409 (no invoice number) or 501 (storage not configured)
+        assert.ok(r.status === 409 || r.status === 501, `expected 409 or 501, got ${r.status}`);
+        return;
+      }
+    }
+    skip("no consignment without invoice_number_status found");
+  });
+});
+
+// ── Invoice download ──────────────────────────────────────────────────────────
+
+describe("Consignment invoice download", () => {
+  it("GET /invoice on non-existent consignment returns 404", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/999999999/invoice");
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 404);
+  });
+
+  it("GET /invoice on consignment without invoice file returns 404", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/outbound/consignments?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+
+    for (const c of consignments) {
+      if (!c.invoice_file_name) {
+        const r = await api(`/api/outbound/consignments/${c.id}/invoice`);
+        if (r.status === 503) return skip("server unreachable");
+        assert.strictEqual(r.status, 404);
+        return;
+      }
+    }
+    skip("no consignment without invoice file found");
+  });
+
+  it("GET /invoice on consignment with uploaded invoice returns 200 or 501", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/outbound/consignments?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+
+    for (const c of consignments) {
+      if (c.invoice_file_name) {
+        const r = await api(`/api/outbound/consignments/${c.id}/invoice`);
+        if (r.status === 503) return skip("server unreachable");
+        // 200 = storage configured, 501 = storage not configured in test env
+        assert.ok(r.status === 200 || r.status === 501, `expected 200 or 501, got ${r.status}`);
+        if (r.status === 200) {
+          const body = await r.json();
+          assert.ok(body.url, "should return a signed URL");
+          assert.ok(body.filename, "should return filename");
+        }
+        return;
+      }
+    }
+    skip("no consignment with uploaded invoice found");
+  });
+});

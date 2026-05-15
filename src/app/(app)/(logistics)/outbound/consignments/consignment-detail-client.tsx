@@ -2,22 +2,194 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon, Upload, Download } from "lucide-react";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import type { OutboundConsignmentRow } from "@/server/services/outboundConsignmentsService";
 
-export function ConsignmentDetailClient({ id }: { id: string }) {
+const dateFormatter = new Intl.DateTimeFormat("en-IN", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+function fmt(v: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  return dateFormatter.format(d);
+}
+
+function StatTile({
+  label,
+  value,
+  highlight = false,
+}: Readonly<{
+  label: string;
+  value: string | number | null | undefined;
+  highlight?: boolean;
+}>) {
+  const display = value != null && value !== "" ? String(value) : "—";
+  return (
+    <div className={cn("rounded-lg border p-3", highlight ? "bg-primary/5" : "bg-muted/50")}>
+      <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase tracking-wide">
+        {label}
+      </p>
+      <p className="font-mono text-lg font-bold">{display}</p>
+    </div>
+  );
+}
+
+function MetaRow({ label, value, mono = false }: Readonly<{ label: string; value: string | null | undefined; mono?: boolean }>) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start justify-between gap-4 py-1.5 text-sm">
+      <span className="text-muted-foreground shrink-0 text-xs font-medium">{label}</span>
+      <span className={cn("text-right break-all", mono && "font-mono text-xs")}>{value}</span>
+    </div>
+  );
+}
+
+function InvoiceNumberRow({
+  current,
+  inputVal,
+  saving,
+  onChange,
+  onSave,
+}: Readonly<{
+  current: string | null;
+  inputVal: string;
+  saving: boolean;
+  onChange: (v: string) => void;
+  onSave: () => void;
+}>) {
+  if (current) return <MetaRow label="Invoice Number" value={current} mono />;
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice Number</span>
+      <div className="flex items-center gap-2">
+        <Input
+          value={inputVal}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter invoice number"
+          className="h-7 w-44 text-xs font-mono"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={saving || !inputVal.trim()}
+          onClick={onSave}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function statusVariant(s: string | null): "default" | "secondary" | "destructive" | "outline" {
+  if (!s) return "outline";
+  const l = s.toLowerCase();
+  if (l.includes("cancel") || l.includes("fail")) return "destructive";
+  if (l.includes("deliver") || l.includes("complet") || l.includes("rtd")) return "default";
+  if (l.includes("pending") || l.includes("transit")) return "secondary";
+  return "outline";
+}
+
+export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [loading, setLoading] = React.useState(true);
   const [row, setRow] = React.useState<OutboundConsignmentRow | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const invoiceFileRef = React.useRef<HTMLInputElement>(null);
+  const [uploadingInvoice, setUploadingInvoice] = React.useState(false);
+  const [invoiceNumInput, setInvoiceNumInput] = React.useState("");
+  const [savingInvoiceNum, setSavingInvoiceNum] = React.useState(false);
+  const [downloadingExcel, setDownloadingExcel] = React.useState(false);
+
+  async function handleDownloadInvoice() {
+    try {
+      const { url } = await apiFetch<{ url: string }>(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice`);
+      window.open(url, "_blank");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    }
+  }
+
+  function handleUploadInvoice() {
+    const file = invoiceFileRef.current?.files?.[0];
+    if (!file) { toast.error("Select a file first"); return; }
+    setUploadingInvoice(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    apiFetch<{ ok: boolean }>(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice-upload`, { method: "POST", body: fd })
+      .then(() => {
+        toast.success("Invoice uploaded");
+        if (invoiceFileRef.current) invoiceFileRef.current.value = "";
+        return apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`);
+      })
+      .then((updated) => setRow(updated))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Upload failed"))
+      .finally(() => setUploadingInvoice(false));
+  }
+
+  async function handleSaveInvoiceNumber() {
+    const num = invoiceNumInput.trim();
+    setSavingInvoiceNum(true);
+    try {
+      await apiFetch(`/api/outbound/consignments/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ field: "invoice_number", value: num || null }),
+      });
+      toast.success(num ? "Invoice number saved" : "Invoice number cleared");
+      setInvoiceNumInput("");
+      const updated = await apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`);
+      setRow(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingInvoiceNum(false);
+    }
+  }
+
+  async function handleDownloadExcel() {
+    setDownloadingExcel(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl(`/api/outbound/consignments/${encodeURIComponent(id)}/invoice-excel`), { headers });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Consignment-${id}-invoice.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Excel downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingExcel(false);
+    }
+  }
 
   React.useEffect(() => {
     let cancelled = false;
@@ -38,9 +210,7 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [id]);
 
   if (loading) {
@@ -63,9 +233,6 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
     );
   }
 
-  const entries = Object.entries(row).filter(([k]) => k !== "raw");
-  const rawKeys = Object.keys(row.raw ?? {});
-
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-2 py-4 md:px-4">
       <Button variant="ghost" size="sm" asChild className="gap-1">
@@ -75,40 +242,121 @@ export function ConsignmentDetailClient({ id }: { id: string }) {
         </Link>
       </Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Consignment {row.id}</CardTitle>
-          <CardDescription>
-            Denormalized columns plus full upstream JSON in <code className="text-xs">raw</code>{" "}
-            (every key from eAutomate).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            {entries.map(([k, v]) => (
-              <div key={k} className="border-b border-dashed pb-2">
-                <dt className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-                  {k.replaceAll("_", " ")}
-                </dt>
-                <dd className="mt-0.5 font-mono text-xs break-all">
-                  {v === null || v === undefined
-                    ? "—"
-                    : typeof v === "object"
-                      ? JSON.stringify(v)
-                      : String(v)}
-                </dd>
-              </div>
-            ))}
-          </dl>
+      {/* Header */}
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-bold">Consignment #{row.id}</h1>
+          {row.consignment_status ? (
+            <Badge variant={statusVariant(row.consignment_status)}>
+              {row.consignment_status}
+            </Badge>
+          ) : null}
+        </div>
+        <p className="text-muted-foreground mt-1 text-sm">
+          {row.company_name ?? "—"}
+          {row.location ? ` · ${row.location}` : ""}
+        </p>
+      </div>
 
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold">
-              Raw API keys ({rawKeys.length})
-            </h3>
-            <pre className="bg-muted max-h-[420px] overflow-auto rounded-md p-3 text-xs">
-              {JSON.stringify(row.raw, null, 2)}
-            </pre>
-          </div>
+      {/* Key metrics */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatTile label="Boxes" value={row.boxes_count} highlight />
+        <StatTile label="SKUs" value={row.sku_count} />
+        <StatTile label="Total Qty" value={row.total_quantity} />
+      </div>
+
+      {/* PO & Invoice */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center justify-between gap-2 text-sm">
+            <span className="flex items-center gap-2">
+              <FileTextIcon className="size-4" />
+              PO &amp; Invoice
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1 text-xs"
+              disabled={downloadingExcel}
+              onClick={() => void handleDownloadExcel()}
+            >
+              <Download className="size-3.5" />
+              {downloadingExcel ? "Downloading…" : "Excel"}
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          <MetaRow label="PO Number" value={row.po_number} mono />
+          <MetaRow label="PO Type" value={row.po_type} />
+          <MetaRow label="Sold via" value={row.sold_via} />
+          <InvoiceNumberRow
+            current={row.invoice_number}
+            inputVal={invoiceNumInput}
+            saving={savingInvoiceNum}
+            onChange={setInvoiceNumInput}
+            onSave={() => void handleSaveInvoiceNumber()}
+          />
+          <MetaRow label="Invoice status" value={row.invoice_number_status} />
+          <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
+          {row.invoice_file_name ? (
+            <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
+              <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice file</span>
+              <span className="flex items-center gap-2 text-right">
+                <span className="font-mono text-xs">{row.invoice_file_name}</span>
+                {row.invoice_uploaded_at ? (
+                  <span className="text-muted-foreground text-xs">{fmt(row.invoice_uploaded_at)}</span>
+                ) : null}
+                <Button size="sm" variant="outline" onClick={() => void handleDownloadInvoice()}>
+                  Download
+                </Button>
+              </span>
+            </div>
+          ) : null}
+          {row.invoice_number_status && !row.invoice_file_name ? (
+            <div className="flex items-center justify-between gap-4 py-2">
+              <span className="text-muted-foreground shrink-0 text-xs font-medium">Upload invoice</span>
+              <div className="flex items-center gap-2">
+                <input ref={invoiceFileRef} type="file" accept=".pdf,.jpg,.jpeg" className="text-xs" />
+                <Button size="sm" variant="outline" disabled={uploadingInvoice} onClick={handleUploadInvoice}>
+                  <Upload className="size-3.5 mr-1" />
+                  {uploadingInvoice ? "Uploading…" : "Upload"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {/* Transport */}
+      {(row.transporter_name || row.vehicle_number || row.docket_number) ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <TruckIcon className="size-4" />
+              Transport
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            <MetaRow label="Transporter" value={row.transporter_name} />
+            <MetaRow label="Vehicle" value={row.vehicle_number} mono />
+            <MetaRow label="Docket" value={row.docket_number} mono />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Timeline */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <CalendarIcon className="size-4" />
+            Timeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y">
+          <MetaRow label="Created" value={fmt(row.created_at)} />
+          <MetaRow label="Marked RTD" value={fmt(row.marked_rtd_at)} />
+          <MetaRow label="Marked RTD by" value={row.marked_rtd_by} />
+          <MetaRow label="Synced at" value={fmt(row.synced_at)} />
         </CardContent>
       </Card>
     </div>

@@ -18,6 +18,7 @@ SKIP_GRNS=0
 SKIP_GRNS_PENDING=0
 SKIP_SECONDARY=0
 SKIP_OUTBOUND=0
+SKIP_VERIFY_OUTBOUND_COMPANIES=0
 SKIP_PO_DETAILS=0
 SKIP_GRN_DETAILS=0
 
@@ -31,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --skip-grns-pending) SKIP_GRNS_PENDING=1 ;;
     --skip-secondary) SKIP_SECONDARY=1 ;;
     --skip-outbound) SKIP_OUTBOUND=1 ;;
+    --skip-verify-outbound-companies) SKIP_VERIFY_OUTBOUND_COMPANIES=1 ;;
     --skip-po-details) SKIP_PO_DETAILS=1 ;;
     --skip-grn-details) SKIP_GRN_DETAILS=1 ;;
     --help|-h)
@@ -51,6 +53,7 @@ Options:
   --skip-grns-pending    Skip pending-audit / invoice / debit-credit GRN syncs
   --skip-secondary       Skip sync:secondary-listings
   --skip-outbound        Skip companies + partial POs + consignments
+  --skip-verify-outbound-companies  Skip verify:outbound-companies (DB rollups after outbound)
   --skip-po-details      Skip sync:po:details:from-db
   --skip-grn-details     Skip sync:grn:details:all
 
@@ -169,6 +172,12 @@ if [[ "$SKIP_OUTBOUND" -eq 0 ]]; then
   run_npm sync:outbound-companies
   run_npm sync:outbound-partial-pos
   run_npm sync:outbound-consignments
+  if [[ "$SKIP_VERIFY_OUTBOUND_COMPANIES" -eq 0 ]]; then
+    log "Phase 4d: verify outbound companies directory (DB rollups, same as API summary)"
+    run_npm verify:outbound-companies
+  else
+    log "Skipping verify:outbound-companies (--skip-verify-outbound-companies)"
+  fi
 else
   log "Skipping outbound phase"
 fi

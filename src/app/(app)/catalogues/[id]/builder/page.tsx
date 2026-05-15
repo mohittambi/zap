@@ -31,6 +31,12 @@ type Catalogue = {
   created_by?: string | null;
 };
 
+type Tag = {
+  id: number;
+  name: string;
+  tag_type: "operational" | "material";
+};
+
 type CatItem = {
   sku_id: string;
   description?: string | null;
@@ -38,6 +44,7 @@ type CatItem = {
   available_quantity?: number;
   moq?: number | null;
   display_price?: number;
+  tags?: Tag[];
 };
 
 type ListingRow = {
@@ -110,6 +117,10 @@ export default function CatalogueBuilderPage() {
   const [gridPage, setGridPage] = React.useState(1);
   const [gridData, setGridData] = React.useState<GridPage | null>(null);
   const [gridLoading, setGridLoading] = React.useState(false);
+  const [materialTags, setMaterialTags] = React.useState<Tag[]>([]);
+  const [filterMaterialIds, setFilterMaterialIds] = React.useState<number[]>([]);
+  const [minPrice, setMinPrice] = React.useState("");
+  const [maxPrice, setMaxPrice] = React.useState("");
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [selectedSku, setSelectedSku] = React.useState<string | null>(null);
   const bulkInputRef = React.useRef<HTMLInputElement>(null);
@@ -125,13 +136,15 @@ export default function CatalogueBuilderPage() {
     void (async () => {
       setLoading(true);
       try {
-        const [c, t] = await Promise.all([
+        const [c, t, mt] = await Promise.all([
           apiFetch<Catalogue>(`/api/catalogues/${id}`),
           apiFetch<TemplateOpt[]>("/api/catalogue-templates"),
+          apiFetch<Tag[]>("/api/sku-tags?type=material"),
         ]);
         if (!cancelled) {
           setCat(c);
           setTemplates(t);
+          setMaterialTags(mt);
           if (t[0]?.id) setTemplateId(t[0].id);
         }
         await reloadItems();
@@ -151,6 +164,9 @@ export default function CatalogueBuilderPage() {
     try {
       const q = new URLSearchParams({ page: String(gridPage), count: "100" });
       if (gridKeyword.trim()) q.set("search_keyword", gridKeyword.trim());
+      if (filterMaterialIds.length > 0) q.set("tag_ids", filterMaterialIds.join(","));
+      if (minPrice.trim()) q.set("min_price", minPrice.trim());
+      if (maxPrice.trim()) q.set("max_price", maxPrice.trim());
       const res = await apiFetch<GridPage>(`/api/listings/by_page_v4?${q}`);
       setGridData(res);
     } catch (e) {
@@ -159,7 +175,7 @@ export default function CatalogueBuilderPage() {
     } finally {
       setGridLoading(false);
     }
-  }, [gridKeyword, gridPage]);
+  }, [gridKeyword, gridPage, filterMaterialIds, minPrice, maxPrice]);
 
   React.useEffect(() => {
     void loadGrid();
@@ -214,6 +230,20 @@ export default function CatalogueBuilderPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     }
+  }
+
+  function toggleMaterialFilter(tagId: number) {
+    setGridPage(1);
+    setFilterMaterialIds((ids) =>
+      ids.includes(tagId) ? ids.filter((i) => i !== tagId) : [...ids, tagId]
+    );
+  }
+
+  function clearFilters() {
+    setFilterMaterialIds([]);
+    setMinPrice("");
+    setMaxPrice("");
+    setGridPage(1);
   }
 
   const perPage = gridData?.per_page_count ?? 100;
@@ -419,6 +449,23 @@ export default function CatalogueBuilderPage() {
                       Available: {i.available_quantity ?? 0} · MOQ{" "}
                       {i.moq ?? "—"} · ₹{i.display_price ?? "—"}
                     </p>
+                    {i.tags && i.tags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {i.tags.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className={
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-medium " +
+                              (tag.tag_type === "material"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-amber-100 text-amber-700")
+                            }
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="ghost"
@@ -485,6 +532,57 @@ export default function CatalogueBuilderPage() {
               </div>
             </div>
           </div>
+
+          {/* Filter bar — material tags + price range */}
+          {materialTags.length > 0 && (
+            <div className="border-b px-4 py-3 md:px-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-medium text-muted-foreground shrink-0">Material:</span>
+                <div className="flex flex-wrap gap-1">
+                  {materialTags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={() => toggleMaterialFilter(tag.id)}
+                      className={
+                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors " +
+                        (filterMaterialIds.includes(tag.id)
+                          ? "border-blue-300 bg-blue-100 text-blue-700"
+                          : "border-muted-foreground/30 text-muted-foreground hover:border-blue-300 hover:text-blue-600")
+                      }
+                    >
+                      {tag.name}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs font-medium text-muted-foreground shrink-0 ml-2">Price:</span>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    placeholder="Min ₹"
+                    value={minPrice}
+                    onChange={(e) => { setMinPrice(e.target.value); setGridPage(1); }}
+                    className="h-7 w-20 text-xs"
+                  />
+                  <span className="text-xs text-muted-foreground">–</span>
+                  <Input
+                    type="number"
+                    placeholder="Max ₹"
+                    value={maxPrice}
+                    onChange={(e) => { setMaxPrice(e.target.value); setGridPage(1); }}
+                    className="h-7 w-20 text-xs"
+                  />
+                </div>
+                {(filterMaterialIds.length > 0 || minPrice || maxPrice) && (
+                  <button
+                    onClick={clearFilters}
+                    className="text-xs text-muted-foreground underline hover:text-foreground"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="bg-primary/12 text-primary px-4 py-3 text-sm font-medium md:px-6">
             Choose listings to add to this catalogue

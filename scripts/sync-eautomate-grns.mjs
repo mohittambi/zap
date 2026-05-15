@@ -114,6 +114,9 @@ async function upsertGrn(client, row) {
       $18, $19,
       $20, $21::timestamptz, $22::timestamptz
     )
+    -- DO NOT include "source" in the UPDATE SET below: a row tagged 'zap'
+    -- (locally-created draft) must keep that tag forever. Synced rows default
+    -- to 'eautomate' on first insert via the column DEFAULT. See doctrine #3.
     ON CONFLICT (grn_id) DO UPDATE SET
       po_id = EXCLUDED.po_id,
       vendor_id = EXCLUDED.vendor_id,
