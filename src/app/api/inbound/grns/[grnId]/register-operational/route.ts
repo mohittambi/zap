@@ -20,6 +20,33 @@ function parseOperationalGrnId(body: Record<string, unknown>): number | null {
   return rounded >= 1 ? rounded : null;
 }
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/register-operational:
+ *   post:
+ *     summary: Register operational GRN id over a Zap draft
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [operational_grn_id]
+ *             properties:
+ *               operational_grn_id: { type: integer, minimum: 1 }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

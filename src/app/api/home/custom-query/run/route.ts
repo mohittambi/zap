@@ -26,6 +26,32 @@ const VALID_OPS = new Set<string>([
   "eq", "neq", "gt", "gte", "lt", "lte", "between", "contains", "starts", "is_null", "not_null",
 ]);
 
+/**
+ * @swagger
+ * /home/custom-query/run:
+ *   post:
+ *     summary: Run a custom dashboard query
+ *     description: Requires bins:read.
+ *     tags: [Home]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [module]
+ *             properties:
+ *               module: { type: string }
+ *               conditions: { type: array, items: { type: object } }
+ *               columns: { type: array, items: { type: string } }
+ *               result_shape: { type: string, enum: [table, bar, line] }
+ *               limit: { type: integer, enum: [50, 100, 250, 500, 1000, 5000] }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

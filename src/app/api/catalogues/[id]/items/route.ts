@@ -4,6 +4,65 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as cataloguesService from "@/server/services/cataloguesService";
 
+/**
+ * @swagger
+ * /catalogues/{id}/items:
+ *   get:
+ *     summary: List catalogue items
+ *     description: Requires catalogues:read.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Add a catalogue item
+ *     description: Requires catalogues:write.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               sku_id: { type: string }
+ *               moq: { type: integer }
+ *               display_price: { type: number }
+ *               sort_order: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   delete:
+ *     summary: Remove a catalogue item
+ *     description: Requires catalogues:write.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: sku_id is required }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }

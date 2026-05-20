@@ -4,6 +4,58 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as vendorsService from "@/server/services/vendorsService";
 
+/**
+ * @swagger
+ * /vendors/{id}:
+ *   get:
+ *     summary: Get vendor by id
+ *     description: Requires vendors:read.
+ *     tags: [Vendors]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid vendor id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Vendor not found }
+ *   patch:
+ *     summary: Update vendor
+ *     description: Requires vendors:write.
+ *     tags: [Vendors]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid vendor id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   delete:
+ *     summary: Delete vendor
+ *     description: Requires vendors:delete.
+ *     tags: [Vendors]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid vendor id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }

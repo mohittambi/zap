@@ -6,6 +6,37 @@ import { mergeInboundPoRaw } from "@/server/services/inboundPoZapActionsService"
 
 type Ctx = { params: Promise<{ id: string; poId: string }> };
 
+/**
+ * @swagger
+ * /inbound/vendors/{id}/purchase-orders/{poId}/modify:
+ *   patch:
+ *     summary: Update zap_notes on an inbound PO
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: poId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [zap_notes]
+ *             properties:
+ *               zap_notes: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function PATCH(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

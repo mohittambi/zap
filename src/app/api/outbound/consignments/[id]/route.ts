@@ -9,6 +9,49 @@ import {
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}:
+ *   get:
+ *     summary: Get consignment by id
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid consignment id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Consignment not found }
+ *   patch:
+ *     summary: Patch consignment field (invoice_number)
+ *     description: Requires purchase_orders:write.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [field]
+ *             properties:
+ *               field: { type: string, enum: [invoice_number] }
+ *               value: { type: string, nullable: true }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

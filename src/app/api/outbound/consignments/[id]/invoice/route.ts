@@ -11,6 +11,25 @@ import { getOutboundConsignmentById } from "@/server/services/outboundConsignmen
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/invoice:
+ *   get:
+ *     summary: Signed URL to consignment invoice
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid consignment id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Consignment or invoice not found }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

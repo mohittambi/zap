@@ -4,6 +4,51 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as listingsService from "@/server/services/listingsService";
 
+/**
+ * @swagger
+ * /listings/sku/{sku_id}:
+ *   get:
+ *     summary: Get listing by SKU
+ *     description: Requires listings:read.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: SKU not found }
+ *   patch:
+ *     summary: Update listing fields (ops_tag/category/sku_type/bulk_price/no_of_constituents)
+ *     description: Requires listings:write.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               ops_tag: { type: string, nullable: true }
+ *               category: { type: string, nullable: true }
+ *               sku_type: { type: string, nullable: true }
+ *               bulk_price: { type: number, nullable: true }
+ *               no_of_constituents: { type: integer, nullable: true }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: SKU not found }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ sku_id: string }> }

@@ -13,6 +13,29 @@ const PDF_MIME = "application/pdf";
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/**
+ * @swagger
+ * /inbound/vendors/{id}/purchase-orders/{poId}/document:
+ *   get:
+ *     summary: Download inbound PO as PDF or XLSX
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: poId
+ *         required: true
+ *         schema: { type: integer }
+ *       - { in: query, name: format, schema: { type: string, enum: [pdf, xlsx, excel], default: pdf } }
+ *     responses:
+ *       200: { description: Binary file }
+ *       400: { description: Invalid vendor or PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

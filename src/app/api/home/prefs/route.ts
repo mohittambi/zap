@@ -6,6 +6,32 @@ import {
   setDashboardPrefs,
 } from "@/server/services/homeDashboardPrefsService";
 
+/**
+ * @swagger
+ * /home/prefs:
+ *   get:
+ *     summary: Get dashboard preferences for current user
+ *     tags: [Home]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *   put:
+ *     summary: Update dashboard preferences for current user
+ *     tags: [Home]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [layout]
+ *             properties:
+ *               layout: { type: object }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: layout is required }
+ *       401: { description: Unauthorized }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

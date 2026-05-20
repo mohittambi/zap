@@ -43,6 +43,36 @@ function assertVendorInvoiceFileAllowed(file: File) {
   }
 }
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/upload-zap:
+ *   post:
+ *     summary: Upload GRN invoice or debit-note file to Zap storage
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file, kind]
+ *             properties:
+ *               file: { type: string, format: binary }
+ *               kind: { type: string, enum: [invoice, debit_note] }
+ *               noteId: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: GRN not found }
+ */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

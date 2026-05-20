@@ -4,6 +4,18 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as bulkService from "@/server/services/bulkService";
 
+/**
+ * @swagger
+ * /bulk/export/master-sku-details:
+ *   get:
+ *     summary: Export master SKU details as CSV
+ *     description: Requires bulk:read.
+ *     tags: [Bulk]
+ *     responses:
+ *       200: { description: CSV file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

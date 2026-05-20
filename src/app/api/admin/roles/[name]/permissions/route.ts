@@ -10,6 +10,24 @@ export type RolePermissionRow = {
   description: string | null;
 };
 
+/**
+ * @swagger
+ * /admin/roles/{name}/permissions:
+ *   get:
+ *     summary: List permissions assigned to a role
+ *     description: Requires admin (*:*).
+ *     tags: [Admin]
+ *     parameters:
+ *       - in: path
+ *         name: name
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Role not found }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ name: string }> }

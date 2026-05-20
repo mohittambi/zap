@@ -4,6 +4,23 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { listPendingDebitCreditNotesPaginated } from "@/server/services/inboundPendingDebitCreditService";
 
+/**
+ * @swagger
+ * /inbound/pending-debit-credit/notes:
+ *   get:
+ *     summary: Pending debit/credit notes queue
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - { in: query, name: vendor_id, schema: { type: integer } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: count, schema: { type: integer, default: 100 } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

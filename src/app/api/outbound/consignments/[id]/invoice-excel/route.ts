@@ -6,6 +6,24 @@ import { buildOutboundConsignmentInvoiceExcel } from "@/server/services/outbound
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/invoice-excel:
+ *   get:
+ *     summary: Build outbound consignment invoice XLSX
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: XLSX file }
+ *       400: { description: Invalid consignment id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

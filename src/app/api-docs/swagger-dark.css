@@ -1,0 +1,289 @@
+/* Dark-mode theme for Swagger UI. Scoped under .swagger-page so it doesn't leak. */
+
+.swagger-page {
+  background: #0b0f17;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.swagger-page .swagger-ui,
+.swagger-page .swagger-ui .info .title,
+.swagger-page .swagger-ui .info .description,
+.swagger-page .swagger-ui .info p,
+.swagger-page .swagger-ui .info li,
+.swagger-page .swagger-ui label,
+.swagger-page .swagger-ui table thead tr th,
+.swagger-page .swagger-ui table thead tr td,
+.swagger-page .swagger-ui .opblock-tag,
+.swagger-page .swagger-ui .opblock-tag small,
+.swagger-page .swagger-ui .opblock-summary-description,
+.swagger-page .swagger-ui .opblock-summary-path,
+.swagger-page .swagger-ui .opblock-summary-path__deprecated,
+.swagger-page .swagger-ui .opblock-summary-operation-id,
+.swagger-page .swagger-ui .opblock-summary-method,
+.swagger-page .swagger-ui .opblock-description-wrapper p,
+.swagger-page .swagger-ui .opblock-description-wrapper h4,
+.swagger-page .swagger-ui .opblock .opblock-section-header h4,
+.swagger-page .swagger-ui .opblock .opblock-section-header label,
+.swagger-page .swagger-ui .opblock .tab-header .tab-item.active h4 span,
+.swagger-page .swagger-ui .parameter__name,
+.swagger-page .swagger-ui .parameter__type,
+.swagger-page .swagger-ui .parameter__in,
+.swagger-page .swagger-ui .parameter__deprecated,
+.swagger-page .swagger-ui .parameter__extension,
+.swagger-page .swagger-ui .response-col_status,
+.swagger-page .swagger-ui .response-col_links,
+.swagger-page .swagger-ui .response-col_description,
+.swagger-page .swagger-ui .responses-inner h4,
+.swagger-page .swagger-ui .responses-inner h5,
+.swagger-page .swagger-ui .model-title,
+.swagger-page .swagger-ui .model,
+.swagger-page .swagger-ui .model .property,
+.swagger-page .swagger-ui .model-toggle,
+.swagger-page .swagger-ui section.models h4,
+.swagger-page .swagger-ui section.models h5,
+.swagger-page .swagger-ui .scheme-container,
+.swagger-page .swagger-ui .servers > label,
+.swagger-page .swagger-ui .servers-title,
+.swagger-page .swagger-ui .auth-container h4,
+.swagger-page .swagger-ui .auth-container .wrapper,
+.swagger-page .swagger-ui .markdown p,
+.swagger-page .swagger-ui .markdown li,
+.swagger-page .swagger-ui .renderedMarkdown p,
+.swagger-page .swagger-ui .tab li {
+  color: #e5e7eb;
+}
+
+.swagger-page .swagger-ui .info .title small pre {
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+/* Top bar / scheme box */
+.swagger-page .swagger-ui .scheme-container {
+  background: #111827;
+  box-shadow: none;
+  border-bottom: 1px solid #1f2937;
+}
+
+/* Operation blocks */
+.swagger-page .swagger-ui .opblock-tag {
+  border-bottom: 1px solid #1f2937;
+}
+
+.swagger-page .swagger-ui .opblock {
+  background: #111827;
+  border: 1px solid #1f2937;
+  box-shadow: none;
+}
+
+.swagger-page .swagger-ui .opblock .opblock-section-header {
+  background: #0f172a;
+  box-shadow: none;
+}
+
+.swagger-page .swagger-ui .opblock .opblock-summary {
+  border-color: #1f2937;
+}
+
+.swagger-page .swagger-ui .opblock.opblock-get {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-get .opblock-summary {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-get .opblock-summary-method {
+  background: #2563eb;
+}
+
+.swagger-page .swagger-ui .opblock.opblock-post {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-post .opblock-summary {
+  border-color: rgba(34, 197, 94, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-post .opblock-summary-method {
+  background: #16a34a;
+}
+
+.swagger-page .swagger-ui .opblock.opblock-put {
+  background: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-put .opblock-summary {
+  border-color: rgba(234, 179, 8, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-put .opblock-summary-method {
+  background: #ca8a04;
+}
+
+.swagger-page .swagger-ui .opblock.opblock-patch {
+  background: rgba(20, 184, 166, 0.08);
+  border-color: rgba(20, 184, 166, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-patch .opblock-summary {
+  border-color: rgba(20, 184, 166, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-patch .opblock-summary-method {
+  background: #0d9488;
+}
+
+.swagger-page .swagger-ui .opblock.opblock-delete {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-delete .opblock-summary {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.swagger-page .swagger-ui .opblock.opblock-delete .opblock-summary-method {
+  background: #dc2626;
+}
+
+/* Tables */
+.swagger-page .swagger-ui table tbody tr td {
+  background: transparent;
+  color: #d1d5db;
+  border-color: #1f2937;
+}
+.swagger-page .swagger-ui table thead tr th {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+/* Inputs / selects / textareas */
+.swagger-page .swagger-ui input[type=text],
+.swagger-page .swagger-ui input[type=email],
+.swagger-page .swagger-ui input[type=file],
+.swagger-page .swagger-ui input[type=password],
+.swagger-page .swagger-ui input[type=search],
+.swagger-page .swagger-ui textarea,
+.swagger-page .swagger-ui select {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  color: #e5e7eb;
+}
+.swagger-page .swagger-ui input::placeholder,
+.swagger-page .swagger-ui textarea::placeholder {
+  color: #6b7280;
+}
+
+/* Code blocks / response body */
+.swagger-page .swagger-ui .highlight-code,
+.swagger-page .swagger-ui .microlight,
+.swagger-page .swagger-ui pre {
+  background: #0a0f1c !important;
+  color: #d1d5db !important;
+}
+.swagger-page .swagger-ui .response-col_description__inner div.markdown,
+.swagger-page .swagger-ui .response-col_description__inner div.renderedMarkdown {
+  background: #0a0f1c;
+  color: #d1d5db;
+}
+
+/* Models section */
+.swagger-page .swagger-ui section.models {
+  background: #0f172a;
+  border-color: #1f2937;
+}
+.swagger-page .swagger-ui section.models .model-container {
+  background: #111827;
+}
+.swagger-page .swagger-ui .model-box {
+  background: #0a0f1c;
+}
+.swagger-page .swagger-ui .prop-type {
+  color: #93c5fd;
+}
+.swagger-page .swagger-ui .prop-format {
+  color: #fbbf24;
+}
+
+/* Buttons */
+.swagger-page .swagger-ui .btn {
+  color: #e5e7eb;
+  border-color: #374151;
+  background: transparent;
+}
+.swagger-page .swagger-ui .btn:hover {
+  background: #1f2937;
+}
+.swagger-page .swagger-ui .btn.authorize {
+  color: #34d399;
+  border-color: #34d399;
+}
+.swagger-page .swagger-ui .btn.authorize svg {
+  fill: #34d399;
+}
+.swagger-page .swagger-ui .btn.execute {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.swagger-page .swagger-ui .btn.cancel {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+.swagger-page .swagger-ui .opblock-control-arrow,
+.swagger-page .swagger-ui .expand-operation svg,
+.swagger-page .swagger-ui .opblock-summary-control svg,
+.swagger-page .swagger-ui .model-toggle:after {
+  fill: #9ca3af;
+}
+
+/* Modal (Authorize) */
+.swagger-page .swagger-ui .dialog-ux .modal-ux {
+  background: #111827;
+  border: 1px solid #1f2937;
+}
+.swagger-page .swagger-ui .dialog-ux .modal-ux-header h3,
+.swagger-page .swagger-ui .dialog-ux .modal-ux-content h4,
+.swagger-page .swagger-ui .dialog-ux .modal-ux-content p,
+.swagger-page .swagger-ui .dialog-ux .modal-ux-content label {
+  color: #e5e7eb;
+}
+.swagger-page .swagger-ui .dialog-ux .backdrop-ux {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Tabs */
+.swagger-page .swagger-ui .tab li button.tablinks {
+  color: #9ca3af;
+}
+.swagger-page .swagger-ui .tab li.active button.tablinks,
+.swagger-page .swagger-ui .tab li button.tablinks:hover {
+  color: #e5e7eb;
+}
+
+/* Filter input */
+.swagger-page .swagger-ui .filter .operation-filter-input {
+  background: #0f172a;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+/* Loading bar */
+.swagger-page .swagger-ui .loading-container .loading:before {
+  border-color: #2563eb transparent #2563eb transparent;
+}
+
+/* Servers dropdown box (the white panel in the screenshot) */
+.swagger-page .swagger-ui .scheme-container .schemes > label,
+.swagger-page .swagger-ui .scheme-container .schemes select {
+  color: #e5e7eb;
+}
+
+/* Hide the default light hr lines that look harsh on dark */
+.swagger-page .swagger-ui .opblock-tag-section hr {
+  border-color: #1f2937;
+}
+
+/* Links */
+.swagger-page .swagger-ui a {
+  color: #60a5fa;
+}
+.swagger-page .swagger-ui a:hover {
+  color: #93c5fd;
+}

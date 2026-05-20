@@ -4,6 +4,46 @@ import { assertPermission } from '@/server/rbac';
 import { handleApiError } from '@/server/errors';
 import * as skuTagsService from '@/server/services/skuTagsService';
 
+/**
+ * @swagger
+ * /listings/sku/{sku_id}/tags:
+ *   get:
+ *     summary: List tags assigned to a SKU
+ *     description: Requires catalogues:read.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Set tags assigned to a SKU
+ *     description: Requires catalogues:write.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               tag_ids:
+ *                 type: array
+ *                 items: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ sku_id: string }> }

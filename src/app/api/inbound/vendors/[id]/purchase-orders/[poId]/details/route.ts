@@ -8,6 +8,28 @@ type Ctx = {
   params: Promise<{ id: string; poId: string }>;
 };
 
+/**
+ * @swagger
+ * /inbound/vendors/{id}/purchase-orders/{poId}/details:
+ *   get:
+ *     summary: Inbound PO details bundle
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: poId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid vendor or PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 /** zap DB only. Sync from eAutomate is run via `npm run sync:po:details*`. */
 export async function GET(_request: Request, context: Ctx) {
   try {

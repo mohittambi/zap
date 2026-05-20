@@ -7,6 +7,25 @@ import { listOutboundPoLogs } from "@/server/services/outboundPoLogsService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/logs:
+ *   get:
+ *     summary: Activity logs for an outbound PO
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: PO not found }
+ */
 /** zap DB only. Logs are populated by `npm run sync:outbound-po-detail`. */
 export async function GET(_request: Request, context: Ctx) {
   try {

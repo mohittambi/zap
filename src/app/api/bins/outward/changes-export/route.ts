@@ -7,6 +7,29 @@ import { handleApiError } from "@/server/errors";
 type CommitBinResult = { bin_id: string; deducted: number; new_qty: number };
 type CommitSkuResult = { sku_id: string; total_deducted: number; bins: CommitBinResult[] };
 
+/**
+ * @swagger
+ * /bins/outward/changes-export:
+ *   post:
+ *     summary: Export outward bin-deduction results as XLSX
+ *     description: Requires purchase_orders:read.
+ *     tags: [Bins]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [committed_at, results, descriptions]
+ *             properties:
+ *               committed_at: { type: string }
+ *               results: { type: array, items: { type: object } }
+ *               descriptions: { type: object, additionalProperties: { type: string } }
+ *     responses:
+ *       200: { description: XLSX file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

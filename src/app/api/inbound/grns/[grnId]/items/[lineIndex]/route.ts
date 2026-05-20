@@ -9,6 +9,32 @@ type RouteContext = {
   params: Promise<{ grnId: string; lineIndex: string }>;
 };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/items/{lineIndex}:
+ *   patch:
+ *     summary: Update a GRN line item
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: lineIndex
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

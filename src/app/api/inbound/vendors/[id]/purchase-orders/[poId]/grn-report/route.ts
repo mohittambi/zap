@@ -6,6 +6,28 @@ import { buildGrnReportCsv } from "@/server/services/inboundPoZapActionsService"
 
 type Ctx = { params: Promise<{ id: string; poId: string }> };
 
+/**
+ * @swagger
+ * /inbound/vendors/{id}/purchase-orders/{poId}/grn-report:
+ *   get:
+ *     summary: GRN report CSV for an inbound PO
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: poId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: CSV file }
+ *       400: { description: Invalid vendor or PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

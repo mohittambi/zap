@@ -16,6 +16,24 @@ function parseJsonbNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * @swagger
+ * /inbound/skus/{skuId}/inbound-summary:
+ *   get:
+ *     summary: Inbound summary for a SKU (vendor billing + closed GRNs)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: skuId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid sku id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

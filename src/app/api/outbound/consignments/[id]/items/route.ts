@@ -7,6 +7,27 @@ import { listOutboundConsignmentItemsPaginated } from "@/server/services/outboun
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/items:
+ *   get:
+ *     summary: Paginated consignment line items
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 200 } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid consignment id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

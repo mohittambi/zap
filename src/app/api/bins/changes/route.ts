@@ -4,6 +4,26 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { getBinChanges } from "@/server/services/binsService";
 
+/**
+ * @swagger
+ * /bins/changes:
+ *   get:
+ *     summary: Paginated bin change history
+ *     description: Requires purchase_orders:read.
+ *     tags: [Bins]
+ *     parameters:
+ *       - { in: query, name: sku_id, schema: { type: string } }
+ *       - { in: query, name: bin_id, schema: { type: string } }
+ *       - { in: query, name: movement_type, schema: { type: string } }
+ *       - { in: query, name: from, schema: { type: string } }
+ *       - { in: query, name: to, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 200 } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

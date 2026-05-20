@@ -16,6 +16,40 @@ import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService"
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/receive-inventory:
+ *   post:
+ *     summary: Book GRN quantities into bins
+ *     description: Requires purchase_orders:write. GRN must be accounts-approved.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [items]
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     sku_id: { type: string }
+ *                     bin_id: { type: string }
+ *                     quantity: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request, ctx: RouteContext) {
   try {
     const user = await requireAuth(request);

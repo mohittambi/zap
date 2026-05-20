@@ -8,6 +8,43 @@ import { handleApiError } from "@/server/errors";
 const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
 
+/**
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: Login with email + password
+ *     description: Returns a JWT and the user's roles/permissions. Paste the JWT into Authorize → bearerAuth.
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string, example: admin@example.com }
+ *               password: { type: string, example: admin123 }
+ *     responses:
+ *       200:
+ *         description: OK
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token: { type: string }
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id: { type: integer }
+ *                     email: { type: string }
+ *                     roles: { type: array, items: { type: string } }
+ *                     permissions: { type: array, items: { type: string } }
+ *       400: { description: Email and password required }
+ *       401: { description: Invalid credentials }
+ */
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {

@@ -7,6 +7,35 @@ import { suggestAllocation, type OutwardItem } from "@/server/services/bulkOutwa
 // POST /api/bins/outward/suggest
 // Body: { items: [{ sku_id: string; required_qty: number }] }
 // Returns: suggestion with per-bin allocation, shortfall flags
+/**
+ * @swagger
+ * /bins/outward/suggest:
+ *   post:
+ *     summary: Suggest bin allocations for outward demand
+ *     description: Requires bins:read.
+ *     tags: [Bins]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [items]
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [sku_id, required_qty]
+ *                   properties:
+ *                     sku_id: { type: string }
+ *                     required_qty: { type: integer, minimum: 1 }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

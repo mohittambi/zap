@@ -4,6 +4,21 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
 
+/**
+ * @swagger
+ * /listings/categories:
+ *   get:
+ *     summary: Category picker source (with counts)
+ *     description: Requires listings:read.
+ *     tags: [Listings]
+ *     parameters:
+ *       - { in: query, name: keyword, schema: { type: string } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 200 } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 // GET /api/listings/categories?keyword=&limit= — paginated picker source.
 // Returns { categories: [{ name, count }] } sorted by count desc.
 // "(uncategorised)" is a synthetic bucket folding NULL / '' / '-' rows.

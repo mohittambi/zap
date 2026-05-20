@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (loading) return;
     if (!pathname) return;
-    const publicPaths = ["/login"];
+    const publicPaths = ["/login", "/api-docs"];
     const isPublic = publicPaths.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`)
     );

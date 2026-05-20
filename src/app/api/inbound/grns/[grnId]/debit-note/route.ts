@@ -20,6 +20,70 @@ import {
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/debit-note:
+ *   get:
+ *     summary: Fetch debit note (or audit preview with ?preview=1)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: preview
+ *         schema: { type: string, enum: ["1"] }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Generate (or regenerate) debit note
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               force_regenerate: { type: boolean }
+ *     responses:
+ *       201: { description: Created }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   patch:
+ *     summary: Close DN demand, assign DN/DCN number
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               close: { type: boolean }
+ *               dcn_number: { type: string }
+ *               dn_number: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, ctx: RouteContext) {
   try {
     const user = await requireAuth(request);

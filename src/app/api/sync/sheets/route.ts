@@ -25,6 +25,27 @@ function isCronRequest(request: Request): boolean {
   return auth === `Bearer ${cronSecret}`;
 }
 
+/**
+ * @swagger
+ * /sync/sheets:
+ *   get:
+ *     summary: Last Google Sheets sync log
+ *     description: Requires bins:read (unless invoked with cron bearer token).
+ *     tags: [Sync]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Trigger Google Sheets sync
+ *     description: Requires bins:read (unless invoked with cron bearer token).
+ *     tags: [Sync]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       500: { description: Sync failed }
+ */
 export async function GET(request: Request) {
   try {
     if (!isCronRequest(request)) {

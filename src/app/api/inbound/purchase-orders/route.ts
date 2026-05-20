@@ -4,6 +4,26 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as vendorPoService from "@/server/services/vendorPurchaseOrdersService";
 
+/**
+ * @swagger
+ * /inbound/purchase-orders:
+ *   get:
+ *     summary: List inbound purchase orders (paginated, filterable)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: count, schema: { type: integer, default: 100 } }
+ *       - { in: query, name: po_id_filter, schema: { type: integer } }
+ *       - { in: query, name: vendor_ids, schema: { type: string }, description: Comma-separated vendor ids }
+ *       - { in: query, name: sort_by, schema: { type: string } }
+ *       - { in: query, name: sort_dir, schema: { type: string, enum: [asc, desc] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

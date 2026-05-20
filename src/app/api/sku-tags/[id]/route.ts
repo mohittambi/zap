@@ -4,6 +4,24 @@ import { assertPermission } from '@/server/rbac';
 import { handleApiError } from '@/server/errors';
 import * as skuTagsService from '@/server/services/skuTagsService';
 
+/**
+ * @swagger
+ * /sku-tags/{id}:
+ *   delete:
+ *     summary: Delete a SKU tag
+ *     description: Requires catalogues:write.
+ *     tags: [SKU Tags]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid tag id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }

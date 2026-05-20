@@ -5,6 +5,18 @@ import { handleApiError } from "@/server/errors";
 import { query } from "@/server/db";
 import { listOutboundConsignmentDeliveryLocations } from "@/server/services/outboundConsignmentsService";
 
+/**
+ * @swagger
+ * /outbound/consignments/filters:
+ *   get:
+ *     summary: Outbound consignments filter options
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

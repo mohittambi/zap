@@ -10,6 +10,18 @@ export type AdminRoleRow = {
   description: string | null;
 };
 
+/**
+ * @swagger
+ * /admin/roles:
+ *   get:
+ *     summary: List all roles
+ *     description: Requires admin (*:*).
+ *     tags: [Admin]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 /** List all roles — admin only (wildcard `*:*`). */
 export async function GET(request: Request) {
   try {

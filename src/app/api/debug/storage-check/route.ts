@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
 
+/**
+ * @swagger
+ * /debug/storage-check:
+ *   get:
+ *     summary: Debug Supabase storage credentials
+ *     tags: [Debug]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ */
 export async function GET(request: Request) {
   try {
     await requireAuth(request);

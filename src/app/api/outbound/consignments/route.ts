@@ -5,6 +5,26 @@ import { handleApiError } from "@/server/errors";
 import { parsePagination } from "@/server/validators/pagination";
 import { listOutboundConsignments } from "@/server/services/outboundConsignmentsService";
 
+/**
+ * @swagger
+ * /outbound/consignments:
+ *   get:
+ *     summary: List outbound consignments (paginated)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 200 } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: sort, schema: { type: string } }
+ *       - { in: query, name: dir, schema: { type: string, enum: [asc, desc] } }
+ *       - { in: query, name: pending_invoice, schema: { type: string } }
+ *       - { in: query, name: invoice_pending, schema: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

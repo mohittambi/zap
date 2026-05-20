@@ -4,6 +4,39 @@ import { assertPermission } from '@/server/rbac';
 import { handleApiError } from '@/server/errors';
 import * as skuTagsService from '@/server/services/skuTagsService';
 
+/**
+ * @swagger
+ * /sku-tags:
+ *   get:
+ *     summary: List SKU tags
+ *     description: Requires catalogues:read.
+ *     tags: [SKU Tags]
+ *     parameters:
+ *       - { in: query, name: type, schema: { type: string, enum: [operational, material] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create a SKU tag
+ *     description: Requires catalogues:write.
+ *     tags: [SKU Tags]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, tag_type]
+ *             properties:
+ *               name: { type: string }
+ *               tag_type: { type: string, enum: [operational, material] }
+ *     responses:
+ *       201: { description: Created }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

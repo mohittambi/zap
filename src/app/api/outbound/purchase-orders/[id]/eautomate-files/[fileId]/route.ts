@@ -15,6 +15,29 @@ function safeFilename(name: string | null | undefined): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/eautomate-files/{fileId}:
+ *   get:
+ *     summary: Download an eAutomate file mirrored into Zap Storage
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: fileId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Binary file }
+ *       400: { description: Invalid id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: File not found }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

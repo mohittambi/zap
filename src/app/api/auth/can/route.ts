@@ -9,6 +9,23 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 
+/**
+ * @swagger
+ * /auth/can:
+ *   get:
+ *     summary: Check whether current user has a permission
+ *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: resource
+ *         schema: { type: string }
+ *       - in: query
+ *         name: action
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

@@ -5,6 +5,18 @@ import { query } from "@/server/db";
 import { requireAuth } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
 
+/**
+ * @swagger
+ * /auth/refresh-api-key:
+ *   post:
+ *     summary: Generate a new API key for the current admin user
+ *     description: Admin role required. The new key is returned exactly once.
+ *     tags: [Auth]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Admin role required }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

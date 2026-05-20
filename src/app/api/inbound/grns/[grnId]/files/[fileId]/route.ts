@@ -15,6 +15,36 @@ function safeFilename(name: string | null | undefined): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/files/{fileId}:
+ *   get:
+ *     summary: Download an inbound GRN file (invoice or debit note)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: fileId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: kind
+ *         required: true
+ *         schema: { type: string, enum: [invoice, debit_note] }
+ *       - in: query
+ *         name: noteId
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Binary file }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: File not found for this GRN }
+ */
 export async function GET(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

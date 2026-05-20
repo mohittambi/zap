@@ -9,6 +9,32 @@ const VALID_MOVEMENT_TYPES = new Set<MovementType>([
   "SALE", "TRANSFER_IN", "TRANSFER_OUT", "ADJUSTMENT_IN", "ADJUSTMENT_OUT",
 ]);
 
+/**
+ * @swagger
+ * /bins/scan-update:
+ *   post:
+ *     summary: Adjust bin inventory by scan (ADD/REMOVE)
+ *     description: Requires bins:write.
+ *     tags: [Bins]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [bin_id, sku_id, operation, quantity]
+ *             properties:
+ *               bin_id: { type: string }
+ *               sku_id: { type: string }
+ *               operation: { type: string, enum: [ADD, REMOVE] }
+ *               quantity: { type: integer, minimum: 1 }
+ *               movement_type: { type: string, enum: [SALE, TRANSFER_IN, TRANSFER_OUT, ADJUSTMENT_IN, ADJUSTMENT_OUT] }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

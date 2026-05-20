@@ -11,6 +11,25 @@ function csvEscape(v: unknown): string {
   return s;
 }
 
+/**
+ * @swagger
+ * /inbound/vendor-purchase-orders/export:
+ *   get:
+ *     summary: Export vendor purchase orders as CSV
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: query
+ *         name: vendor_id
+ *         required: true
+ *         schema: { type: integer }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *     responses:
+ *       200: { description: CSV file }
+ *       400: { description: vendor_id required }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);
