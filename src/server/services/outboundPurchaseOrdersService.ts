@@ -546,9 +546,18 @@ export async function listOutboundCompaniesPaginated(opts: {
   };
 }
 
+export async function outboundPoNumberExists(po_number: string): Promise<boolean> {
+  const r = await query(
+    `SELECT 1 FROM outbound_purchase_orders WHERE po_number = $1 LIMIT 1`,
+    [po_number]
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
 export async function createOutboundPurchaseOrderRow(input: {
   sold_via: string;
   company_id: number;
+  po_number: string;
   delivery_city: string;
   delivery_address: string;
   billing_address: string;
@@ -563,36 +572,45 @@ export async function createOutboundPurchaseOrderRow(input: {
     `SELECT COALESCE(MAX(id), 0)::bigint AS m FROM outbound_purchase_orders`
   );
   const nextId = BigInt(String(idR.rows[0].m)) + BigInt(1);
-  const po_number = `ZAP-PO-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
-  await query(
-    `INSERT INTO outbound_purchase_orders (
-       id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
-       buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
-       created_by, created_at, updated_at, is_wip, company_name, analytics_object
-     ) VALUES (
-       $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), $14, $15, '{}'::jsonb
-     )`,
-    [
-      nextId.toString(),
-      input.sold_via,
-      input.company_id,
-      po_number,
-      input.delivery_city,
-      input.delivery_address,
-      input.billing_address,
-      input.buyer_gstin,
-      input.po_issue_date,
-      input.expiry_date,
-      input.po_type,
-      "SUBMITTED",
-      input.created_by,
-      "YES",
-      input.company_name,
-    ]
-  );
+  try {
+    await query(
+      `INSERT INTO outbound_purchase_orders (
+         id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+         buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
+         created_by, created_at, updated_at, is_wip, company_name, analytics_object
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), $14, $15, '{}'::jsonb
+       )`,
+      [
+        nextId.toString(),
+        input.sold_via,
+        input.company_id,
+        input.po_number,
+        input.delivery_city,
+        input.delivery_address,
+        input.billing_address,
+        input.buyer_gstin,
+        input.po_issue_date,
+        input.expiry_date,
+        input.po_type,
+        "SUBMITTED",
+        input.created_by,
+        "YES",
+        input.company_name,
+      ]
+    );
+  } catch (err) {
+    if ((err as { code?: string } | null)?.code === "23505") {
+      throw new AppError(
+        `PO Number "${input.po_number}" already exists. Enter a different one.`,
+        409
+      );
+    }
+    throw err;
+  }
 
-  return { id: Number(nextId), po_number };
+  return { id: Number(nextId), po_number: input.po_number };
 }
 
 export async function insertOutboundPoAttachment(input: {

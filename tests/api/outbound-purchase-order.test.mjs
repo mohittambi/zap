@@ -125,6 +125,7 @@ function makeValidPoForm(overrides = {}) {
   const fd = new FormData();
   fd.append("soldViaCode", overrides.soldViaCode ?? "EUNOIA");
   fd.append("companyId", String(overrides.companyId ?? 1));
+  fd.append("poNumber", overrides.poNumber ?? `TEST-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`);
   fd.append("poLocation", overrides.poLocation ?? "Mumbai");
   fd.append("billingAddress", overrides.billingAddress ?? "123 Billing St, Mumbai");
   fd.append("shippingAddress", overrides.shippingAddress ?? "456 Ship Rd, Mumbai");
@@ -155,6 +156,22 @@ describe("Outbound PO creation — field validation", () => {
   it("POST with invalid companyId (0) returns 400", async () => {
     if (!token) return skip("login failed");
     const fd = makeValidPoForm({ companyId: 0 });
+    const r = await api("/api/outbound/purchase-orders", { method: "POST", body: fd });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 400);
+  });
+
+  it("POST with missing poNumber returns 400", async () => {
+    if (!token) return skip("login failed");
+    const fd = makeValidPoForm({ poNumber: "" });
+    const r = await api("/api/outbound/purchase-orders", { method: "POST", body: fd });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 400);
+  });
+
+  it("POST with overlong poNumber (>80 chars) returns 400", async () => {
+    if (!token) return skip("login failed");
+    const fd = makeValidPoForm({ poNumber: "X".repeat(81) });
     const r = await api("/api/outbound/purchase-orders", { method: "POST", body: fd });
     if (r.status === 503) return skip("server unreachable");
     assert.strictEqual(r.status, 400);

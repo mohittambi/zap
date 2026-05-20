@@ -356,6 +356,7 @@ export default function OutboundNewPoPage() {
 
   const [soldViaCode, setSoldViaCode] = React.useState<string | null>(null);
   const [companyId, setCompanyId] = React.useState<string | null>(null);
+  const [poNumber, setPoNumber] = React.useState("");
   const [poLocation, setPoLocation] = React.useState("");
   const [billingAddress, setBillingAddress] = React.useState("");
   const [shippingAddress, setShippingAddress] = React.useState("");
@@ -417,6 +418,11 @@ export default function OutboundNewPoPage() {
     const err: Record<string, string> = {};
     if (!soldViaCode) err.soldVia = "Select Sold Via.";
     if (!companyId) err.company = "Select Company.";
+    if (poNumber.trim().length === 0) {
+      err.poNumber = "PO Number is required.";
+    } else if (poNumber.trim().length > 80) {
+      err.poNumber = "PO Number must be at most 80 characters.";
+    }
     if (poLocation.trim().length < 2) err.poLocation = "PO location is required (at least 2 characters).";
     if (billingAddress.trim().length < 3) {
       err.billingAddress = "Billing address is required (at least 3 characters).";
@@ -458,6 +464,7 @@ export default function OutboundNewPoPage() {
   }, [
     soldViaCode,
     companyId,
+    poNumber,
     poLocation,
     billingAddress,
     shippingAddress,
@@ -477,6 +484,7 @@ export default function OutboundNewPoPage() {
       const fd = new FormData();
       fd.set("soldViaCode", soldViaCode ?? "");
       fd.set("companyId", companyId ?? "");
+      fd.set("poNumber", poNumber.trim());
       fd.set("poLocation", poLocation);
       fd.set("billingAddress", billingAddress);
       fd.set("shippingAddress", shippingAddress);
@@ -530,6 +538,29 @@ export default function OutboundNewPoPage() {
         <p className="text-muted-foreground text-sm">Loading form…</p>
       ) : (
         <form onSubmit={(e) => void onSubmit(e)} className="space-y-6" noValidate>
+          <div className="space-y-2">
+            <Label htmlFor="po-number">PO Number</Label>
+            <Input
+              id="po-number"
+              value={poNumber}
+              onChange={(e) => {
+                setPoNumber(e.target.value);
+                setFieldErrors((p) => {
+                  const n = { ...p };
+                  delete n.poNumber;
+                  return n;
+                });
+              }}
+              className="min-h-11"
+              placeholder="Buyer's PO Number"
+              maxLength={80}
+              aria-invalid={!!fieldErrors.poNumber}
+            />
+            {fieldErrors.poNumber ? (
+              <p className="text-destructive text-xs">{fieldErrors.poNumber}</p>
+            ) : null}
+          </div>
+
           <Card className="border-primary/25 overflow-hidden shadow-sm">
             <div className="bg-primary/90 text-primary-foreground px-4 py-2.5 text-sm font-semibold">
               Select Sold Via

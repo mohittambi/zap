@@ -178,6 +178,7 @@ export async function POST(request: Request) {
 
     const soldViaCode = String(form.get("soldViaCode") ?? "").trim();
     const companyId = Number(form.get("companyId"));
+    const poNumber = String(form.get("poNumber") ?? "").trim();
     const poLocation = String(form.get("poLocation") ?? "").trim();
     const billingAddress = String(form.get("billingAddress") ?? "").trim();
     const shippingAddress = String(form.get("shippingAddress") ?? "").trim();
@@ -193,6 +194,10 @@ export async function POST(request: Request) {
     if (!soldViaCode) throw new AppError("Sold via is required", 400);
     if (!Number.isFinite(companyId) || companyId <= 0) {
       throw new AppError("Company is required", 400);
+    }
+    if (!poNumber) throw new AppError("PO Number is required", 400);
+    if (poNumber.length > 80) {
+      throw new AppError("PO Number must be at most 80 characters", 400);
     }
     if (poLocation.length < 2) throw new AppError("PO location is required", 400);
     if (billingAddress.length < 3) {
@@ -249,6 +254,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (await outboundPoService.outboundPoNumberExists(poNumber)) {
+      throw new AppError(
+        `PO Number "${poNumber}" already exists. Enter a different one.`,
+        409
+      );
+    }
+
     const soldViaOptions = await outboundPoService.listOutboundSoldViaOptions();
     const soldViaLabel =
       soldViaOptions.find((o) => o.code === soldViaCode)?.label ?? soldViaCode;
@@ -258,6 +270,7 @@ export async function POST(request: Request) {
     const { id, po_number } = await outboundPoService.createOutboundPurchaseOrderRow({
       sold_via: soldViaLabel,
       company_id: companyId,
+      po_number: poNumber,
       delivery_city: poLocation,
       delivery_address: shippingAddress,
       billing_address: billingAddress,
