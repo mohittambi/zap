@@ -6,6 +6,24 @@ import { getGrnDetailsBundle } from "@/server/services/eautomateGrnDetailsIngest
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/details:
+ *   get:
+ *     summary: GRN details bundle (header + lines + snapshots)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid grn id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 /** zap DB only. Sync from eAutomate is run via `npm run sync:grn:details*`. */
 export async function GET(request: Request, context: RouteContext) {
   try {

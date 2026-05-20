@@ -8,6 +8,23 @@ import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService"
 type RouteContext = { params: Promise<{ grnId: string }> };
 
 /**
+ * @swagger
+ * /inbound/grns/{grnId}/open-draft:
+ *   post:
+ *     summary: Promote Zap draft GRN to OPEN
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
+/**
  * Promote a Zap-created draft (status DRAFT_ZAP) to OPEN, keeping the existing
  * grn_id. Use this when ops doesn't have a separate warehouse / receipt GRN
  * number — the zap-allocated id (sequence-based, ZG-N) becomes the operational

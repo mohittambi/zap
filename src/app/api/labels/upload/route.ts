@@ -70,6 +70,28 @@ function csvToLabelRow(cols: string[], legacy: boolean): LabelRow {
 }
 
 /**
+ * @swagger
+ * /labels/upload:
+ *   post:
+ *     summary: Convert a labels CSV into a rotated labels PDF
+ *     description: Requires labels:write.
+ *     tags: [Labels]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200: { description: PDF file }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
+/**
  * POST multipart/form-data field `file` (.csv).
  * Validates header + data rows, returns **application/pdf** (rotated labels, same layout as reference).
  */

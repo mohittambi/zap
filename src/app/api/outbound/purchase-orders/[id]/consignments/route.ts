@@ -35,6 +35,45 @@ function unwrapConsignmentPayload(
   return o;
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/consignments:
+ *   get:
+ *     summary: List consignments for an outbound PO
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 200 } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: sort, schema: { type: string } }
+ *       - { in: query, name: dir, schema: { type: string, enum: [asc, desc] } }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: PO not found }
+ *   post:
+ *     summary: Create a consignment in eAutomate for this PO
+ *     description: Requires purchase_orders:create. PO must be WIP.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: PO not found }
+ */
 /** Consignments for one outbound PO — filters `outbound_consignments` by `po_number`. */
 export async function GET(request: Request, context: Ctx) {
   try {

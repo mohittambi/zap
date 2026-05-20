@@ -8,6 +8,25 @@ import { isZapStorageConfigured } from "@/server/zapStorage";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/detail:
+ *   get:
+ *     summary: Outbound PO detail bundle
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: PO not found }
+ */
 /** zap DB only. Sync is run via `npm run sync:outbound-po-detail` / `sync:outbound-pos:all`. */
 export async function GET(_request: Request, context: Ctx) {
   try {

@@ -14,6 +14,36 @@ import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService"
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/debit-note/export:
+ *   get:
+ *     summary: Download Tally-compatible CSV for the debit note
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: CSV file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Mark debit note as exported
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, ctx: RouteContext) {
   try {
     const user = await requireAuth(request);

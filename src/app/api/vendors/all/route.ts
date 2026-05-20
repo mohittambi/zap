@@ -4,6 +4,18 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as vendorsService from "@/server/services/vendorsService";
 
+/**
+ * @swagger
+ * /vendors/all:
+ *   get:
+ *     summary: All vendors (flat list)
+ *     description: Requires vendors:read.
+ *     tags: [Vendors]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

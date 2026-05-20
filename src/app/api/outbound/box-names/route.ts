@@ -4,6 +4,18 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { listOutboundValidBoxNames } from "@/server/services/outboundConsignmentItemsService";
 
+/**
+ * @swagger
+ * /outbound/box-names:
+ *   get:
+ *     summary: Valid outbound box names
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

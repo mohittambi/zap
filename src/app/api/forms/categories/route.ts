@@ -4,6 +4,18 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as formsService from "@/server/services/formsService";
 
+/**
+ * @swagger
+ * /forms/categories:
+ *   get:
+ *     summary: List form categories
+ *     description: Requires forms:read.
+ *     tags: [Forms]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

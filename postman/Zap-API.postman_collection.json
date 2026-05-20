@@ -344,6 +344,24 @@
               ]
             }
           }
+        },
+        {
+          "name": "Secondary listings logs (by secondary_sku)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/inventory/secondary_listings/logs?secondary_sku=",
+              "host": ["{{base_url}}"],
+              "path": ["inventory", "secondary_listings", "logs"],
+              "query": [
+                { "key": "secondary_sku", "value": "", "description": "required — secondary SKU code" }
+              ]
+            },
+            "description": "Returns the last 50 change-history entries for a secondary SKU. Requires secondary_listings read permission."
+          }
         }
       ]
     },
@@ -449,6 +467,31 @@
               "host": ["{{base_url}}"],
               "path": ["warehouses", "{{warehouse_id}}"]
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Outbound",
+      "item": [
+        {
+          "name": "All Companies (paginated, with PO summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/outbound/companies?page=1&limit=50&search=",
+              "host": ["{{base_url}}"],
+              "path": ["outbound", "companies"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50", "description": "max 200" },
+                { "key": "search", "value": "", "description": "optional company-name filter" }
+              ]
+            },
+            "description": "Powers the mobile 'All Companies' screen. Returns per-company PO counts (ack_pending / open_pos / expired_pos / cancelled_pos / last_po_at) plus a top-level summary of the same totals across all companies. Requires purchase_orders read permission."
           }
         }
       ]

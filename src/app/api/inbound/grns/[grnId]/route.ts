@@ -6,6 +6,51 @@ import * as inboundGrnsService from "@/server/services/inboundGrnsService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}:
+ *   get:
+ *     summary: Get GRN header by id
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   patch:
+ *     summary: Update GRN status fields (audit / invoice-collection / accounts)
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               grn_audit_status: { type: string }
+ *               grn_audit_by: { type: string }
+ *               grn_invoice_collection_status: { type: string }
+ *               grn_invoice_collection_by: { type: string }
+ *               grn_status: { type: string }
+ *               accounts_status: { type: string }
+ *               accounts_by: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: No valid fields to update }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

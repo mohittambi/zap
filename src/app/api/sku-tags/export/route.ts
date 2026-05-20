@@ -5,6 +5,18 @@ import { assertPermission } from '@/server/rbac';
 import { handleApiError } from '@/server/errors';
 import { query } from '@/server/db';
 
+/**
+ * @swagger
+ * /sku-tags/export:
+ *   get:
+ *     summary: Export SKU tags master as XLSX
+ *     description: Requires catalogues:read.
+ *     tags: [SKU Tags]
+ *     responses:
+ *       200: { description: XLSX file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

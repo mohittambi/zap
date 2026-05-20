@@ -6,6 +6,44 @@ import * as companySkuService from "@/server/services/companySkuService";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /inventory/secondary_listings/companies/{id}:
+ *   patch:
+ *     summary: Update company-SKU association
+ *     description: Requires secondary_listings:manage.
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               company_code_primary: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   delete:
+ *     summary: Delete company-SKU association
+ *     description: Requires secondary_listings:manage.
+ *     tags: [Inventory]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
     const user = await requireAuth(request);

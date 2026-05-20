@@ -8,6 +8,42 @@ import { commitAllocation, type CommitItem } from "@/server/services/bulkOutward
 // Body: { items: [{ sku_id, bin_allocations: [{ bin_id, qty }] }] }
 // Executes all deductions in a single transaction.
 // Responds with per-SKU per-bin results (deducted qty, new bin qty).
+/**
+ * @swagger
+ * /bins/outward/commit:
+ *   post:
+ *     summary: Commit bulk outward bin deductions
+ *     description: Executes all deductions atomically. Requires bins:write.
+ *     tags: [Bins]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [items]
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [sku_id, bin_allocations]
+ *                   properties:
+ *                     sku_id: { type: string }
+ *                     bin_allocations:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         required: [bin_id, qty]
+ *                         properties:
+ *                           bin_id: { type: string }
+ *                           qty: { type: integer, minimum: 0 }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

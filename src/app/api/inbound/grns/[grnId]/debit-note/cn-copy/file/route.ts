@@ -24,6 +24,24 @@ function contentTypeFromName(name: string | null | undefined): string {
   return "application/octet-stream";
 }
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/debit-note/cn-copy/file:
+ *   get:
+ *     summary: Download CN copy file attached to debit note
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Binary file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: No CN copy uploaded yet }
+ */
 export async function GET(_request: Request, context: Ctx) {
   try {
     const user = await requireAuth(_request);

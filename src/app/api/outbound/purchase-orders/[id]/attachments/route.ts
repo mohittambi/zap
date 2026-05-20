@@ -34,6 +34,34 @@ function classifyPoUpload(file: File): "pdf" | "spreadsheet" | "other" {
   return "other";
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/attachments:
+ *   post:
+ *     summary: Upload outbound PO attachment (PDF/CSV/XLSX, max 2MB)
+ *     description: Requires purchase_orders:create.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Purchase order not found }
+ */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

@@ -5,10 +5,22 @@ import { AppError, handleApiError } from "@/server/errors";
 import { getBinLocations } from "@/server/services/binsService";
 
 /**
- * GET /api/bins/locations?sku_id={skuId}
- * Returns all distinct (warehouse_id, bin_id) combinations in the system,
- * annotated with the total units in each bin and how many belong to the
- * requested SKU. Requires bins:read.
+ * @swagger
+ * /bins/locations:
+ *   get:
+ *     summary: All bin locations annotated with totals for a SKU
+ *     description: Requires bins:read.
+ *     tags: [Bins]
+ *     parameters:
+ *       - in: query
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: sku_id is required }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
  */
 export async function GET(request: Request) {
   try {

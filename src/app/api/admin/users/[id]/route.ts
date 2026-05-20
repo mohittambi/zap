@@ -11,6 +11,35 @@ type PatchBody = {
   password?: string;
 };
 
+/**
+ * @swagger
+ * /admin/users/{id}:
+ *   patch:
+ *     summary: Update a user (activation, password, roles)
+ *     description: Requires admin (*:*).
+ *     tags: [Admin]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               is_active: { type: boolean }
+ *               password: { type: string, minLength: 8 }
+ *               roles: { type: array, items: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: User not found }
+ */
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> }

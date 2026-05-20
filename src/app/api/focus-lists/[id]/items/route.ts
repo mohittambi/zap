@@ -4,6 +4,64 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as focusListsService from "@/server/services/focusListsService";
 
+/**
+ * @swagger
+ * /focus-lists/{id}/items:
+ *   get:
+ *     summary: List items in a focus list
+ *     description: Requires focus_lists:read.
+ *     tags: [Focus Lists]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Add SKU to focus list
+ *     description: Requires focus_lists:write.
+ *     tags: [Focus Lists]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [sku_id]
+ *             properties:
+ *               sku_id: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: sku_id required }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   delete:
+ *     summary: Remove SKU from focus list
+ *     description: Requires focus_lists:write.
+ *     tags: [Focus Lists]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: sku_id required }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }

@@ -50,6 +50,42 @@ function parseBody(raw: Body): {
   return { box_name, box_number, items };
 }
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/boxes:
+ *   post:
+ *     summary: Insert outbound consignment box lines
+ *     description: Requires purchase_orders:write.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [box_name, box_number, items]
+ *             properties:
+ *               box_name: { type: string }
+ *               box_number: { type: integer, minimum: 1 }
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     po_secondary_sku: { type: string }
+ *                     quantity: { type: integer, minimum: 1 }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Consignment not found }
+ */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

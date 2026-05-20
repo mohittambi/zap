@@ -10,6 +10,23 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { listPendingAccountsGrnsPaginated } from "@/server/services/grnAccountsService";
 
+/**
+ * @swagger
+ * /inbound/pending-accounts/grns:
+ *   get:
+ *     summary: GRNs pending accounts approval (paginated)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer } }
+ *       - { in: query, name: count, schema: { type: integer } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: vendor_id, schema: { type: integer } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

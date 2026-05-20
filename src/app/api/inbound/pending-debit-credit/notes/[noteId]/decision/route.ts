@@ -6,6 +6,34 @@ import { decidePendingDebitCreditNote } from "@/server/services/inboundPendingDe
 
 type RouteContext = { params: Promise<{ noteId: string }> };
 
+/**
+ * @swagger
+ * /inbound/pending-debit-credit/notes/{noteId}/decision:
+ *   post:
+ *     summary: Decide on a pending debit/credit note
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: noteId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [grn_id, status]
+ *             properties:
+ *               grn_id: { type: integer }
+ *               status: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request, ctx: RouteContext) {
   try {
     const user = await requireAuth(request);

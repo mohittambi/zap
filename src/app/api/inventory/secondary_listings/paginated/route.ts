@@ -11,6 +11,27 @@ type SecondarySort = (typeof SECONDARY_SORTS)[number];
 const SECONDARY_STOCK_STATES = ["in_stock", "out_of_stock"] as const;
 type SecondaryStockState = (typeof SECONDARY_STOCK_STATES)[number];
 
+/**
+ * @swagger
+ * /inventory/secondary_listings/paginated:
+ *   get:
+ *     summary: Paginated secondary listings
+ *     description: Requires inventory:read.
+ *     tags: [Inventory]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 2000, maximum: 2000 } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: sku_type, schema: { type: string } }
+ *       - { in: query, name: category, schema: { type: string } }
+ *       - { in: query, name: sort, schema: { type: string, enum: [sku_asc, sku_desc, qty_asc, qty_desc, created_desc] } }
+ *       - { in: query, name: stock_state, schema: { type: string, enum: [in_stock, out_of_stock] } }
+ *       - { in: query, name: tag_ids, schema: { type: string }, description: Comma-separated tag ids }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

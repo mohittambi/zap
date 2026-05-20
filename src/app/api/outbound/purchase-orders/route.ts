@@ -34,6 +34,65 @@ function classifyPoUpload(file: File): "pdf" | "spreadsheet" | "other" {
   return "other";
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders:
+ *   get:
+ *     summary: List outbound POs (paginated)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 200 } }
+ *       - { in: query, name: search, schema: { type: string } }
+ *       - { in: query, name: wip, schema: { type: string } }
+ *       - { in: query, name: partial, schema: { type: string } }
+ *       - { in: query, name: filter, schema: { type: string } }
+ *       - { in: query, name: status, schema: { type: string } }
+ *       - { in: query, name: company_ids, schema: { type: string }, description: Comma-separated company ids }
+ *       - { in: query, name: company_id, schema: { type: string } }
+ *       - { in: query, name: delivery_cities, schema: { type: string } }
+ *       - { in: query, name: delivery_city, schema: { type: string } }
+ *       - { in: query, name: po_statuses, schema: { type: string } }
+ *       - { in: query, name: po_status, schema: { type: string } }
+ *       - { in: query, name: po_types, schema: { type: string } }
+ *       - { in: query, name: po_number, schema: { type: string } }
+ *       - { in: query, name: sort_by, schema: { type: string } }
+ *       - { in: query, name: sort_dir, schema: { type: string, enum: [asc, desc] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create outbound PO (multipart with two files - PDF + spreadsheet)
+ *     description: Requires purchase_orders:create.
+ *     tags: [Outbound]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [soldViaCode, companyId, poLocation, billingAddress, shippingAddress, poReleaseIso, poExpiryIso, poType, po_files]
+ *             properties:
+ *               soldViaCode: { type: string }
+ *               companyId: { type: integer }
+ *               poLocation: { type: string }
+ *               billingAddress: { type: string }
+ *               shippingAddress: { type: string }
+ *               buyerGstin: { type: string }
+ *               poReleaseIso: { type: string, format: date }
+ *               poExpiryIso: { type: string, format: date }
+ *               poType: { type: string }
+ *               po_files:
+ *                 type: array
+ *                 items: { type: string, format: binary }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

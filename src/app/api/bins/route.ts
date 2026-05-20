@@ -5,6 +5,44 @@ import { AppError, handleApiError } from "@/server/errors";
 import * as binsService from "@/server/services/binsService";
 import { parsePagination } from "@/server/validators/pagination";
 
+/**
+ * @swagger
+ * /bins:
+ *   get:
+ *     summary: List bins (paginated, filterable)
+ *     description: Requires bins:read.
+ *     tags: [Bins]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 500 } }
+ *       - { in: query, name: warehouse_id, schema: { type: string } }
+ *       - { in: query, name: sku_id, schema: { type: string } }
+ *       - { in: query, name: bin_id, schema: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create a bin
+ *     description: Requires bins:manage.
+ *     tags: [Bins]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [warehouse_id, sku_id, bin_id]
+ *             properties:
+ *               warehouse_id: { type: integer }
+ *               sku_id: { type: string }
+ *               bin_id: { type: string }
+ *     responses:
+ *       201: { description: Created }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

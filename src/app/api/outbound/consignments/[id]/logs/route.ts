@@ -6,6 +6,24 @@ import { listOutboundPoLogsByConsignmentId } from "@/server/services/outboundPoL
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/logs:
+ *   get:
+ *     summary: Activity log entries for a consignment
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid consignment id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

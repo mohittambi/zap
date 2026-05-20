@@ -4,6 +4,64 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as binsService from "@/server/services/binsService";
 
+/**
+ * @swagger
+ * /bins/{id}:
+ *   get:
+ *     summary: Get bin by id
+ *     description: Requires bins:read.
+ *     tags: [Bins]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid bin id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Bin not found }
+ *   patch:
+ *     summary: Update bin SKU/quantity
+ *     description: Requires bins:write.
+ *     tags: [Bins]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [sku_id, available_quantity]
+ *             properties:
+ *               sku_id: { type: string }
+ *               available_quantity: { type: integer, minimum: 0 }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Bin not found }
+ *   delete:
+ *     summary: Delete bin
+ *     description: Requires bins:manage.
+ *     tags: [Bins]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid bin id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }

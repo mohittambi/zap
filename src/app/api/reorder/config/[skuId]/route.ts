@@ -4,6 +4,34 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError, AppError } from "@/server/errors";
 import { upsertReorderConfig } from "@/server/services/reorderService";
 
+/**
+ * @swagger
+ * /reorder/config/{skuId}:
+ *   put:
+ *     summary: Upsert reorder config for a SKU
+ *     description: Requires bins:write.
+ *     tags: [Reorder]
+ *     parameters:
+ *       - in: path
+ *         name: skuId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [lead_time_days, use_advanced]
+ *             properties:
+ *               lead_time_days: { type: integer, minimum: 1, maximum: 365 }
+ *               use_advanced: { type: boolean }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 // PUT /api/reorder/config/[skuId]
 // Body: { lead_time_days: number; use_advanced: boolean }
 export async function PUT(

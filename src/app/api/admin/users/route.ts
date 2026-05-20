@@ -13,6 +13,39 @@ export type AdminUserRow = {
   roles: string[];
 };
 
+/**
+ * @swagger
+ * /admin/users:
+ *   get:
+ *     summary: List all users with roles
+ *     description: Requires admin (*:*).
+ *     tags: [Admin]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create user and assign roles
+ *     description: Requires admin (*:*).
+ *     tags: [Admin]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password, roles]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string, minLength: 8 }
+ *               roles: { type: array, items: { type: string } }
+ *     responses:
+ *       201: { description: Created }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       409: { description: Email already exists }
+ */
 /** List all users with roles — admin only. */
 export async function GET(request: Request) {
   try {

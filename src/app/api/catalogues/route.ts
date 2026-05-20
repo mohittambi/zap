@@ -5,6 +5,41 @@ import { handleApiError } from "@/server/errors";
 import * as cataloguesService from "@/server/services/cataloguesService";
 import { parsePagination } from "@/server/validators/pagination";
 
+/**
+ * @swagger
+ * /catalogues:
+ *   get:
+ *     summary: List catalogues (paginated)
+ *     description: Requires catalogues:read.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 28, maximum: 200 } }
+ *       - { in: query, name: catalogue_type, schema: { type: string } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create catalogue
+ *     description: Requires catalogues:write.
+ *     tags: [Catalogues]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               catalogue_type: { type: string, enum: [standard, custom] }
+ *               name: { type: string }
+ *               description: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

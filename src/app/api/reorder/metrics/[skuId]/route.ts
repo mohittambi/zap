@@ -4,6 +4,24 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError, AppError } from "@/server/errors";
 import { getReorderMetricForSku } from "@/server/services/reorderService";
 
+/**
+ * @swagger
+ * /reorder/metrics/{skuId}:
+ *   get:
+ *     summary: Reorder metric for a SKU
+ *     description: Requires bins:read.
+ *     tags: [Reorder]
+ *     parameters:
+ *       - in: path
+ *         name: skuId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: SKU not found }
+ */
 // GET /api/reorder/metrics/[skuId]
 export async function GET(
   request: Request,

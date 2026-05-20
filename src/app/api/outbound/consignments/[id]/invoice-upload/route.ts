@@ -15,6 +15,33 @@ function safeObjectSegment(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 180);
 }
 
+/**
+ * @swagger
+ * /outbound/consignments/{id}/invoice-upload:
+ *   post:
+ *     summary: Upload consignment invoice file
+ *     description: Requires purchase_orders:write.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file: { type: string, format: binary }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

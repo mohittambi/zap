@@ -4,6 +4,25 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as warehousesService from "@/server/services/warehousesService";
 
+/**
+ * @swagger
+ * /warehouses/{id}:
+ *   get:
+ *     summary: Get warehouse by id
+ *     description: Requires warehouses:read.
+ *     tags: [Warehouses]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid warehouse id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Warehouse not found }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }

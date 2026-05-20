@@ -4,6 +4,23 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as purchaseOrdersService from "@/server/services/purchaseOrdersService";
 
+/**
+ * @swagger
+ * /listings/sku/{sku_id}/outbound-summary:
+ *   get:
+ *     summary: Outbound PO summary for a SKU
+ *     description: Requires purchase_orders:read.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   _request: Request,
   context: { params: Promise<{ sku_id: string }> }

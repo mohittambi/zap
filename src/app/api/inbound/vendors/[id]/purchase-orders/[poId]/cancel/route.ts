@@ -9,6 +9,28 @@ import {
 
 type Ctx = { params: Promise<{ id: string; poId: string }> };
 
+/**
+ * @swagger
+ * /inbound/vendors/{id}/purchase-orders/{poId}/cancel:
+ *   patch:
+ *     summary: Cancel an inbound PO (mark zap_status=CANCELLED)
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: poId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Invalid vendor or PO id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function PATCH(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

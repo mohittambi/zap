@@ -5,6 +5,24 @@ import { handleApiError } from "@/server/errors";
 import * as companySkuService from "@/server/services/companySkuService";
 import { parsePagination } from "@/server/validators/pagination";
 
+/**
+ * @swagger
+ * /company-sku-relations:
+ *   get:
+ *     summary: List company-SKU relations (paginated)
+ *     description: Requires company_relations:read.
+ *     tags: [Company SKU Relations]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 500 } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: company_id, schema: { type: integer } }
+ *       - { in: query, name: sort, schema: { type: string, enum: [sku_asc, sku_desc, company_asc, company_desc] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

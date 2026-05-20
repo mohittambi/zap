@@ -5,6 +5,23 @@ import { buildInvoiceExcel } from "@/server/services/grnDebitNoteService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/invoice-export:
+ *   get:
+ *     summary: Export GRN invoice as XLSX
+ *     description: Requires purchase_orders:read.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: XLSX file }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

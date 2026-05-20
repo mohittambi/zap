@@ -4,6 +4,56 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as cataloguesService from "@/server/services/cataloguesService";
 
+/**
+ * @swagger
+ * /catalogues/{id}:
+ *   get:
+ *     summary: Get catalogue by id
+ *     description: Requires catalogues:read.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Not found }
+ *   patch:
+ *     summary: Update catalogue metadata
+ *     description: Requires catalogues:write.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Not found }
+ *   delete:
+ *     summary: Delete catalogue
+ *     description: Requires catalogues:write.
+ *     tags: [Catalogues]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> }

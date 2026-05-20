@@ -13,6 +13,31 @@ function safeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
+/**
+ * @swagger
+ * /labels/generate:
+ *   post:
+ *     summary: Generate product labels PDF
+ *     description: Requires purchase_orders:create.
+ *     tags: [Labels]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rows]
+ *             properties:
+ *               rows:
+ *                 type: array
+ *                 items: { type: object }
+ *               labelSize: { type: string, enum: [70x40, 75x38] }
+ *     responses:
+ *       200: { description: PDF file }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);

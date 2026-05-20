@@ -12,6 +12,29 @@ function safeFilename(name: string | null | undefined): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/attachments/{attachmentId}:
+ *   get:
+ *     summary: Download outbound PO attachment
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: attachmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Binary file }
+ *       400: { description: Invalid id }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Attachment not found }
+ */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

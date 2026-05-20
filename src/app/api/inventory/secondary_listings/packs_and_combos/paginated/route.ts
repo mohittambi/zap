@@ -5,6 +5,23 @@ import { handleApiError } from "@/server/errors";
 import * as inventoryService from "@/server/services/inventoryService";
 import { parsePagination } from "@/server/validators/pagination";
 
+/**
+ * @swagger
+ * /inventory/secondary_listings/packs_and_combos/paginated:
+ *   get:
+ *     summary: Paginated packs & combos listings
+ *     description: Requires inventory:read.
+ *     tags: [Inventory]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 1000, maximum: 1000 } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: sort, schema: { type: string, enum: [sku_asc, sku_desc] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

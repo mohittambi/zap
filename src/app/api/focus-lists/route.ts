@@ -4,6 +4,38 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as focusListsService from "@/server/services/focusListsService";
 
+/**
+ * @swagger
+ * /focus-lists:
+ *   get:
+ *     summary: List focus lists
+ *     description: Requires focus_lists:read.
+ *     tags: [Focus Lists]
+ *     parameters:
+ *       - { in: query, name: is_public, schema: { type: string, enum: [true, false] } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create focus list
+ *     description: Requires focus_lists:write.
+ *     tags: [Focus Lists]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               description: { type: string }
+ *               is_public: { type: boolean }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

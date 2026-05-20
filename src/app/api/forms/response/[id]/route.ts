@@ -4,6 +4,29 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as formsService from "@/server/services/formsService";
 
+/**
+ * @swagger
+ * /forms/response/{id}:
+ *   get:
+ *     summary: Get a form response by id + submitter
+ *     description: Requires forms:read.
+ *     tags: [Forms]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: submitted_by
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: No response found }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> }

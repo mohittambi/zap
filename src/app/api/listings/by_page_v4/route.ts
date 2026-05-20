@@ -24,6 +24,28 @@ function parseStockState(raw: string | null): StockState | null {
   return (STOCK_STATES as readonly string[]).includes(raw) ? (raw as StockState) : null;
 }
 
+/**
+ * @swagger
+ * /listings/by_page_v4:
+ *   get:
+ *     summary: Paginated listings (search/filter/sort)
+ *     description: Requires listings:read.
+ *     tags: [Listings]
+ *     parameters:
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 100, maximum: 200 } }
+ *       - { in: query, name: search_keyword, schema: { type: string } }
+ *       - { in: query, name: tag_ids, schema: { type: string }, description: Comma-separated tag ids }
+ *       - { in: query, name: min_price, schema: { type: number } }
+ *       - { in: query, name: max_price, schema: { type: number } }
+ *       - { in: query, name: category, schema: { type: string } }
+ *       - { in: query, name: stock_state, schema: { type: string, enum: [in_stock, out_of_stock, below_reorder] } }
+ *       - { in: query, name: sort, schema: { type: string } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);

@@ -6,6 +6,23 @@ import * as inboundGrnsService from "@/server/services/inboundGrnsService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
+/**
+ * @swagger
+ * /inbound/grns/{grnId}/close:
+ *   post:
+ *     summary: Close a GRN
+ *     description: Requires purchase_orders:write.
+ *     tags: [Inbound]
+ *     parameters:
+ *       - in: path
+ *         name: grnId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function POST(request: Request, context: RouteContext) {
   try {
     const user = await requireAuth(request);

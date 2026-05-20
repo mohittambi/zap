@@ -177,6 +177,42 @@ function skuReportFromConsignmentItems(
   return `\ufeff${lines.join("\n")}`;
 }
 
+/**
+ * @swagger
+ * /outbound/purchase-orders/{id}/eautomate-actions:
+ *   post:
+ *     summary: Run an eAutomate action on a PO (acknowledge, cancel, save field, reports, labels)
+ *     description: Requires purchase_orders:create.
+ *     tags: [Outbound]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [action]
+ *             properties:
+ *               action:
+ *                 type: string
+ *                 enum: [acknowledge, cancel, download_sku_report, download_pendency_pdf, generate_product_labels, generate_phase1_box_labels, save_field]
+ *               field: { type: string }
+ *               value: { type: string, nullable: true }
+ *               startBox: { type: integer }
+ *               endBox: { type: integer }
+ *               labelSize: { type: string, enum: [70x40, 75x38] }
+ *     responses:
+ *       200: { description: OK }
+ *       400: { description: Bad request }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: PO not found }
+ *       422: { description: No SKU line items for this PO }
+ */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);

@@ -51,3 +51,20 @@ export async function getLogsForSku(
   );
   return r.rows;
 }
+
+export async function getLogsForUser(
+  created_by: string,
+  limit = 50,
+  offset = 0
+): Promise<object[]> {
+  const r = await query(
+    `SELECT id, secondary_sku, company_id, operation, field_name,
+            old_value, new_value, created_by, created_at, raw
+     FROM secondary_listings_logs
+     WHERE created_by = $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [created_by, limit, offset]
+  );
+  return r.rows;
+}

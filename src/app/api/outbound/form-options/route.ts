@@ -4,6 +4,18 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 
+/**
+ * @swagger
+ * /outbound/form-options:
+ *   get:
+ *     summary: Outbound form options (sold-via, companies)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Outbound]
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 /** zap DB only. Companies sync is run via `npm run sync:outbound-companies`. */
 export async function GET(_request: Request) {
   try {

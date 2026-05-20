@@ -5,6 +5,25 @@ import { handleApiError } from "@/server/errors";
 import * as purchaseOrdersService from "@/server/services/purchaseOrdersService";
 import { parsePagination } from "@/server/validators/pagination";
 
+/**
+ * @swagger
+ * /incoming_purchase_orders/listing_order_details/{sku_id}:
+ *   get:
+ *     summary: Listing order details by SKU (paginated)
+ *     description: Requires purchase_orders:read.
+ *     tags: [Incoming Purchase Orders]
+ *     parameters:
+ *       - in: path
+ *         name: sku_id
+ *         required: true
+ *         schema: { type: string }
+ *       - { in: query, name: page, schema: { type: integer, default: 1 } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 200, maximum: 200 } }
+ *     responses:
+ *       200: { description: OK }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
 export async function GET(
   request: Request,
   context: { params: Promise<{ sku_id: string }> }
