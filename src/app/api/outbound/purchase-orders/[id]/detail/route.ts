@@ -3,6 +3,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { outboundPoFileDownloadConfigured } from "@/server/eautomate-outbound-po-files";
+import { enrichListingsSnapshotWithZapEan } from "@/server/services/eanMappingsService";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 import { isZapStorageConfigured } from "@/server/zapStorage";
 
@@ -48,10 +49,12 @@ export async function GET(_request: Request, context: Ctx) {
       outboundPoService.listOutboundPoZapAttachments(id),
     ]);
 
-    const listings =
+    const listings = await enrichListingsSnapshotWithZapEan(
       po.listings_snapshot && typeof po.listings_snapshot === "object"
         ? po.listings_snapshot
-        : {};
+        : {},
+      po.company_id
+    );
 
     const legacyRemote = outboundPoFileDownloadConfigured();
     const zapOk = isZapStorageConfigured();

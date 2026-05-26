@@ -15,6 +15,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
 import dotenv from "dotenv";
+import { resolveSyncDatabaseUrl } from "./lib/syncDatabaseUrl.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -38,12 +39,18 @@ if (!dbUrl) {
   process.exit(1);
 }
 
+/** TRUNCATE on Supabase must not use transaction pooler (6543) — use direct/session (5432). */
+function truncateDatabaseUrl(url) {
+  return resolveSyncDatabaseUrl(url);
+}
+
 if (!dryRun) {
   const sqlPath = path.join(root, "scripts", "reset-eautomate-synced-data.sql");
+  const truncateUrl = truncateDatabaseUrl(dbUrl);
   console.log("Truncating eAutomate-synced tables…");
   const tr = spawnSync(
     "psql",
-    [dbUrl, "-v", "ON_ERROR_STOP=1", "-f", sqlPath],
+    [truncateUrl, "-v", "ON_ERROR_STOP=1", "-f", sqlPath],
     { stdio: "inherit", cwd: root, env: process.env },
   );
   if (tr.status !== 0) {

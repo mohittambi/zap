@@ -1,6 +1,10 @@
 import * as XLSX from "xlsx";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import {
+  batchGetZapEanByCompany,
+  resolveZapEanDisplay,
+} from "@/server/services/eanMappingsService";
 
 export type OutboundConsignmentRow = {
   id: number;
@@ -750,7 +754,7 @@ export async function buildOutboundConsignmentInvoiceExcel(
   }
 
   const consR = await query(
-    `SELECT id, company_name, location, sold_via, po_number, po_type,
+    `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
             consignment_status, invoice_number_status, invoice_number,
             invoice_upload_status, boxes_count, sku_count, total_quantity,
             transporter_name, vehicle_number, docket_number,
@@ -765,6 +769,7 @@ export async function buildOutboundConsignmentInvoiceExcel(
     `SELECT po_secondary_sku,
             MAX(company_code_primary) AS company_code_primary,
             MAX(company_code_secondary) AS company_code_secondary,
+            MAX(NULLIF(TRIM(raw->>'master_sku'), '')) AS master_sku,
             SUM(COALESCE(box_quantity, 0))::integer AS box_quantity,
             MAX(original_demand)::integer AS original_demand,
             SUM(COALESCE(dispatched_quantity, 0))::integer AS dispatched_quantity,
@@ -809,20 +814,46 @@ export async function buildOutboundConsignmentInvoiceExcel(
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
 
+  const companyId =
+    c.company_id != null ? Number(c.company_id) : null;
+  const mappingSkus = itemsR.rows
+    .map((r) => (r.master_sku != null ? String(r.master_sku).trim() : ""))
+    .filter(Boolean);
+  const zapLookup = await batchGetZapEanByCompany({
+    company_id: companyId,
+    sku_codes: mappingSkus,
+  });
+
   const itemHeaders = [
-    "SKU", "Company Code (Primary)", "Company Code (Secondary)",
-    "Box Qty", "Original Demand", "Dispatched Qty", "Consignment Qty", "Fill Rate",
+    "SKU",
+    "Company Code (Primary)",
+    "Company Code (Secondary)",
+    "Zap EAN",
+    "Universal EAN",
+    "Box Qty",
+    "Original Demand",
+    "Dispatched Qty",
+    "Consignment Qty",
+    "Fill Rate",
   ];
-  const itemRows = itemsR.rows.map((r) => [
-    r.po_secondary_sku ?? "",
-    r.company_code_primary ?? "",
-    r.company_code_secondary ?? "",
-    r.box_quantity ?? 0,
-    r.original_demand ?? "",
-    r.dispatched_quantity ?? 0,
-    r.consignment_quantity ?? 0,
-    r.overall_fill_rate == null ? "" : Number(r.overall_fill_rate),
-  ]);
+  const itemRows = itemsR.rows.map((r) => {
+    const sku = r.po_secondary_sku != null ? String(r.po_secondary_sku) : "";
+    const masterSku = r.master_sku != null ? String(r.master_sku).trim() : "";
+    const zap = masterSku ? zapLookup.get(masterSku) : undefined;
+    const companyPrimary = r.company_code_primary != null ? String(r.company_code_primary) : "";
+    return [
+      sku,
+      companyPrimary,
+      r.company_code_secondary ?? "",
+      resolveZapEanDisplay(companyPrimary, zap),
+      zap?.universal_ean ?? "",
+      r.box_quantity ?? 0,
+      r.original_demand ?? "",
+      r.dispatched_quantity ?? 0,
+      r.consignment_quantity ?? 0,
+      r.overall_fill_rate == null ? "" : Number(r.overall_fill_rate),
+    ];
+  });
   XLSX.utils.book_append_sheet(
     wb,
     XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows]),

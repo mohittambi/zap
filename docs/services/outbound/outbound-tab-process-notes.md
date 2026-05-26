@@ -2,7 +2,7 @@
 
 **System of record:** Zap (this application’s database, APIs, and UI) is the place operators run outbound POs, consignments, labels, and invoice file handoff. Where data is **synced** from another system, the UI still reads whatever has landed in Zap.
 
-**Navigation (web):** Outbound sub-nav — All Purchase Orders (`/outbound`), WIP (`/outbound/wip`), Add New Purchase Order (`/outbound/new`), Partially Created (`/outbound/partial`), Consignments (`/outbound/consignments`), Pending Invoices (`/outbound/pending-invoices`), Manage Boxes (`/outbound/boxes`). See [`outbound-sub-nav.tsx`](../../../src/components/layout/outbound-sub-nav.tsx).
+**Navigation (web):** Outbound → **Purchase Orders** | **SKU / EAN Mappings** | Consignments | Pending Invoices | Manage Boxes ([`outbound-sub-nav.tsx`](../../../src/components/layout/outbound-sub-nav.tsx)). Under **Purchase orders** (color-coded sub-menu): All Purchase Orders (`/outbound`), WIP Purchase Orders (`/outbound/wip`), Partially Created Purchase Orders (`/outbound/partial`), Add New Purchase Order (`/outbound/new`) — [`outbound-po-sub-nav.tsx`](../../../src/components/layout/outbound-po-sub-nav.tsx). **SKU / EAN Mappings** (`/outbound/ean-mappings`) — wide matrix table via [`DataTable`](../../../src/components/data-table/) and `GET /api/ean-mappings/matrix`.
 
 **Technical / storytelling context:** [Business — Outbound module](../../business/modules/outbound.md) · [Outbound consignments data sync plan](../../outbound-consignments-data-sync-plan.md) · [Mobile outbound screens](../../mobile/outbound-screens.md)
 

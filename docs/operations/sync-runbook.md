@@ -27,6 +27,8 @@ cd web
 ZAP_CONFIRM_TRUNCATE_SYNC=1 npm run sync:eautomate:fresh
 ```
 
+**Supabase truncate:** the wipe step needs a **direct/session** Postgres connection (port **5432**). Transaction pooler (**6543**) often hits `statement timeout` on large `TRUNCATE`. Either set `DATABASE_URL_DIRECT` in `.env.local` (Supabase → Connect → Session/direct URI), or the fresh script rewrites `:6543` → `:5432` for truncate only.
+
 This runs `scripts/reset-eautomate-synced-data.sql` (truncates eAutomate-ingested operational tables; **keeps** users, RBAC, forms, `outbound_sold_via`) and then the same steps as `npm run sync:eautomate:all`.
 
 - **Dry run** (no truncate, print sync commands only): `npm run sync:eautomate:fresh -- --dry-run`

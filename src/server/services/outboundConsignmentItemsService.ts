@@ -1,4 +1,11 @@
 import getPool, { query } from "@/server/db";
+import {
+  batchGetZapEanByCompany,
+  enrichRowsWithZapEan,
+  mappingSkuKeysFromRow,
+  resolveZapEanDisplay,
+  type ZapEanLookup,
+} from "@/server/services/eanMappingsService";
 
 function pickFirst(
   obj: Record<string, unknown>,
@@ -482,6 +489,8 @@ export type ProductLabelRow = {
   company_code_primary: string;
   company_code_secondary: string;
   ean_code: string;
+  zap_ean: string;
+  universal_ean: string;
   size: string;
   color: string;
   one_set_contains: string;
@@ -499,8 +508,29 @@ export type ProductLabelRow = {
   dispatched_quantity: string;
 };
 
+function applyZapEanToLabelRow(
+  base: Omit<ProductLabelRow, "zap_ean" | "universal_ean">,
+  lookup: Map<string, ZapEanLookup>
+): ProductLabelRow {
+  const keys = mappingSkuKeysFromRow({
+    master_sku: base.master_sku,
+    inventory_sku_id: base.inventory_sku_id,
+  });
+  let hit: ZapEanLookup | undefined;
+  for (const k of keys) {
+    hit = lookup.get(k);
+    if (hit) break;
+  }
+  return {
+    ...base,
+    zap_ean: resolveZapEanDisplay(base.company_code_primary, hit),
+    universal_ean: hit?.universal_ean ?? "",
+  };
+}
+
 export async function getProductLabelRowsByPoNumber(
-  poNumber: string
+  poNumber: string,
+  companyId?: number | null
 ): Promise<ProductLabelRow[]> {
   const pn = String(poNumber || "").trim();
   if (!pn) return [];
@@ -516,14 +546,24 @@ export async function getProductLabelRowsByPoNumber(
             COALESCE(lm.color, '')           AS color,
             COALESCE(lm.one_set_contains, '') AS one_set_contains,
             COALESCE(lm.material, '')        AS material,
-            COALESCE(lm.mrp::text, '')       AS mrp_now
+            COALESCE(lm.mrp::text, '')       AS mrp_now,
+            po.company_id
        FROM outbound_consignment_items ci
        LEFT JOIN labels_master_data lm ON lm.secondary_sku = ci.po_secondary_sku
+       LEFT JOIN outbound_purchase_orders po
+         ON TRIM(COALESCE(po.po_number, '')) = TRIM(COALESCE(ci.po_number, ''))
       WHERE ci.po_number = $1
       ORDER BY ci.po_secondary_sku ASC, ci.id ASC`,
     [pn]
   );
-  return r.rows.map((row) => {
+  const resolvedCompanyId =
+    companyId != null && companyId > 0
+      ? companyId
+      : r.rows[0]?.company_id != null
+        ? Number(r.rows[0].company_id)
+        : null;
+
+  const mapped = r.rows.map((row) => {
     const raw =
       row.raw && typeof row.raw === "object" && !Array.isArray(row.raw)
         ? (row.raw as Record<string, unknown>)
@@ -533,59 +573,68 @@ export async function getProductLabelRowsByPoNumber(
         ? (raw.listing as Record<string, unknown>)
         : {};
     return {
-    po_secondary_sku: row.po_secondary_sku != null ? String(row.po_secondary_sku) : "",
-    company_code_primary:
-      row.company_code_primary != null ? String(row.company_code_primary) : "",
-    company_code_secondary:
-      row.company_code_secondary != null ? String(row.company_code_secondary) : "",
-    ean_code: String(row.ean_code ?? ""),
-    size: String(row.size ?? ""),
-    color: String(row.color ?? ""),
-    one_set_contains: String(row.one_set_contains ?? ""),
-    material: String(row.material ?? ""),
-    mrp_now: String(row.mrp_now ?? ""),
-    mrp_at_po_creation:
-      row.mrp_at_po_creation != null ? String(row.mrp_at_po_creation) : "",
-    img_url:
-      rawListing.img_hd != null
-        ? String(rawListing.img_hd)
-        : rawListing.img_wdim != null
-          ? String(rawListing.img_wdim)
-          : rawListing.img_white != null
-            ? String(rawListing.img_white)
+      po_secondary_sku: row.po_secondary_sku != null ? String(row.po_secondary_sku) : "",
+      company_code_primary:
+        row.company_code_primary != null ? String(row.company_code_primary) : "",
+      company_code_secondary:
+        row.company_code_secondary != null ? String(row.company_code_secondary) : "",
+      ean_code: String(row.ean_code ?? ""),
+      size: String(row.size ?? ""),
+      color: String(row.color ?? ""),
+      one_set_contains: String(row.one_set_contains ?? ""),
+      material: String(row.material ?? ""),
+      mrp_now: String(row.mrp_now ?? ""),
+      mrp_at_po_creation:
+        row.mrp_at_po_creation != null ? String(row.mrp_at_po_creation) : "",
+      img_url:
+        rawListing.img_hd != null
+          ? String(rawListing.img_hd)
+          : rawListing.img_wdim != null
+            ? String(rawListing.img_wdim)
+            : rawListing.img_white != null
+              ? String(rawListing.img_white)
+              : "",
+      master_sku:
+        raw.master_sku != null
+          ? String(raw.master_sku)
+          : rawListing.master_sku != null
+            ? String(rawListing.master_sku)
             : "",
-    master_sku:
-      raw.master_sku != null
-        ? String(raw.master_sku)
-        : rawListing.master_sku != null
-          ? String(rawListing.master_sku)
-          : "",
-    inventory_sku_id:
-      raw.inventory_sku_id != null
-        ? String(raw.inventory_sku_id)
-        : rawListing.inventory_sku_id != null
-          ? String(rawListing.inventory_sku_id)
-          : "",
-    pack_combo_sku_id:
-      raw.pack_combo_sku_id != null
-        ? String(raw.pack_combo_sku_id)
-        : rawListing.pack_combo_sku_id != null
-          ? String(rawListing.pack_combo_sku_id)
-          : "",
-    sku_type:
-      raw.sku_type != null
-        ? String(raw.sku_type)
-        : rawListing.sku_type != null
-          ? String(rawListing.sku_type)
-          : "",
-    title: raw.title != null ? String(raw.title) : "",
-    warehouse_quantity:
-      rawListing.available_quantity != null ? String(rawListing.available_quantity) : "",
-    demand_quantity: raw.demand != null ? String(raw.demand) : "",
-    dispatched_quantity:
-      raw.dispatched_quantity != null ? String(raw.dispatched_quantity) : "",
+      inventory_sku_id:
+        raw.inventory_sku_id != null
+          ? String(raw.inventory_sku_id)
+          : rawListing.inventory_sku_id != null
+            ? String(rawListing.inventory_sku_id)
+            : "",
+      pack_combo_sku_id:
+        raw.pack_combo_sku_id != null
+          ? String(raw.pack_combo_sku_id)
+          : rawListing.pack_combo_sku_id != null
+            ? String(rawListing.pack_combo_sku_id)
+            : "",
+      sku_type:
+        raw.sku_type != null
+          ? String(raw.sku_type)
+          : rawListing.sku_type != null
+            ? String(rawListing.sku_type)
+            : "",
+      title: raw.title != null ? String(raw.title) : "",
+      warehouse_quantity:
+        rawListing.available_quantity != null ? String(rawListing.available_quantity) : "",
+      demand_quantity: raw.demand != null ? String(raw.demand) : "",
+      dispatched_quantity:
+        raw.dispatched_quantity != null ? String(raw.dispatched_quantity) : "",
     };
   });
+
+  const skuCodes = mapped.flatMap((m) =>
+    mappingSkuKeysFromRow({ master_sku: m.master_sku, inventory_sku_id: m.inventory_sku_id })
+  );
+  const lookup = await batchGetZapEanByCompany({
+    company_id: resolvedCompanyId,
+    sku_codes: skuCodes,
+  });
+  return mapped.map((m) => applyZapEanToLabelRow(m, lookup));
 }
 
 /**
@@ -594,7 +643,8 @@ export async function getProductLabelRowsByPoNumber(
  * Enriches with `labels_master_data` where available; fills from snapshot fields otherwise.
  */
 export async function getProductLabelRowsFromSnapshot(
-  snapshotRows: Record<string, unknown>[]
+  snapshotRows: Record<string, unknown>[],
+  companyId?: number | null
 ): Promise<ProductLabelRow[]> {
   if (snapshotRows.length === 0) return [];
 
@@ -619,7 +669,7 @@ export async function getProductLabelRowsFromSnapshot(
   }
 
   const seen = new Set<string>();
-  const result: ProductLabelRow[] = [];
+  const baseRows: Omit<ProductLabelRow, "zap_ean" | "universal_ean">[] = [];
   for (const item of snapshotRows) {
     const sku = item.po_secondary_sku != null ? String(item.po_secondary_sku) : "";
     if (!sku || seen.has(sku)) continue;
@@ -635,7 +685,7 @@ export async function getProductLabelRowsFromSnapshot(
     const dimFull = listing.dimension != null ? String(listing.dimension) : "";
     const dimShort = dimFull.split(" / ")[0]?.trim() ?? "";
 
-    result.push({
+    baseRows.push({
       po_secondary_sku: sku,
       company_code_primary:
         item.company_code_primary != null ? String(item.company_code_primary) : "",
@@ -703,7 +753,14 @@ export async function getProductLabelRowsFromSnapshot(
         item.dispatched_quantity != null ? String(item.dispatched_quantity) : "",
     });
   }
-  return result;
+  const skuCodes = baseRows.flatMap((m) =>
+    mappingSkuKeysFromRow({ master_sku: m.master_sku, inventory_sku_id: m.inventory_sku_id })
+  );
+  const lookup = await batchGetZapEanByCompany({
+    company_id: companyId,
+    sku_codes: skuCodes,
+  });
+  return baseRows.map((m) => applyZapEanToLabelRow(m, lookup));
 }
 
 export async function getSkuReportItemsByPoNumber(
@@ -793,11 +850,22 @@ export function mapGroupedConsignmentItemRow(row: Record<string, unknown>): Reco
   } else if (demand > 0) {
     fillNum = (packed / demand) * 100;
   }
+  const masterSku =
+    raw.master_sku != null
+      ? String(raw.master_sku)
+      : raw.listing &&
+          typeof raw.listing === "object" &&
+          !Array.isArray(raw.listing) &&
+          (raw.listing as Record<string, unknown>).master_sku != null
+        ? String((raw.listing as Record<string, unknown>).master_sku)
+        : "";
+
   return {
     id: row.id != null ? String(row.id) : sku,
     consignment_id: row.consignment_id,
     po_number: row.po_number,
     po_secondary_sku: sku,
+    master_sku: masterSku || null,
     company_code_primary: row.company_code_primary,
     company_code_secondary: row.company_code_secondary,
     sku_id: sku,
@@ -892,12 +960,20 @@ export async function listOutboundConsignmentItemsPaginated(opts: {
     mapGroupedConsignmentItemRow(row as Record<string, unknown>)
   );
 
+  const consR = await query(
+    `SELECT company_id FROM outbound_consignments WHERE id = $1 LIMIT 1`,
+    [consignmentId]
+  );
+  const companyId =
+    consR.rows[0]?.company_id != null ? Number(consR.rows[0].company_id) : null;
+  const enriched = await enrichRowsWithZapEan(content, companyId);
+
   return {
     total,
     current_page: page,
     per_page_count: limit,
-    curr_page_count: content.length,
-    content,
+    curr_page_count: enriched.length,
+    content: enriched,
   };
 }
 

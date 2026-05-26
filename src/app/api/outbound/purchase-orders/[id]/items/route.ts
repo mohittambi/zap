@@ -57,9 +57,9 @@ export async function GET(request: Request, context: Ctx) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
     }
 
-    const payload = outboundPoService.buildOutboundPoItemsPayloadFromSnapshot(
+    const payload = await outboundPoService.buildOutboundPoItemsPayloadFromSnapshot(
       po.listings_snapshot,
-      { page, limit, search }
+      { page, limit, search, companyId: po.company_id }
     );
 
     return NextResponse.json(payload);

@@ -17,6 +17,26 @@ import {
 import { cn } from "@/lib/utils";
 import type { OutboundConsignmentRow } from "@/server/services/outboundConsignmentsService";
 
+type ConsignmentItemRow = {
+  po_secondary_sku?: string | null;
+  company_code_primary?: string | null;
+  company_code_secondary?: string | null;
+  zap_ean?: string;
+  universal_ean?: string;
+  box_quantity?: number | null;
+  original_demand?: number | null;
+  dispatched_quantity?: number | null;
+  consignment_quantity?: number | null;
+  overall_fill_rate?: number | null;
+};
+
+type ItemsPayload = {
+  total: number;
+  current_page: number;
+  per_page_count: number;
+  content: ConsignmentItemRow[];
+};
+
 const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
   month: "short",
@@ -119,6 +139,8 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [invoiceNumInput, setInvoiceNumInput] = React.useState("");
   const [savingInvoiceNum, setSavingInvoiceNum] = React.useState(false);
   const [downloadingExcel, setDownloadingExcel] = React.useState(false);
+  const [items, setItems] = React.useState<ItemsPayload | null>(null);
+  const [itemsLoading, setItemsLoading] = React.useState(true);
 
   async function handleDownloadInvoice() {
     try {
@@ -211,6 +233,26 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
       }
     })();
     return () => { cancelled = true; };
+  }, [id]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setItemsLoading(true);
+      try {
+        const data = await apiFetch<ItemsPayload>(
+          `/api/outbound/consignments/${encodeURIComponent(id)}/items?page=1&limit=200`
+        );
+        if (!cancelled) setItems(data);
+      } catch {
+        if (!cancelled) setItems(null);
+      } finally {
+        if (!cancelled) setItemsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (loading) {
@@ -343,6 +385,55 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Line items (Zap EAN for dispatch reference) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Consignment items</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {itemsLoading ? (
+            <p className="text-muted-foreground px-4 py-6 text-sm">Loading items…</p>
+          ) : !items?.content?.length ? (
+            <p className="text-muted-foreground px-4 py-6 text-sm">
+              No line items synced for this consignment yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+                <thead>
+                  <tr className="bg-muted/60 border-b">
+                    <th className="px-3 py-2">SKU</th>
+                    <th className="px-3 py-2">Company code</th>
+                    <th className="px-3 py-2">Zap EAN</th>
+                    <th className="px-3 py-2">Universal EAN</th>
+                    <th className="px-3 py-2 text-right">Qty</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {items.content.map((item, i) => (
+                    <tr key={item.po_secondary_sku ?? i}>
+                      <td className="px-3 py-2 font-mono">{item.po_secondary_sku ?? "—"}</td>
+                      <td className="px-3 py-2 font-mono">
+                        {item.company_code_primary ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 font-mono tabular-nums">
+                        {item.zap_ean?.trim() ? item.zap_ean : "—"}
+                      </td>
+                      <td className="px-3 py-2 font-mono tabular-nums">
+                        {item.universal_ean?.trim() ? item.universal_ean : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {item.consignment_quantity ?? item.dispatched_quantity ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Timeline */}
       <Card>

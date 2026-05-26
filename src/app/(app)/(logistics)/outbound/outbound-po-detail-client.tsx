@@ -33,6 +33,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SearchableSelect } from "@/components/outbound/searchable-select";
+import {
+  TripletDatePicker,
+  formatUtcDateOnly,
+  parseDateOnlyString,
+} from "@/components/outbound/triplet-date-picker";
+import { OUTBOUND_PO_TYPES } from "@/lib/outbound-po-types";
 import { cn } from "@/lib/utils";
 
 const textareaClass =
@@ -175,6 +182,8 @@ type LabelRow = {
   company_code_primary: string;
   company_code_secondary: string;
   ean_code: string;
+  zap_ean: string;
+  universal_ean: string;
   size: string;
   color: string;
   one_set_contains: string;
@@ -473,6 +482,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [editField, setEditField] = React.useState<SaveFieldKey | null>(null);
   const [editLabel, setEditLabel] = React.useState("");
   const [editValue, setEditValue] = React.useState("");
+  const [editDateValue, setEditDateValue] = React.useState<Date | null>(null);
   const [consignmentsData, setConsignmentsData] =
     React.useState<ConsignmentsListPayload | null>(null);
   const [consignmentsLoading, setConsignmentsLoading] = React.useState(false);
@@ -594,15 +604,40 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const isPartial =
     (po?.po_creation_status ?? "").toUpperCase().trim() === "PARTIAL";
 
+  const poTypeOptions = React.useMemo(
+    () => OUTBOUND_PO_TYPES.map((t) => ({ key: t, label: t })),
+    []
+  );
+
   const openEdit = (field: SaveFieldKey, label: string, value: string) => {
     setEditField(field);
     setEditLabel(label);
     setEditValue(value);
+    setEditDateValue(field === "expiry_date" ? parseDateOnlyString(value) : null);
     setEditOpen(true);
   };
 
   const onSaveEdit = async () => {
     if (!editField) return;
+
+    let valueToSave = editValue;
+    if (editField === "expiry_date") {
+      if (!editDateValue) {
+        toast.error("Set the date using Year / Month / Day, then the Set button.");
+        return;
+      }
+      const release = parseDateOnlyString(po?.po_issue_date ?? "");
+      if (release && editDateValue < release) {
+        toast.error("Expiry date must be on or after the release date.");
+        return;
+      }
+      valueToSave = formatUtcDateOnly(editDateValue);
+    }
+    if (editField === "po_type" && !editValue.trim()) {
+      toast.error("Select a PO type.");
+      return;
+    }
+
     setStubBusy("save_field");
     try {
       const res = await authFetchRaw(
@@ -613,7 +648,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           body: JSON.stringify({
             action: "save_field",
             field: editField,
-            value: editValue,
+            value: valueToSave,
           }),
         }
       );
@@ -850,6 +885,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       "Company Code Primary",
       "Company Code Secondary",
       "EAN Code",
+      "Zap EAN",
+      "Universal EAN",
       "Size",
       "Color",
       "Title",
@@ -879,6 +916,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           r.company_code_primary,
           r.company_code_secondary,
           r.ean_code,
+          r.zap_ean ?? "",
+          r.universal_ean ?? "",
           r.size,
           r.color,
           r.title,
@@ -1922,23 +1961,47 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="edit-val">Value</Label>
-            {editField === "remarks" ||
-            editField === "delivery_address" ||
-            editField === "billing_address" ? (
-              <textarea
-                id="edit-val"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                rows={5}
-                className={textareaClass}
+            {editField === "po_type" ? (
+              <SearchableSelect
+                value={editValue.trim() || null}
+                onChange={setEditValue}
+                options={poTypeOptions}
+                placeholder="Select PO Type"
+                emptyText="No PO types"
+                variant="soft"
+              />
+            ) : editField === "expiry_date" ? (
+              <TripletDatePicker
+                title={editLabel}
+                value={editDateValue}
+                onSet={(d) => {
+                  setEditDateValue(d);
+                  setEditValue(formatUtcDateOnly(d));
+                }}
+                setButtonLabel="Set date"
+                embedded
               />
             ) : (
-              <Input
-                id="edit-val"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-              />
+              <>
+                <Label htmlFor="edit-val">Value</Label>
+                {editField === "remarks" ||
+                editField === "delivery_address" ||
+                editField === "billing_address" ? (
+                  <textarea
+                    id="edit-val"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    rows={5}
+                    className={textareaClass}
+                  />
+                ) : (
+                  <Input
+                    id="edit-val"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                  />
+                )}
+              </>
             )}
           </div>
           <DialogFooter>
@@ -2051,6 +2114,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                         <th className="px-3 py-2 whitespace-nowrap">Company Code Primary</th>
                         <th className="px-3 py-2 whitespace-nowrap">Company Code Secondary</th>
                         <th className="px-3 py-2 whitespace-nowrap">EAN Code</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Zap EAN</th>
+                        <th className="px-3 py-2 whitespace-nowrap">Universal EAN</th>
                         <th className="px-3 py-2 whitespace-nowrap">Size</th>
                         <th className="px-3 py-2 whitespace-nowrap">Color</th>
                         <th className="px-3 py-2 whitespace-nowrap">One Set Contains</th>
@@ -2063,7 +2128,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                       {labelRows.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={10}
+                            colSpan={12}
                             className="text-muted-foreground px-3 py-6 text-center text-sm"
                           >
                             No rows found.
@@ -2078,6 +2143,12 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                             <td className="px-3 py-2 tabular-nums">{row.company_code_primary || "—"}</td>
                             <td className="px-3 py-2 font-mono text-xs">{row.company_code_secondary || "—"}</td>
                             <td className="px-3 py-2 font-mono text-xs tabular-nums">{row.ean_code || "—"}</td>
+                            <td className="px-3 py-2 font-mono text-xs tabular-nums">
+                              {row.zap_ean || "—"}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs tabular-nums">
+                              {row.universal_ean || "—"}
+                            </td>
                             <td className="px-3 py-2 text-xs">{row.size || "—"}</td>
                             <td className="px-3 py-2">{row.color || "—"}</td>
                             <td className="max-w-[220px] px-3 py-2 text-xs leading-snug">
@@ -2165,6 +2236,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                         <th className="px-2 py-2">SKU Type</th>
                         <th className="px-2 py-2">Company Code Primary</th>
                         <th className="px-2 py-2">EAN Code</th>
+                        <th className="px-2 py-2">Zap EAN</th>
+                        <th className="px-2 py-2">Universal EAN</th>
                         <th className="px-2 py-2">Size</th>
                         <th className="px-2 py-2">Color</th>
                         <th className="px-2 py-2">MRP</th>
@@ -2200,6 +2273,12 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                             <td className="px-2 py-2">{row.sku_type || "—"}</td>
                             <td className="px-2 py-2">{row.company_code_primary || "—"}</td>
                             <td className="px-2 py-2">{row.ean_code || "—"}</td>
+                            <td className="px-2 py-2 font-mono text-xs tabular-nums">
+                              {row.zap_ean || "—"}
+                            </td>
+                            <td className="px-2 py-2 font-mono text-xs tabular-nums">
+                              {row.universal_ean || "—"}
+                            </td>
                             <td className="px-2 py-2">{row.size || "—"}</td>
                             <td className="px-2 py-2">{row.color || "—"}</td>
                             <td className="px-2 py-2 tabular-nums">{row.mrp_now || row.mrp_at_po_creation || "—"}</td>

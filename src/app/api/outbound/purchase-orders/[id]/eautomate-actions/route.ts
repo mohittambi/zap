@@ -341,11 +341,17 @@ export async function POST(request: Request, context: Ctx) {
     }
 
     if (action === "generate_product_labels") {
-      let labelRows = await getProductLabelRowsByPoNumber(po.po_number);
+      let labelRows = await getProductLabelRowsByPoNumber(
+        po.po_number,
+        po.company_id
+      );
       if (labelRows.length === 0) {
         // Fallback: build from listings_snapshot (enriched with labels_master_data where available)
         const snapshotRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
-        labelRows = await getProductLabelRowsFromSnapshot(snapshotRows);
+        labelRows = await getProductLabelRowsFromSnapshot(
+          snapshotRows,
+          po.company_id
+        );
       }
       if (labelRows.length === 0) {
         return NextResponse.json(

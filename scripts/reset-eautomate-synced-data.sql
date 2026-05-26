@@ -5,6 +5,12 @@
 --
 -- Run only when pointed at the DB you intend to wipe (e.g. Supabase Postgres).
 -- Usage: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/reset-eautomate-synced-data.sql
+--
+-- Supabase: use a direct/session connection (port 5432), not transaction pooler (6543).
+-- Large TRUNCATE needs statement_timeout disabled (set below).
+
+SET statement_timeout = 0;
+SET lock_timeout = '10min';
 
 BEGIN;
 

@@ -1,0 +1,174 @@
+"use client";
+
+import * as React from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+export type SearchableSelectOption = { key: string; label: string };
+
+export function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  emptyText = "No matches",
+  variant = "solid",
+}: {
+  value: string | null;
+  onChange: (key: string) => void;
+  options: SearchableSelectOption[];
+  placeholder: string;
+  emptyText?: string;
+  variant?: "solid" | "soft";
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState("");
+  const [mounted, setMounted] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const [panelBox, setPanelBox] = React.useState({ top: 0, left: 0, width: 0 });
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const updatePanelPosition = React.useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPanelBox({
+      top: r.bottom + 4,
+      left: r.left,
+      width: r.width,
+    });
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    updatePanelPosition();
+  }, [open, options.length, updatePanelPosition]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onScrollOrResize = () => updatePanelPosition();
+    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    return () => {
+      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+    };
+  }, [open, updatePanelPosition]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onDocPointerDown(e: PointerEvent) {
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const selected = options.find((o) => o.key === value);
+  const qTrim = q.trim().toLowerCase();
+  const filtered = options.filter((o) => o.label.toLowerCase().includes(qTrim));
+
+  const dropdown =
+    open && mounted ? (
+      <div
+        ref={panelRef}
+        role="listbox"
+        className="bg-background text-foreground border-border fixed z-[500] max-h-[min(280px,calc(100vh-24px))] overflow-hidden rounded-md border p-2 shadow-lg"
+        style={{
+          top: panelBox.top,
+          left: panelBox.left,
+          width: Math.max(panelBox.width, 200),
+        }}
+      >
+        <Input
+          placeholder="Filter options..."
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="mb-2 h-9 w-full"
+          autoFocus
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <div
+          className="max-h-[200px] overflow-y-auto overflow-x-hidden"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          {filtered.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-2 text-sm">{emptyText}</p>
+          ) : (
+            <div className="flex flex-col gap-px py-0.5">
+              {filtered.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  role="option"
+                  aria-selected={value === o.key}
+                  className={cn(
+                    "hover:bg-muted rounded px-2 py-2 text-left text-sm font-medium",
+                    value === o.key && "bg-muted/80"
+                  )}
+                  onClick={() => {
+                    onChange(o.key);
+                    setOpen(false);
+                    setQ("");
+                  }}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  return (
+    <div className="relative w-full">
+      <button
+        ref={triggerRef}
+        type="button"
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-4 py-2 text-left text-sm font-medium shadow-sm",
+          variant === "soft"
+            ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
+            : "bg-primary text-primary-foreground hover:bg-primary/90",
+          open && "ring-ring ring-2 ring-offset-2 ring-offset-background"
+        )}
+        onClick={() => {
+          setOpen((prev) => !prev);
+        }}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span className="truncate">{selected?.label ?? placeholder}</span>
+        <ChevronDown
+          className={cn(
+            "size-4 shrink-0 opacity-90 transition-transform",
+            open && "rotate-180",
+            variant === "soft" && "text-foreground"
+          )}
+        />
+      </button>
+      {dropdown && typeof document !== "undefined"
+        ? createPortal(dropdown, document.body)
+        : null}
+    </div>
+  );
+}

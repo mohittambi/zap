@@ -52,6 +52,11 @@ const primaryNav = [
     match: (p: string | null) => !!p?.startsWith("/outbound"),
   },
   {
+    href: "/ops/sku-po-control",
+    label: "Ops Planning",
+    match: (p: string | null) => !!p?.startsWith("/ops"),
+  },
+  {
     href: "/labels",
     label: "Labels",
     match: (p: string | null) => p === "/labels",
@@ -242,6 +247,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   {isAdmin && (
                     <DropdownMenuItem onClick={() => router.push("/settings/users")}>
                       User management
+                    </DropdownMenuItem>
+                  )}
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => router.push("/settings/ean-mappings")}>
+                      EAN mappings
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem onClick={() => logout()}>Sign out</DropdownMenuItem>

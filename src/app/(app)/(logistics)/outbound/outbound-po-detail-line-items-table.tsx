@@ -101,6 +101,7 @@ export function OutboundPoLineItemsTable({
               <th className="px-2 py-2 font-semibold">Pack-Combo SKU</th>
               <th className="px-2 py-2 font-semibold">SKU Type</th>
               <th className="px-2 py-2 font-semibold">Company Code Primary</th>
+              <th className="px-2 py-2 font-semibold">Zap EAN</th>
               <th className="px-2 py-2 text-right font-semibold">Warehouse Quantity</th>
               <th className="px-2 py-2 text-right font-semibold">Demand Quantity</th>
               <th className="px-2 py-2 text-right font-semibold">Packed Quantity</th>
@@ -165,6 +166,9 @@ export function OutboundPoLineItemsTable({
                     <td className="px-2 py-2 font-mono text-xs">{str(row.pack_combo_sku_id)}</td>
                     <td className="px-2 py-2">{str(row.sku_type)}</td>
                     <td className="px-2 py-2 font-mono text-xs">{str(row.company_code_primary)}</td>
+                    <td className="px-2 py-2 font-mono text-xs tabular-nums">
+                      {str(row.zap_ean) || "—"}
+                    </td>
                     <td className="px-2 py-2 text-right tabular-nums">
                       {listing ? num(listing.available_quantity) : "—"}
                     </td>
@@ -184,7 +188,7 @@ export function OutboundPoLineItemsTable({
                   {expanded ? (
                     <tr className="bg-muted/30 border-b">
                       <td
-                        colSpan={showImages ? 15 : 14}
+                        colSpan={showImages ? 16 : 15}
                         className="px-4 py-3 text-sm leading-relaxed"
                       >
                         <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -195,6 +199,18 @@ export function OutboundPoLineItemsTable({
                           <div>
                             <dt className="text-muted-foreground text-xs">Company Code Secondary</dt>
                             <dd className="font-mono text-xs">{str(row.company_code_secondary)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground text-xs">Zap EAN</dt>
+                            <dd className="font-mono text-xs tabular-nums">
+                              {str(row.zap_ean) || "—"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground text-xs">Universal EAN</dt>
+                            <dd className="font-mono text-xs tabular-nums">
+                              {str(row.universal_ean) || "—"}
+                            </dd>
                           </div>
                           <div>
                             <dt className="text-muted-foreground text-xs">HSN</dt>

@@ -204,4 +204,11 @@ else
   log "Skipping sync:grn:details:all"
 fi
 
+if [[ "${SKIP_OPS_METRICS:-0}" -eq 0 ]]; then
+  log "Phase 6: ops SKU PO metrics (derived refresh, no eAutomate)"
+  run_npm refresh:ops-sku-po-metrics
+else
+  log "Skipping refresh:ops-sku-po-metrics (--skip-ops-metrics)"
+fi
+
 log "=== eAutomate full sync finished ==="

@@ -24,22 +24,17 @@ import { fileURLToPath } from "url";
 import pg from "pg";
 import { executeVendorSync } from "./lib/eautomateVendorUpsert.mjs";
 import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
+import {
+  configureSyncPgSession,
+  isRetryableSyncDbError,
+  resolveSyncDatabaseUrl,
+} from "./lib/syncDatabaseUrl.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** Server / pooler closed the socket (Supabase idle timeout, restarts, etc.). */
 function isConnectionError(err) {
-  if (!err) return false;
-  const msg = String(err.message || err);
-  const code = err.code;
-  return (
-    /Connection terminated unexpectedly/i.test(msg) ||
-    /connection.*closed/i.test(msg) ||
-    /ECONNRESET|ETIMEDOUT|EPIPE|57P01|08006|08003/i.test(msg) ||
-    code === "ECONNRESET" ||
-    code === "EPIPE" ||
-    code === "ETIMEDOUT"
-  );
+  return isRetryableSyncDbError(err);
 }
 
 async function openPgClient(connectionString) {
@@ -52,6 +47,7 @@ async function openPgClient(connectionString) {
     console.error("[pg] client error (often idle disconnect):", err.message || err);
   });
   await c.connect();
+  await configureSyncPgSession(c);
   return c;
 }
 
@@ -142,7 +138,7 @@ async function main() {
   dotenv.config({ path: path.join(webRoot, ".env.local") });
   dotenv.config({ path: path.join(webRoot, ".env") });
 
-  const url = process.env.DATABASE_URL;
+  const url = resolveSyncDatabaseUrl(process.env.DATABASE_URL);
   if (!url) {
     console.error("DATABASE_URL is not set");
     process.exit(1);
@@ -231,14 +227,14 @@ async function main() {
 
   for (const vid of ids) {
     let attempt = 0;
-    const maxAttempts = 2;
+    const maxAttempts = 4;
     while (attempt < maxAttempts) {
       attempt += 1;
       try {
         try {
           await client.query("SELECT 1");
         } catch (pingErr) {
-          if (isConnectionError(pingErr)) {
+          if (isRetryableSyncDbError(pingErr)) {
             console.warn("[pg] Reconnecting before vendor", vid, "…");
             client = await replacePgClient(client, url);
           } else {
@@ -266,8 +262,12 @@ async function main() {
         break;
       } catch (e) {
         await client.query("ROLLBACK").catch(() => {});
-        if (isConnectionError(e) && attempt < maxAttempts) {
-          console.warn(`Vendor ${vid}: DB connection lost, retrying once after reconnect…`);
+        if (isRetryableSyncDbError(e) && attempt < maxAttempts) {
+          const delayMs = attempt * 2000;
+          console.warn(
+            `Vendor ${vid}: ${e.message || e} — retry ${attempt}/${maxAttempts - 1} in ${delayMs}ms…`
+          );
+          await new Promise((r) => setTimeout(r, delayMs));
           try {
             client = await replacePgClient(client, url);
           } catch (reErr) {

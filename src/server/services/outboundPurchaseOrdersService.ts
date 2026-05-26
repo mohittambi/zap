@@ -1,5 +1,6 @@
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { enrichRowsWithZapEan } from "@/server/services/eanMappingsService";
 
 /**
  * Keys eAutomate may merge into `analytics_object` that are NOT numeric PO KPIs — e.g. form payloads
@@ -816,6 +817,8 @@ type SkuReportColumn =
   | "sku_type"
   | "company_code_primary"
   | "company_code_secondary"
+  | "zap_ean"
+  | "universal_ean"
   | "title"
   | "mrp"
   | "rate_without_tax"
@@ -846,6 +849,8 @@ const SKU_REPORT_COLUMNS: SkuReportColumn[] = [
   "sku_type",
   "company_code_primary",
   "company_code_secondary",
+  "zap_ean",
+  "universal_ean",
   "title",
   "mrp",
   "rate_without_tax",
@@ -963,20 +968,26 @@ export function paginateOutboundPoLineItemRows(opts: {
 }
 
 /** Build paginated items payload from `listings_snapshot` (used by GET …/purchase-orders/:id/items). */
-export function buildOutboundPoItemsPayloadFromSnapshot(
+export async function buildOutboundPoItemsPayloadFromSnapshot(
   snapshot: unknown,
-  opts: { page: number; limit: number; search?: string }
-): {
+  opts: {
+    page: number;
+    limit: number;
+    search?: string;
+    companyId?: number | null;
+  }
+): Promise<{
   total: number;
   current_page: number;
   per_page_count: number;
   curr_page_count: number;
   content: Record<string, unknown>[];
-} {
+}> {
   const all = extractListingsRowsFromSnapshot(snapshot);
   const filtered = filterListingsRowsBySearch(all, opts.search);
+  const enriched = await enrichRowsWithZapEan(filtered, opts.companyId ?? null);
   return paginateOutboundPoLineItemRows({
-    rows: filtered,
+    rows: enriched,
     page: opts.page,
     limit: opts.limit,
   });

@@ -17,6 +17,10 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
+import {
+  TripletDatePicker,
+  formatUtcDateOnly,
+} from "@/components/outbound/triplet-date-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -34,7 +38,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import { cn } from "@/lib/utils";
 import {
@@ -255,8 +258,7 @@ function InboundVendorHubBody() {
 
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createSubmitting, setCreateSubmitting] = React.useState(false);
-  const [expectedDateDraft, setExpectedDateDraft] = React.useState("");
-  const [expectedDateConfirmed, setExpectedDateConfirmed] = React.useState("");
+  const [expectedDate, setExpectedDate] = React.useState<Date | null>(null);
   const [poRemarks, setPoRemarks] = React.useState("");
   const [lineDrafts, setLineDrafts] = React.useState<PoLineDraft[]>(() => [
     { key: crypto.randomUUID(), sku_id: "", quantity: "1" },
@@ -335,8 +337,7 @@ function InboundVendorHubBody() {
   }, [createOpen, loadSkusForDialog]);
 
   const resetCreateForm = () => {
-    setExpectedDateDraft("");
-    setExpectedDateConfirmed("");
+    setExpectedDate(null);
     setPoRemarks("");
     setLineDrafts([{ key: crypto.randomUUID(), sku_id: "", quantity: "1" }]);
   };
@@ -384,8 +385,8 @@ function InboundVendorHubBody() {
   };
 
   const submitCreatePo = async () => {
-    if (!expectedDateConfirmed.trim()) {
-      toast.error("Set the expected delivery date using Set");
+    if (!expectedDate) {
+      toast.error("Set the expected delivery date using Year / Month / Day, then the button.");
       return;
     }
     const lines: { sku_id: string; quantity: number }[] = [];
@@ -410,7 +411,7 @@ function InboundVendorHubBody() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendor_id: Number(id),
-          expected_date: expectedDateConfirmed.trim(),
+          expected_date: formatUtcDateOnly(expectedDate),
           po_remarks: poRemarks.trim() || undefined,
           lines,
         }),
@@ -682,40 +683,13 @@ function InboundVendorHubBody() {
             </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 min-w-0">
-            <div className="space-y-2">
-              <Label htmlFor="po-exp">Expected Delivery Date</Label>
-              <div className="flex flex-wrap items-end gap-2">
-                <Input
-                  id="po-exp"
-                  className="min-w-[10rem] flex-1"
-                  type="date"
-                  value={expectedDateDraft}
-                  onChange={(e) => setExpectedDateDraft(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    if (!expectedDateDraft.trim()) {
-                      toast.error("Choose a date first");
-                      return;
-                    }
-                    setExpectedDateConfirmed(expectedDateDraft.trim());
-                  }}
-                >
-                  Set
-                </Button>
-              </div>
-              {expectedDateConfirmed ? (
-                <Badge variant="outline" className="border-green-600/60 text-green-700 dark:text-green-400">
-                  Expected delivery: {expectedDateConfirmed}
-                </Badge>
-              ) : (
-                <p className="text-muted-foreground text-xs">
-                  Pick a date, then click Set to confirm.
-                </p>
-              )}
-            </div>
+            <TripletDatePicker
+              title="Expected Delivery Date"
+              value={expectedDate}
+              onSet={setExpectedDate}
+              setButtonLabel="Set expected delivery date"
+              embedded
+            />
             <div className="space-y-1.5">
               <Label htmlFor="po-rm">PO remarks</Label>
               <textarea
