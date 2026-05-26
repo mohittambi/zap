@@ -250,6 +250,103 @@ export type RecomputeMeta = {
   source_sync_watermark: Date | null;
 };
 
+/** All configured sales channels for grid columns (EAN config, else all companies). */
+export async function listOpsSkuPoCompanyColumns(): Promise<OpsCompanyOutboundColumn[]> {
+  const r = await query(
+    `SELECT c.id AS company_id,
+            COALESCE(NULLIF(TRIM(cfg.label), ''), c.name) AS name
+       FROM company_ean_column_config cfg
+       INNER JOIN companies c ON c.id = cfg.company_id
+      ORDER BY COALESCE(NULLIF(TRIM(cfg.label), ''), c.name) ASC NULLS LAST, c.id ASC`,
+    []
+  );
+  if (r.rows.length > 0) {
+    return (r.rows as { company_id: number; name: string }[]).map((row) => ({
+      company_id: Number(row.company_id),
+      name: String(row.name).trim() || `Company ${row.company_id}`,
+      column_key: companyOutboundColumnKey(Number(row.company_id)),
+    }));
+  }
+  const fallback = await query(
+    `SELECT id AS company_id, name FROM companies ORDER BY name ASC NULLS LAST, id ASC`,
+    []
+  );
+  return (fallback.rows as { company_id: number; name: string }[]).map((row) => ({
+    company_id: Number(row.company_id),
+    name: String(row.name).trim() || `Company ${row.company_id}`,
+    column_key: companyOutboundColumnKey(Number(row.company_id)),
+  }));
+}
+
+export function mergeOpsSkuPoCompanyColumns(
+  configured: OpsCompanyOutboundColumn[],
+  fromOpenPos: OpsCompanyOutboundColumn[]
+): OpsCompanyOutboundColumn[] {
+  const byId = new Map<number, OpsCompanyOutboundColumn>();
+  for (const c of configured) byId.set(c.company_id, c);
+  for (const c of fromOpenPos) {
+    if (!byId.has(c.company_id)) byId.set(c.company_id, c);
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function emptyCompanyOutbound(): OpsSkuPoCompanyOutbound {
+  return {
+    open_actual_po_qty: 0,
+    open_po_qty_sent: 0,
+    total_pending: 0,
+    open_po_fill_rate_pct: null,
+  };
+}
+
+/** Ensure every configured company key exists on the row (zeros when no PO activity). */
+export function normalizeRowOutboundByCompany(
+  row: OpsSkuPoControlRow,
+  companies: OpsCompanyOutboundColumn[]
+): OpsSkuPoControlRow {
+  if (companies.length === 0) return row;
+  const outbound_by_company = { ...row.outbound_by_company };
+  for (const c of companies) {
+    if (!outbound_by_company[c.column_key]) {
+      outbound_by_company[c.column_key] = emptyCompanyOutbound();
+    }
+  }
+  return { ...row, outbound_by_company };
+}
+
+async function getSourceSyncWatermark(): Promise<Date | null> {
+  const watermarkR = await query(
+    `SELECT GREATEST(
+       (SELECT MAX(eautomate_synced_at) FROM outbound_purchase_orders),
+       (SELECT MAX(updated_at) FROM vendor_purchase_orders),
+       (SELECT MAX(synced_at) FROM inbound_po_detail_snapshot)
+     ) AS wm`,
+    []
+  );
+  const wm = watermarkR.rows[0]?.wm;
+  return wm != null ? new Date(wm as string) : null;
+}
+
+function cacheRowsMissingPerCompany(rows: OpsSkuPoControlRow[]): boolean {
+  return rows.some(
+    (r) =>
+      (r.open_actual_po_qty > 0 || r.total_pending > 0) &&
+      Object.keys(r.outbound_by_company).length === 0
+  );
+}
+
+function isCacheStaleVsWatermark(
+  cachedWatermark: Date | string | null,
+  currentWatermark: Date | null
+): boolean {
+  if (!currentWatermark) return false;
+  if (!cachedWatermark) return true;
+  const cachedMs = new Date(cachedWatermark).getTime();
+  const currentMs = currentWatermark.getTime();
+  if (!Number.isFinite(cachedMs) || !Number.isFinite(currentMs)) return false;
+  return currentMs > cachedMs;
+}
+
 /** Live aggregation from source tables (single source of truth). */
 export async function recomputeOpsMasterSkuPoMetrics(): Promise<{
   rows: OpsSkuPoControlRow[];
@@ -319,13 +416,15 @@ export async function recomputeOpsMasterSkuPoMetrics(): Promise<{
     }
   }
 
-  const companies: OpsCompanyOutboundColumn[] = [...companyNames.entries()]
-    .sort((a, b) => a[1].localeCompare(b[1]))
-    .map(([company_id, name]) => ({
+  const fromOpenPos: OpsCompanyOutboundColumn[] = [...companyNames.entries()].map(
+    ([company_id, name]) => ({
       company_id,
       name,
       column_key: companyOutboundColumnKey(company_id),
-    }));
+    })
+  );
+  const configured = await listOpsSkuPoCompanyColumns();
+  const companies = mergeOpsSkuPoCompanyColumns(configured, fromOpenPos);
 
   const inboundCountR = await query(
     `SELECT COUNT(*)::int AS c FROM vendor_purchase_orders po WHERE ${OPEN_INBOUND_VENDOR_PO_SQL}`,
@@ -400,16 +499,7 @@ export async function recomputeOpsMasterSkuPoMetrics(): Promise<{
     a.app_stock = Number(row.app_stock) || 0;
   }
 
-  const watermarkR = await query(
-    `SELECT GREATEST(
-       (SELECT MAX(eautomate_synced_at) FROM outbound_purchase_orders),
-       (SELECT MAX(updated_at) FROM vendor_purchase_orders),
-       (SELECT MAX(synced_at) FROM inbound_po_detail_snapshot)
-     ) AS wm`,
-    []
-  );
-  const wm = watermarkR.rows[0]?.wm;
-  const sourceSyncWatermark = wm != null ? new Date(wm as string) : null;
+  const sourceSyncWatermark = await getSourceSyncWatermark();
 
   const rows = [...bySku.entries()]
     .map(([sku, a]) => {
@@ -498,17 +588,24 @@ async function readCachedRows(): Promise<{
   companies: OpsCompanyOutboundColumn[];
   computed_at: string | null;
   fresh: boolean;
+  source_sync_watermark: Date | string | null;
 }> {
   const r = await query(
     `SELECT master_sku, open_actual_po_qty, open_po_qty_sent, total_pending,
             open_po_fill_rate_pct, order_placed_by_ops, app_stock, order_place_pending,
-            computed_at, meta
+            computed_at, source_sync_watermark, meta
      FROM ops_master_sku_po_metrics
      ORDER BY master_sku`,
     []
   );
   if (r.rows.length === 0) {
-    return { rows: [], companies: [], computed_at: null, fresh: false };
+    return {
+      rows: [],
+      companies: [],
+      computed_at: null,
+      fresh: false,
+      source_sync_watermark: null,
+    };
   }
   const computedAt = r.rows[0]?.computed_at as Date | string | null;
   const computedMs = computedAt ? new Date(computedAt).getTime() : 0;
@@ -539,23 +636,45 @@ async function readCachedRows(): Promise<{
     };
   });
 
+  const sourceSyncWatermark = r.rows[0]?.source_sync_watermark as Date | string | null;
+
   return {
     rows,
     companies,
     computed_at: computedAt ? new Date(computedAt).toISOString() : null,
     fresh,
+    source_sync_watermark: sourceSyncWatermark,
   };
 }
 
-function sortValueForRow(row: OpsSkuPoControlRow, sortKey: string): string | number {
+export function sortValueForRow(row: OpsSkuPoControlRow, sortKey: string): string | number {
   if (sortKey === "master_sku") return row.master_sku;
   if (sortKey.startsWith("outbound_pending_")) {
     return row.outbound_by_company[sortKey]?.total_pending ?? 0;
+  }
+  if (sortKey.startsWith("outbound_open_")) {
+    const companyId = Number(sortKey.slice("outbound_open_".length));
+    const colKey = companyOutboundColumnKey(companyId);
+    return row.outbound_by_company[colKey]?.open_actual_po_qty ?? 0;
+  }
+  if (sortKey.startsWith("outbound_sent_")) {
+    const companyId = Number(sortKey.slice("outbound_sent_".length));
+    const colKey = companyOutboundColumnKey(companyId);
+    return row.outbound_by_company[colKey]?.open_po_qty_sent ?? 0;
   }
   const v = row[sortKey as keyof OpsSkuPoControlRow];
   if (v == null) return -Infinity;
   if (typeof v === "object") return 0;
   return typeof v === "number" ? v : String(v);
+}
+
+function isOpsSkuPoSortKey(sort: string): boolean {
+  return (
+    Boolean(OPS_SKU_PO_SORT_COLUMNS[sort]) ||
+    sort.startsWith("outbound_pending_") ||
+    sort.startsWith("outbound_open_") ||
+    sort.startsWith("outbound_sent_")
+  );
 }
 
 function filterAndSortRows(
@@ -582,10 +701,7 @@ function filterAndSortRows(
   }
 
   const sortKey =
-    opts.sort &&
-    (OPS_SKU_PO_SORT_COLUMNS[opts.sort] || opts.sort.startsWith("outbound_pending_"))
-      ? opts.sort
-      : "total_pending";
+    opts.sort && isOpsSkuPoSortKey(opts.sort) ? opts.sort : "total_pending";
   const dir = opts.sortDir === "asc" ? 1 : -1;
   out = [...out].sort((a, b) => {
     const av = sortValueForRow(a, sortKey);
@@ -620,9 +736,27 @@ export async function listOpsSkuPoControlPaginated(opts: {
 
   const cached = useCache
     ? await readCachedRows()
-    : { rows: [], companies: [], computed_at: null, fresh: false };
+    : {
+        rows: [],
+        companies: [],
+        computed_at: null,
+        fresh: false,
+        source_sync_watermark: null,
+      };
 
-  if (cached.fresh && cached.rows.length > 0) {
+  let useCachedRows = cached.fresh && cached.rows.length > 0;
+
+  if (useCachedRows) {
+    const currentWatermark = await getSourceSyncWatermark();
+    if (
+      cacheRowsMissingPerCompany(cached.rows) ||
+      isCacheStaleVsWatermark(cached.source_sync_watermark, currentWatermark)
+    ) {
+      useCachedRows = false;
+    }
+  }
+
+  if (useCachedRows) {
     allRows = cached.rows;
     companies = cached.companies;
     computedFromCache = true;
@@ -632,7 +766,9 @@ export async function listOpsSkuPoControlPaginated(opts: {
       open_inbound_po_count: 0,
       pos_without_snapshot: 0,
       unmapped_inbound_line_count: 0,
-      source_sync_watermark: null,
+      source_sync_watermark: cached.source_sync_watermark
+        ? new Date(cached.source_sync_watermark)
+        : null,
     };
     const metaR = await query(
       `SELECT meta FROM ops_master_sku_po_metrics LIMIT 1`,
@@ -655,6 +791,11 @@ export async function listOpsSkuPoControlPaginated(opts: {
     meta = live.meta;
   }
 
+  const configuredColumns = await listOpsSkuPoCompanyColumns();
+  companies = mergeOpsSkuPoCompanyColumns(configuredColumns, companies);
+
+  allRows = allRows.map((row) => normalizeRowOutboundByCompany(row, companies));
+
   const filtered = filterAndSortRows(allRows, opts);
   const total = filtered.length;
   const offset = (opts.page - 1) * opts.limit;
@@ -671,6 +812,7 @@ export async function listOpsSkuPoControlPaginated(opts: {
     meta: {
       computed_from_cache: computedFromCache,
       cache_computed_at: cacheComputedAt,
+      data_source: computedFromCache ? "cache" : "live",
       open_outbound_po_count: meta.open_outbound_po_count,
       open_inbound_po_count: meta.open_inbound_po_count,
       pos_without_snapshot: meta.pos_without_snapshot,
@@ -690,7 +832,10 @@ export async function getOpsSkuPoControlDetail(
 }> {
   const sku = masterSku.trim();
   const live = await recomputeOpsMasterSkuPoMetrics();
-  const totals = live.rows.find((r) => r.master_sku === sku) ?? null;
+  const configuredColumns = await listOpsSkuPoCompanyColumns();
+  const companies = mergeOpsSkuPoCompanyColumns(configuredColumns, live.companies);
+  const rawTotals = live.rows.find((r) => r.master_sku === sku) ?? null;
+  const totals = rawTotals ? normalizeRowOutboundByCompany(rawTotals, companies) : null;
 
   const outbound_lines: OpsSkuPoOutboundLine[] = [];
   const outboundR = await query(
@@ -778,7 +923,7 @@ export async function getOpsSkuPoControlDetail(
     });
   }
 
-  return { master_sku: sku, totals, outbound_lines, inbound_lines, companies: live.companies };
+  return { master_sku: sku, totals, outbound_lines, inbound_lines, companies };
 }
 
 export function opsSkuPoControlRowsToCsv(

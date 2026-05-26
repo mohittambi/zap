@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
@@ -9,7 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OpsSkuPoControlTable } from "@/components/ops/ops-sku-po-control-table";
 import type { DataTableSort, DataTableSortDir } from "@/components/data-table";
-import type { OpsSkuPoControlListResult } from "@/types/opsSkuPoControl";
+import type {
+  OpsSkuPoControlListResult,
+  OpsSkuPoMetricsRefreshResult,
+} from "@/types/opsSkuPoControl";
+import { cn } from "@/lib/utils";
+
+type LoadMode = "cache" | "live";
 
 export default function OpsSkuPoControlPage() {
   const [draftSearch, setDraftSearch] = React.useState("");
@@ -22,34 +29,76 @@ export default function OpsSkuPoControlPage() {
   });
   const [data, setData] = React.useState<OpsSkuPoControlListResult | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [rebuilding, setRebuilding] = React.useState(false);
+  const [lastLoadMode, setLastLoadMode] = React.useState<LoadMode>("cache");
+  const [cacheRebuiltAt, setCacheRebuiltAt] = React.useState<string | null>(null);
+  const [liveLoadedAt, setLiveLoadedAt] = React.useState<string | null>(null);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const q = new URLSearchParams({
-        page: String(page),
-        limit: "50",
-      });
-      if (search.trim()) q.set("search", search.trim());
-      if (onlyPlacePending) q.set("only_place_pending", "true");
-      if (sort) {
-        q.set("sort", sort.columnId);
-        q.set("sort_dir", sort.dir);
+  const load = React.useCallback(
+    async (opts?: { live?: boolean }) => {
+      const live = opts?.live === true;
+      setLoading(true);
+      try {
+        const q = new URLSearchParams({
+          page: String(page),
+          limit: "50",
+        });
+        if (search.trim()) q.set("search", search.trim());
+        if (onlyPlacePending) q.set("only_place_pending", "true");
+        if (sort) {
+          q.set("sort", sort.columnId);
+          q.set("sort_dir", sort.dir);
+        }
+        if (live) q.set("live", "1");
+
+        const res = await apiFetch<OpsSkuPoControlListResult>(
+          `/api/ops/sku-po-control?${q}`
+        );
+        setData(res);
+        setLastLoadMode(live ? "live" : "cache");
+        if (live) {
+          setLiveLoadedAt(new Date().toISOString());
+          setCacheRebuiltAt(null);
+        } else if (!cacheRebuiltAt) {
+          setLiveLoadedAt(null);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to load SKU PO control");
+        setData(null);
+      } finally {
+        setLoading(false);
       }
-      const res = await apiFetch<OpsSkuPoControlListResult>(
-        `/api/ops/sku-po-control?${q}`
-      );
-      setData(res);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load SKU PO control");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, onlyPlacePending, sort]);
+    },
+    [page, search, onlyPlacePending, sort]
+  );
 
   React.useEffect(() => {
     void load();
+  }, [load]);
+
+  const handleRefreshLive = React.useCallback(async () => {
+    await load({ live: true });
+    toast.success("Live data loaded (matches SKU detail modal)");
+  }, [load]);
+
+  const handleRebuildCache = React.useCallback(async () => {
+    setRebuilding(true);
+    try {
+      const result = await apiFetch<OpsSkuPoMetricsRefreshResult>(
+        "/api/ops/sku-po-control/refresh",
+        { method: "POST" }
+      );
+      setCacheRebuiltAt(result.computed_at);
+      setLiveLoadedAt(null);
+      toast.success(
+        `Cache rebuilt · ${result.row_count.toLocaleString("en-IN")} SKUs at ${new Date(result.computed_at).toLocaleString()}`
+      );
+      await load({ live: false });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to rebuild cache");
+    } finally {
+      setRebuilding(false);
+    }
   }, [load]);
 
   const handleSortChange = React.useCallback(
@@ -74,6 +123,22 @@ export default function OpsSkuPoControlPage() {
     }
     window.open(`/api/ops/sku-po-control/export?${q}`, "_blank");
   }, [search, onlyPlacePending, sort]);
+
+  const statusLine = React.useMemo(() => {
+    if (cacheRebuiltAt) {
+      return `Cache rebuilt · ${new Date(cacheRebuiltAt).toLocaleString()}`;
+    }
+    if (lastLoadMode === "live" && liveLoadedAt) {
+      return `Live · ${new Date(liveLoadedAt).toLocaleString()}`;
+    }
+    if (data?.meta.cache_computed_at) {
+      return `Cached · ${new Date(data.meta.cache_computed_at).toLocaleString()}`;
+    }
+    if (data?.meta.data_source === "live") {
+      return "Live-computed";
+    }
+    return null;
+  }, [cacheRebuiltAt, lastLoadMode, liveLoadedAt, data?.meta]);
 
   const toolbar = (
     <div className="flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
@@ -108,7 +173,7 @@ export default function OpsSkuPoControlPage() {
           Needs placement only
         </Label>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           className="min-h-11"
           onClick={() => {
@@ -131,6 +196,8 @@ export default function OpsSkuPoControlPage() {
             setOnlyPlacePending(false);
             setPage(1);
             setSort({ columnId: "total_pending", dir: "desc" });
+            setCacheRebuiltAt(null);
+            setLiveLoadedAt(null);
           }}
         >
           Reset
@@ -140,11 +207,48 @@ export default function OpsSkuPoControlPage() {
   );
 
   return (
-    <div className="space-y-4">
-      <AppPageTitle
-        title="SKU PO Control"
-        description="eAutomate sync upserts Postgres by primary key (safe to re-run — no duplicate POs/GRNs); metrics refresh rebuilds the 6h cache. Reload after sync."
-      />
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <AppPageTitle
+          title="SKU PO Control"
+          description="Refresh loads live data (same as row detail). Rebuild cache after sync for faster paging; cache auto-invalidates when synced data changes."
+          className="mb-0"
+        />
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {statusLine ? (
+            <span className="text-muted-foreground hidden text-xs sm:inline">
+              {statusLine}
+            </span>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-11 shrink-0"
+            aria-label="Refresh live data"
+            disabled={loading || rebuilding}
+            onClick={() => void handleRefreshLive()}
+          >
+            <RefreshCw
+              className={cn("size-4", loading && lastLoadMode === "live" && "animate-spin")}
+            />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            disabled={loading || rebuilding}
+            onClick={() => void handleRebuildCache()}
+          >
+            {rebuilding ? "Rebuilding…" : "Rebuild cache"}
+          </Button>
+        </div>
+      </div>
+
+      {statusLine ? (
+        <p className="text-muted-foreground text-xs sm:hidden">{statusLine}</p>
+      ) : null}
+
       <OpsSkuPoControlTable
         data={data}
         loading={loading}
@@ -154,6 +258,8 @@ export default function OpsSkuPoControlPage() {
         onPageChange={setPage}
         toolbar={toolbar}
         phase={2}
+        dataSource={data?.meta.data_source}
+        statusLine={statusLine}
       />
     </div>
   );

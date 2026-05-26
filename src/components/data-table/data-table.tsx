@@ -31,6 +31,9 @@ export type DataTableProps<T> = {
   pagination?: DataTablePaginationProps;
   stickyFirstColumn?: boolean;
   className?: string;
+  tableClassName?: string;
+  onRowClick?: (row: T) => void;
+  rowClassName?: string | ((row: T) => string);
 };
 
 export function DataTable<T>({
@@ -44,18 +47,29 @@ export function DataTable<T>({
   pagination,
   stickyFirstColumn = false,
   className,
+  tableClassName,
+  onRowClick,
+  rowClassName,
 }: DataTableProps<T>) {
   const colCount = columns.length;
 
+  const handleRowClick = (row: T, e: React.MouseEvent<HTMLTableRowElement>) => {
+    if (!onRowClick) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("a,button,input,select,textarea,[role='button']")) return;
+    onRowClick(row);
+  };
+
   return (
     <div className={cn("overflow-x-auto", className)}>
-      <Table>
+      <Table className={tableClassName}>
         <TableHeader>
           <TableRow className="bg-muted/60 hover:bg-muted/60">
             {columns.map((col, idx) => (
               <TableHead
                 key={col.id}
                 className={cn(
+                  "px-3 py-2.5",
                   col.headerClassName,
                   stickyFirstColumn &&
                     idx === 0 &&
@@ -96,11 +110,19 @@ export function DataTable<T>({
             </TableRow>
           ) : (
             data.map((row) => (
-              <TableRow key={rowKey(row)}>
+              <TableRow
+                key={rowKey(row)}
+                className={cn(
+                  onRowClick && "cursor-pointer hover:bg-muted/60",
+                  typeof rowClassName === "function" ? rowClassName(row) : rowClassName
+                )}
+                onClick={onRowClick ? (e) => handleRowClick(row, e) : undefined}
+              >
                 {columns.map((col, idx) => (
                   <TableCell
                     key={col.id}
                     className={cn(
+                      "px-3 py-2.5",
                       col.className,
                       stickyFirstColumn &&
                         idx === 0 &&

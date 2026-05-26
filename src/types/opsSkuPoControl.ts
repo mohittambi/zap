@@ -42,6 +42,19 @@ export type OpsSkuPoControlListResult = {
   meta: {
     computed_from_cache: boolean;
     cache_computed_at: string | null;
+    /** Whether this response used the metrics cache or live recompute. */
+    data_source: "cache" | "live";
+    open_outbound_po_count: number;
+    open_inbound_po_count: number;
+    pos_without_snapshot: number;
+    unmapped_inbound_line_count: number;
+  };
+};
+
+export type OpsSkuPoMetricsRefreshResult = {
+  row_count: number;
+  computed_at: string;
+  meta: {
     open_outbound_po_count: number;
     open_inbound_po_count: number;
     pos_without_snapshot: number;
@@ -51,4 +64,12 @@ export type OpsSkuPoControlListResult = {
 
 export function companyOutboundColumnKey(companyId: number): string {
   return `outbound_pending_${companyId}`;
+}
+
+export function companyOutboundOpenColumnKey(companyId: number): string {
+  return `outbound_open_${companyId}`;
+}
+
+export function companyOutboundSentColumnKey(companyId: number): string {
+  return `outbound_sent_${companyId}`;
 }

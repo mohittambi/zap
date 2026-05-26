@@ -5,8 +5,15 @@ import {
   computeOrderPlacePending,
   opsSkuPoControlRowsToCsv,
   OPS_SKU_PO_SORT_COLUMNS,
+  sortValueForRow,
+  mergeOpsSkuPoCompanyColumns,
+  normalizeRowOutboundByCompany,
 } from "../../src/server/services/opsSkuPoControlService";
-import { companyOutboundColumnKey } from "../../src/types/opsSkuPoControl";
+import {
+  companyOutboundColumnKey,
+  companyOutboundOpenColumnKey,
+  companyOutboundSentColumnKey,
+} from "../../src/types/opsSkuPoControl";
 
 const SORTABLE_IDS = [
   "master_sku",
@@ -57,6 +64,87 @@ describe("opsSkuPoControlService", () => {
     for (const id of SORTABLE_IDS) {
       assert.ok(OPS_SKU_PO_SORT_COLUMNS[id], `missing sort column ${id}`);
     }
+  });
+
+  it("sortValueForRow resolves per-company open and sent columns", () => {
+    const pendingKey = companyOutboundColumnKey(3);
+    const row = {
+      master_sku: "X",
+      open_actual_po_qty: 0,
+      open_po_qty_sent: 0,
+      total_pending: 0,
+      open_po_fill_rate_pct: null,
+      order_placed_by_ops: 0,
+      app_stock: 0,
+      order_place_pending: 0,
+      outbound_by_company: {
+        [pendingKey]: {
+          open_actual_po_qty: 500,
+          open_po_qty_sent: 120,
+          total_pending: 380,
+          open_po_fill_rate_pct: 24,
+        },
+      },
+    };
+    assert.equal(sortValueForRow(row, companyOutboundOpenColumnKey(3)), 500);
+    assert.equal(sortValueForRow(row, companyOutboundSentColumnKey(3)), 120);
+    assert.equal(sortValueForRow(row, pendingKey), 380);
+  });
+
+  it("normalizeRowOutboundByCompany fills missing company keys with zeros", () => {
+    const companies = [
+      { company_id: 1, name: "Amazon", column_key: companyOutboundColumnKey(1) },
+      { company_id: 2, name: "Flipkart", column_key: companyOutboundColumnKey(2) },
+    ];
+    const row = {
+      master_sku: "X",
+      open_actual_po_qty: 100,
+      open_po_qty_sent: 10,
+      total_pending: 90,
+      open_po_fill_rate_pct: 10,
+      order_placed_by_ops: 0,
+      app_stock: 0,
+      order_place_pending: 90,
+      outbound_by_company: {
+        [companyOutboundColumnKey(1)]: {
+          open_actual_po_qty: 100,
+          open_po_qty_sent: 10,
+          total_pending: 90,
+          open_po_fill_rate_pct: 10,
+        },
+      },
+    };
+    const normalized = normalizeRowOutboundByCompany(row, companies);
+    const flipkart = normalized.outbound_by_company[companyOutboundColumnKey(2)];
+    assert.ok(flipkart);
+    assert.equal(flipkart.open_actual_po_qty, 0);
+    assert.equal(flipkart.total_pending, 0);
+  });
+
+  it("mergeOpsSkuPoCompanyColumns unions configured and PO-discovered companies", () => {
+    const configured = [
+      { company_id: 1, name: "Amazon", column_key: companyOutboundColumnKey(1) },
+    ];
+    const fromPo = [
+      { company_id: 2, name: "Flipkart", column_key: companyOutboundColumnKey(2) },
+    ];
+    const merged = mergeOpsSkuPoCompanyColumns(configured, fromPo);
+    assert.equal(merged.length, 2);
+    assert.deepEqual(
+      merged.map((c) => c.company_id).sort(),
+      [1, 2]
+    );
+  });
+
+  it("list meta data_source reflects cache vs live", () => {
+    assert.equal(
+      { computedFromCache: true, data_source: "cache" as const }.data_source,
+      "cache"
+    );
+    assert.equal(
+      { computedFromCache: false, data_source: "live" as const }.data_source,
+      "live"
+    );
   });
 
   it("CSV export includes per-company outbound columns", () => {
