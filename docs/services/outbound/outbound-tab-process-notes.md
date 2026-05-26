@@ -45,9 +45,11 @@ If your training narrative describes “submit first, then download a template, 
 
 ## III. Item Details Upload
 
-- Use the **sample line-items format** linked from the PO detail page: [`/samples/outbound/sample_po_line_items_spreadsheet.csv`](../../../public/samples/outbound/sample_po_line_items_spreadsheet.csv) (or the channel’s own spreadsheet that matches the parser).
-- Fill with item details, item codes (**PO Secondary SKU** and related columns per sample), quantities, tax columns as applicable, etc.
-- On **PO detail** (`/outbound/po/[id]`), upload a **spreadsheet or PDF** via the **Attachments** flow; **`POST /api/outbound/purchase-orders/[id]/attachments`** parses spreadsheets through [`parseOutboundPoLineItemsSpreadsheet`](../../../src/server/utils/outboundPoListingSpreadsheetParse.ts) and can refresh **`listingsUpdated`** on success toast.
+- Use the **sample line-items format** linked from the PO detail page: [`/samples/outbound/sample_po_line_items_spreadsheet.csv`](../../../public/samples/outbound/sample_po_line_items_spreadsheet.csv) (vendor headers: Item Code, HSN Code, IGST %, Quantity, MRP, Landing Rate, Margin %, Total Amount—or the channel’s own spreadsheet that matches the parser).
+- Fill with item details, item codes, HSN, GST/IGST rate, quantities, and commercial columns per sample.
+- On **create** (`/outbound/new`), **Original PO files** (PDF + spreadsheet) are stored as Zap attachments and listed on detail under **Original PO documents** (source **Zap**).
+- On **PO detail** (`/outbound/po/[id]`), use **Add PO document** in the same section for more uploads; **`POST /api/outbound/purchase-orders/[id]/attachments`** parses spreadsheets through [`parseOutboundPoLineItemsSpreadsheet`](../../../src/server/utils/outboundPoListingSpreadsheetParse.ts) and can refresh **`listingsUpdated`** on success toast.
+- After **`npm run sync:outbound-po-detail`**, eAutomate originals appear in **Original PO documents** (source **eAutomate**); SKU lines and summary can come from eAutomate listings sync.
 
 After line data is reflected, the PO appears in **All Purchase Orders** (`/outbound`).
 

@@ -19,12 +19,21 @@ export type ZapEanLookup = {
   ean_type: string;
 };
 
-/** Internal SKU keys for `company_ean_mappings` (Excel SKU Code column). */
+/** Keys used to resolve `company_ean_mappings` for a PO line item. */
 export function mappingSkuKeysFromRow(row: Record<string, unknown>): string[] {
   const keys: string[] = [];
   for (const field of ["master_sku", "inventory_sku_id", "sku_code"]) {
     const v = row[field];
     if (v != null && String(v).trim()) keys.push(String(v).trim());
+  }
+  /** Blinkit / marketplace PO spreadsheets: item code is stored in `zap_ean` on the mapping row. */
+  const secondary = row.po_secondary_sku;
+  if (secondary != null && String(secondary).trim()) {
+    keys.push(String(secondary).trim());
+  }
+  const upc = row.product_upc;
+  if (upc != null && String(upc).trim()) {
+    keys.push(String(upc).trim());
   }
   return [...new Set(keys)];
 }
@@ -84,16 +93,26 @@ export async function batchGetZapEanByCompany(opts: {
   const r = await query(
     `SELECT sku_code, zap_ean, universal_ean, ean_type
        FROM company_ean_mappings
-      WHERE company_id = $1 AND sku_code = ANY($2::text[])`,
+      WHERE company_id = $1
+        AND (
+          sku_code = ANY($2::text[])
+          OR zap_ean = ANY($2::text[])
+          OR universal_ean = ANY($2::text[])
+        )`,
     [companyId, codes]
   );
   for (const row of r.rows) {
-    const sku = String(row.sku_code);
-    map.set(sku, {
+    const hit: ZapEanLookup = {
       channel_ean: row.zap_ean != null ? String(row.zap_ean) : "",
       universal_ean: row.universal_ean != null ? String(row.universal_ean) : "",
       ean_type: row.ean_type != null ? String(row.ean_type) : "",
-    });
+    };
+    const sku = String(row.sku_code).trim();
+    if (sku) map.set(sku, hit);
+    const channel = hit.channel_ean.trim();
+    if (channel) map.set(channel, hit);
+    const universal = hit.universal_ean.trim();
+    if (universal) map.set(universal, hit);
   }
   return map;
 }
@@ -110,7 +129,9 @@ export function mergeZapEanIntoRows(
       hit = lookup.get(k);
       if (hit) break;
     }
-    const companyPrimary = String(row.company_code_primary ?? "");
+    const companyPrimary = String(
+      row.company_code_primary ?? row.po_secondary_sku ?? ""
+    );
     return {
       ...row,
       zap_ean: resolveZapEanDisplay(companyPrimary, hit),

@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
   ListingDetail,
@@ -608,7 +609,9 @@ export default function ListingDetailPage() {
                         <TableCell className="font-mono text-sm">
                           {row.po_number ?? "—"}
                         </TableCell>
-                        <TableCell>{row.company_name ?? "—"}</TableCell>
+                        <TableCell>
+                          <CompanyNameWithLogo name={row.company_name} />
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {row.demand ?? 0}
                         </TableCell>

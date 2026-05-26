@@ -11,6 +11,7 @@ import {
   PencilLine,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { apiUrl, getStoredToken } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,12 @@ import {
   OutboundPoLineItemsTable,
   type OutboundListingsEnvelope,
 } from "./outbound-po-detail-line-items-table";
+import {
+  OutboundPoAddDocumentUpload,
+  OutboundPoDocumentsSection,
+  type EaFile,
+  type ZapAtt,
+} from "./outbound-po-documents-section";
 
 type OutboundPoDetail = {
   id: number;
@@ -73,22 +80,7 @@ type OutboundPoDetail = {
   remarks: string | null;
   analytics_object: Record<string, unknown>;
   listings_snapshot?: Record<string, unknown>;
-};
-
-type EaFile = {
-  eautomate_file_id: number;
-  file_name: string;
-  file_uploaded_by: string | null;
-  created_at: string | null;
-  file_type: string | null;
-  zap_storage_path?: string | null;
-};
-
-type ZapAtt = {
-  id: number;
-  original_filename: string;
-  kind: string;
-  created_at: string | null;
+  eautomate_synced_at?: string | null;
 };
 
 type PostDispatchKind = "invoice" | "bilty" | "pod" | "return";
@@ -102,10 +94,6 @@ function postDispatchCategory(f: EaFile): PostDispatchKind | null {
   if (t.includes("bilty") || t.includes("billty") || t.includes("bilt")) return "bilty";
   if (t.includes("invoice")) return "invoice";
   return null;
-}
-
-function originalEaFiles(files: EaFile[]): EaFile[] {
-  return files.filter((f) => postDispatchCategory(f) == null);
 }
 
 function eaFilesForKind(files: EaFile[], kind: PostDispatchKind): EaFile[] {
@@ -802,13 +790,24 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         listingsUpdated?: boolean;
+        parseResult?: { rowsParsed?: number };
       };
       if (!res.ok) throw new Error(j.error ?? res.statusText);
-      toast.success(
-        j.listingsUpdated
-          ? "File uploaded and line items updated from spreadsheet."
-          : "File uploaded"
-      );
+      const isSpreadsheet =
+        file.name.toLowerCase().endsWith(".csv") ||
+        file.name.toLowerCase().endsWith(".xlsx") ||
+        file.name.toLowerCase().endsWith(".xls");
+      if (j.listingsUpdated) {
+        toast.success(
+          `File uploaded and ${j.parseResult?.rowsParsed ?? 0} line items extracted.`
+        );
+      } else if (isSpreadsheet) {
+        toast.warning(
+          "File uploaded but no line items were extracted. Check that column headers match the expected format (download the sample file for reference)."
+        );
+      } else {
+        toast.success("File uploaded");
+      }
       setFile(null);
       await load();
     } catch (e) {
@@ -1087,118 +1086,10 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
 
   const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
   const zapReady = data.zapStorageConfigured === true;
-  const originalFiles = originalEaFiles(data.eautomateFiles);
-
-  const filesTable = (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Original PO files</CardTitle>
-        {!zapReady && !data.eautomateDownloadConfigured ? (
-          <CardDescription>
-            Upload files to Zap Storage (configure Supabase keys), or set the legacy outbound file URL template on the server to enable downloads from the sync source.
-          </CardDescription>
-        ) : null}
-      </CardHeader>
-      <CardContent className="p-0">
-        {canWritePo && zapReady ? (
-          <div className="flex flex-wrap items-end gap-3 border-b px-3 py-2">
-            <div className="space-y-1">
-              <Label
-                htmlFor="ea-zap-upload"
-                className="text-muted-foreground text-xs"
-              >
-                Upload a copy to Zap Storage
-              </Label>
-              <Input
-                key={eaZapUploadInputKey}
-                id="ea-zap-upload"
-                type="file"
-                className="max-w-xs cursor-pointer"
-                disabled={eaZapUploading}
-                onChange={(e) =>
-                  setEaZapFile(e.target.files?.[0] ?? null)
-                }
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!eaZapFile || eaZapUploading}
-              onClick={() => void onUploadEaZap()}
-            >
-              {eaZapUploading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Upload"
-              )}
-            </Button>
-          </div>
-        ) : null}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b">
-                <th className="px-3 py-2 font-semibold">File ID</th>
-                <th className="px-3 py-2 font-semibold">Uploaded at</th>
-                <th className="px-3 py-2 font-semibold">Uploaded by</th>
-                <th className="px-3 py-2 font-semibold">File name</th>
-                <th className="px-3 py-2 font-semibold">Download</th>
-              </tr>
-            </thead>
-            <tbody>
-              {originalFiles.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-muted-foreground px-3 py-4 text-center">
-                    No synced files yet — open this page again after sync, or upload a copy to Zap Storage.
-                  </td>
-                </tr>
-              ) : (
-                originalFiles.map((f) => (
-                  <tr key={f.eautomate_file_id} className="border-b">
-                    <td className="px-3 py-2 tabular-nums">{f.eautomate_file_id}</td>
-                    <td className="px-3 py-2">{fmtDateTime(f.created_at)}</td>
-                    <td className="px-3 py-2">{f.file_uploaded_by ?? "—"}</td>
-                    <td className="max-w-[240px] truncate px-3 py-2" title={f.file_name}>
-                      {f.file_name}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className="inline-flex"
-                        title={
-                          !(f.zap_storage_path || legacyFetch)
-                            ? "File not available for download. Upload a copy to Zap Storage to enable."
-                            : undefined
-                        }
-                      >
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="text-primary h-8 w-8"
-                          disabled={
-                            !(f.zap_storage_path || legacyFetch) ||
-                            dlBusy === `ea-${f.eautomate_file_id}`
-                          }
-                          aria-label={`Download ${f.file_name}`}
-                          onClick={() => void onDownloadEa(f.eautomate_file_id, f.file_name)}
-                        >
-                          {dlBusy === `ea-${f.eautomate_file_id}` ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Download className="size-4" />
-                          )}
-                        </Button>
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const listingsContent = listingsEnvelope.content;
+  const hasParsedListings =
+    Array.isArray(listingsContent) && listingsContent.length > 0;
+  const showSyncLinesHint = hasParsedListings && !po.eautomate_synced_at;
 
   const summaryTable = (
     <Card className="border-primary/10 shadow-sm overflow-hidden">
@@ -1352,8 +1243,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         <TabsContent value="details" className="mt-4 space-y-6">
           <div className="grid gap-6 xl:grid-cols-[1fr_minmax(260px,300px)]">
             <div className="min-w-0 space-y-6">
-              {filesTable}
-
               {po.calculated_po_status ? (
                 <div
                   className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
@@ -1366,10 +1255,19 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               <Card className="border-primary/10 shadow-sm">
                 <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <CardTitle className="text-lg">Purchase order</CardTitle>
-                  <CardDescription>
+                  <CardDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="font-mono font-semibold text-foreground">{po.po_number}</span>
                     {po.company_name ? (
-                      <span className="text-muted-foreground"> · {po.company_name}</span>
+                      <>
+                        <span className="text-muted-foreground" aria-hidden>
+                          ·
+                        </span>
+                        <CompanyNameWithLogo
+                          name={po.company_name}
+                          size={18}
+                          className="text-muted-foreground"
+                        />
+                      </>
                     ) : null}
                   </CardDescription>
                 </CardHeader>
@@ -1494,7 +1392,9 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
 
                   {/* ── Row 4: Buyer details ── */}
                   <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <Field label="Buyer Company">{po.company_name ?? "—"}</Field>
+                    <Field label="Buyer Company">
+                      <CompanyNameWithLogo name={po.company_name} size={22} />
+                    </Field>
                     <Field label="Buyer GSTIN">
                       <span className="font-mono text-xs">{po.buyer_gstin ?? "—"}</span>
                     </Field>
@@ -1525,108 +1425,53 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 </CardContent>
               </Card>
 
+              <OutboundPoDocumentsSection
+                zapAttachments={data.zapAttachments}
+                eautomateFiles={data.eautomateFiles}
+                legacyFetch={legacyFetch}
+                zapReady={zapReady}
+                eautomateDownloadConfigured={data.eautomateDownloadConfigured === true}
+                canMutate={canMutate}
+                canWritePo={canWritePo}
+                dlBusy={dlBusy}
+                onDownloadZap={(id, name) => void onDownloadZap(id, name)}
+                onDownloadEa={(id, name) => void onDownloadEa(id, name)}
+                eaZapFile={eaZapFile}
+                eaZapUploadInputKey={eaZapUploadInputKey}
+                eaZapUploading={eaZapUploading}
+                onEaZapFileChange={setEaZapFile}
+                onUploadEaZap={() => void onUploadEaZap()}
+                uploadSlot={
+                  <OutboundPoAddDocumentUpload
+                    canMutate={canMutate}
+                    file={file}
+                    uploading={uploading}
+                    onFileChange={setFile}
+                    onUpload={() => void onUpload()}
+                  />
+                }
+              />
+
               {summaryTable}
 
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">SKU line items</CardTitle>
-                  <CardDescription>From listings / paginated sync</CardDescription>
+                  <CardDescription>
+                    From uploaded spreadsheet or eAutomate sync.
+                    {showSyncLinesHint ? (
+                      <span className="mt-1 block text-amber-700 dark:text-amber-400">
+                        Lines below are from the uploaded spreadsheet. Run{" "}
+                        <code className="text-xs">npm run sync:outbound-po-detail</code>{" "}
+                        for live eAutomate quantities.
+                      </span>
+                    ) : null}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <OutboundPoLineItemsTable listings={listingsEnvelope} />
                 </CardContent>
               </Card>
-
-              {data.zapAttachments.length > 0 ? (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Received PO files</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse text-left text-sm">
-                        <thead>
-                          <tr className="bg-muted/50 border-b">
-                            <th className="px-3 py-2 font-semibold">ID</th>
-                            <th className="px-3 py-2 font-semibold">Uploaded at</th>
-                            <th className="px-3 py-2 font-semibold">File name</th>
-                            <th className="px-3 py-2 font-semibold">Kind</th>
-                            <th className="px-3 py-2 font-semibold">Download</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.zapAttachments.map((a) => (
-                            <tr key={a.id} className="border-b">
-                              <td className="px-3 py-2 tabular-nums">{a.id}</td>
-                              <td className="px-3 py-2">{fmtDateTime(a.created_at)}</td>
-                              <td className="max-w-[240px] truncate px-3 py-2">
-                                {a.original_filename}
-                              </td>
-                              <td className="px-3 py-2">{a.kind}</td>
-                              <td className="px-3 py-2">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-primary h-8 w-8"
-                                  disabled={dlBusy === `zap-${a.id}`}
-                                  aria-label={`Download ${a.original_filename}`}
-                                  onClick={() => void onDownloadZap(a.id, a.original_filename)}
-                                >
-                                  {dlBusy === `zap-${a.id}` ? (
-                                    <Loader2 className="size-4 animate-spin" />
-                                  ) : (
-                                    <Download className="size-4" />
-                                  )}
-                                </Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {canMutate ? (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Upload received PO</CardTitle>
-                    <CardDescription>
-                      PDF or spreadsheet/CSV, max 2MB.{" "}
-                      <Link
-                        href="/samples/outbound/sample_po_line_items_spreadsheet.csv"
-                        className="text-primary font-medium underline-offset-2 hover:underline"
-                        download
-                      >
-                        Download sample file
-                      </Link>
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-wrap items-end gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="po-upload">Choose file</Label>
-                      <Input
-                        id="po-upload"
-                        type="file"
-                        accept=".pdf,.csv,.xlsx,.xls"
-                        className="max-w-xs cursor-pointer"
-                        onChange={(e) => {
-                          setFile(e.target.files?.[0] ?? null);
-                        }}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      disabled={!file || uploading}
-                      onClick={() => void onUpload()}
-                    >
-                      {uploading ? "Uploading…" : "Upload"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : null}
             </div>
 
             <div className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start">

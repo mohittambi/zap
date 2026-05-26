@@ -57,7 +57,13 @@ export function OpsSkuPoControlDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[95vh] max-h-[min(95vh,920px)] w-[98vw] max-w-7xl flex-col gap-0 overflow-hidden p-0">
+      <DialogContent
+        className={cn(
+          "flex h-[95vh] max-h-[min(95vh,920px)] w-[98vw] max-w-[min(98vw,1600px)]",
+          "sm:max-w-[min(98vw,1600px)]",
+          "flex-col gap-0 overflow-hidden p-0"
+        )}
+      >
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
             <DialogTitle className="font-mono text-base">{sku || "SKU detail"}</DialogTitle>

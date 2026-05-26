@@ -25,12 +25,12 @@ describe("eanMappingsService helpers", () => {
     assert.equal(eanValueToString(0), "");
   });
 
-  it("mappingSkuKeysFromRow uses master_sku only, not po_secondary_sku", () => {
+  it("mappingSkuKeysFromRow includes master_sku and marketplace po_secondary_sku", () => {
     const keys = mappingSkuKeysFromRow({
-      po_secondary_sku: "ECIASWPS80164558",
+      po_secondary_sku: "10149864",
       master_sku: "AAC500",
     });
-    assert.deepEqual(keys, ["AAC500"]);
+    assert.deepEqual(keys, ["AAC500", "10149864"]);
   });
 
   it("resolveZapEanDisplay uses EAN barcode for ean_type ean", () => {
@@ -74,6 +74,25 @@ describe("eanMappingsService helpers", () => {
     );
     assert.equal(out[0].zap_ean, "8906176480269");
     assert.equal(out[0].universal_ean, "8906176480269");
+  });
+
+  it("mergeZapEanIntoRows resolves universal EAN via po_secondary_sku (Blinkit item code)", () => {
+    const lookup = new Map<string, ZapEanLookup>([
+      [
+        "10149864",
+        {
+          channel_ean: "10149864",
+          universal_ean: "8906176480498",
+          ean_type: "sku_code",
+        },
+      ],
+    ]);
+    const out = mergeZapEanIntoRows(
+      [{ po_secondary_sku: "10149864", product_upc: "8906176480245" }],
+      lookup
+    );
+    assert.equal(out[0].zap_ean, "8906176480498");
+    assert.equal(out[0].universal_ean, "8906176480498");
   });
 
   it("mergeZapEanIntoRows returns empty zap_ean when no mapping", () => {

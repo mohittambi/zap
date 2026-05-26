@@ -22,6 +22,7 @@ function parseArgs(argv: string[]) {
   let vendor: number | null = null;
   let po: number | null = null;
   let fromDb = false;
+  let missingOnly = false;
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--vendor" && argv[i + 1]) {
@@ -32,13 +33,15 @@ function parseArgs(argv: string[]) {
       i += 1;
     } else if (a === "--from-vendor-pos") {
       fromDb = true;
+    } else if (a === "--missing-only") {
+      missingOnly = true;
     }
   }
-  return { vendor, po, fromDb };
+  return { vendor, po, fromDb, missingOnly };
 }
 
 async function main() {
-  const { vendor, po, fromDb } = parseArgs(process.argv.slice(2));
+  const { vendor, po, fromDb, missingOnly } = parseArgs(process.argv.slice(2));
   if (!process.env.DATABASE_URL?.trim()) {
     console.error("DATABASE_URL is required");
     process.exit(1);
@@ -46,8 +49,13 @@ async function main() {
 
   const pairs: { vendor_id: number; po_id: number }[] = [];
   if (fromDb) {
+    const missingSql = missingOnly
+      ? `WHERE NOT EXISTS (
+           SELECT 1 FROM inbound_po_detail_snapshot s WHERE s.po_id = vendor_purchase_orders.po_id
+         )`
+      : "";
     const r = await query(
-      `SELECT vendor_id, po_id FROM vendor_purchase_orders ORDER BY po_id ASC`
+      `SELECT vendor_id, po_id FROM vendor_purchase_orders ${missingSql} ORDER BY po_id ASC`
     );
     for (const row of r.rows as { vendor_id: string | number; po_id: string | number }[]) {
       pairs.push({
@@ -56,10 +64,16 @@ async function main() {
       });
     }
     if (pairs.length === 0) {
+      if (missingOnly) {
+        console.log("All vendor POs already have inbound_po_detail_snapshot rows.");
+        return;
+      }
       console.error("No rows in vendor_purchase_orders. Sync vendor POs first.");
       process.exit(1);
     }
-    console.log(`Ingesting PO details for ${pairs.length} PO(s)...`);
+    console.log(
+      `Ingesting PO details for ${pairs.length} PO(s)${missingOnly ? " (missing only)" : ""}...`
+    );
   } else if (
     vendor != null &&
     Number.isFinite(vendor) &&

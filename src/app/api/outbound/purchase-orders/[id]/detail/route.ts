@@ -5,6 +5,10 @@ import { handleApiError } from "@/server/errors";
 import { outboundPoFileDownloadConfigured } from "@/server/eautomate-outbound-po-files";
 import { enrichListingsSnapshotWithZapEan } from "@/server/services/eanMappingsService";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
+import {
+  enrichListingsSnapshotWithListingImages,
+  mergeCommercialIntoAnalytics,
+} from "@/server/services/outboundPurchaseOrdersService";
 import { isZapStorageConfigured } from "@/server/zapStorage";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -49,18 +53,26 @@ export async function GET(_request: Request, context: Ctx) {
       outboundPoService.listOutboundPoZapAttachments(id),
     ]);
 
-    const listings = await enrichListingsSnapshotWithZapEan(
+    const snapshot =
       po.listings_snapshot && typeof po.listings_snapshot === "object"
         ? po.listings_snapshot
-        : {},
-      po.company_id
-    );
+        : {};
+    const withEan = await enrichListingsSnapshotWithZapEan(snapshot, po.company_id);
+    const listings = await enrichListingsSnapshotWithListingImages(withEan);
+
+    const rawAnalytics =
+      po.analytics_object &&
+      typeof po.analytics_object === "object" &&
+      !Array.isArray(po.analytics_object)
+        ? (po.analytics_object as Record<string, unknown>)
+        : {};
+    const analytics_object = mergeCommercialIntoAnalytics(rawAnalytics, snapshot);
 
     const legacyRemote = outboundPoFileDownloadConfigured();
     const zapOk = isZapStorageConfigured();
 
     return NextResponse.json({
-      po,
+      po: { ...po, analytics_object },
       listings,
       eautomateFiles,
       zapAttachments,

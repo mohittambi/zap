@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   SortableTableHead,
@@ -216,7 +217,9 @@ export default function CompanySkuRelationPage() {
                   : data.content.map((row) => (
                     <TableRow key={row.relation_id}>
                       <TableCell className="tabular-nums">{row.company_id}</TableCell>
-                      <TableCell>{row.company_name}</TableCell>
+                      <TableCell>
+                        <CompanyNameWithLogo name={row.company_name} companyId={row.company_id} />
+                      </TableCell>
                       <TableCell className="font-mono text-sm">{row.company_code_primary}</TableCell>
                       <TableCell className="font-mono text-sm">{row.secondary_sku}</TableCell>
                     </TableRow>
@@ -229,7 +232,7 @@ export default function CompanySkuRelationPage() {
               <div className="flex flex-col gap-2 border-t pt-4 lg:hidden">
                 {data.content.map((row) => (
                   <div key={row.relation_id} className="rounded-lg border p-3 text-sm">
-                    <p className="font-semibold">{row.company_name}</p>
+                    <CompanyNameWithLogo name={row.company_name} companyId={row.company_id} size={22} />
                     <p className="text-muted-foreground text-xs">
                       #{row.company_id} · {row.company_code_primary}
                     </p>

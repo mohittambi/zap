@@ -14,6 +14,10 @@ function mapHeaderToField(norm: string): string | null {
     po_secondary_sku: "po_secondary_sku",
     secondary_sku: "po_secondary_sku",
     sku: "po_secondary_sku",
+    item_code: "po_secondary_sku",
+    sku_id: "po_secondary_sku",
+    sku_code: "po_secondary_sku",
+    product_code: "po_secondary_sku",
     company_code_primary: "company_code_primary",
     primary_company_code: "company_code_primary",
     company_code_secondary: "company_code_secondary",
@@ -21,43 +25,139 @@ function mapHeaderToField(norm: string): string | null {
     box_number: "box_number",
     box_no: "box_number",
     box_quantity: "box_quantity",
-    quantity: "box_quantity",
+    quantity: "original_demand",
     box_name: "box_name",
     submitted_from: "submitted_from",
     mrp: "mrp",
+    unit_mrp_inr: "mrp",
     original_demand: "original_demand",
     demand: "original_demand",
+    qty: "original_demand",
+    qty_ordered: "original_demand",
+    total_quantity: "original_demand",
     dispatched_quantity: "dispatched_quantity",
     consignment_quantity: "consignment_quantity",
     overall_fill_rate: "overall_fill_rate",
     fill_rate: "overall_fill_rate",
+    hsn_code: "hsn_code",
+    hsn: "hsn_code",
+    product_upc: "product_upc",
+    upc: "product_upc",
+    barcode: "product_upc",
+    product_description: "title",
+    description: "title",
+    product_name: "title",
+    title: "title",
+    basic_cost_price: "rate_without_tax",
+    cost_price: "rate_without_tax",
+    rate: "rate_without_tax",
+    landing_rate: "landing_rate",
+    tax_rate: "tax_rate",
+    gst_rate: "tax_rate",
+    gst_: "tax_rate",
+    gst_percent: "tax_rate",
+    igst: "tax_rate",
+    igst_: "tax_rate",
+    igst_percent: "tax_rate",
+    total_amt: "total_amount",
+    total_amount: "total_amount",
+    margin: "margin",
+    margin_: "margin",
+    remarks: "remarks",
     created_by: "created_by",
     created_at: "created_at",
     updated_at: "updated_at",
   };
   if (direct[norm]) return direct[norm];
   if (norm.includes("secondary") && norm.includes("sku")) return "po_secondary_sku";
+  if (norm.includes("item") && norm.includes("code")) return "po_secondary_sku";
   if (norm.includes("company") && norm.includes("primary")) return "company_code_primary";
   if (norm.includes("company") && norm.includes("secondary")) return "company_code_secondary";
   if (norm.includes("box") && norm.includes("number")) return "box_number";
   if (norm.includes("box") && (norm.includes("qty") || norm.includes("quantity")))
     return "box_quantity";
+  if (norm.includes("hsn")) return "hsn_code";
+  if (norm.includes("upc") || norm.includes("barcode")) return "product_upc";
+  if (norm.includes("description") || norm.includes("product_name")) return "title";
+  if (
+    norm.includes("qty") ||
+    (norm.includes("quantity") && !norm.includes("box"))
+  ) {
+    return "original_demand";
+  }
+  if (norm.includes("landing") && norm.includes("rate")) return "landing_rate";
+  if (norm.includes("igst")) return "tax_rate";
+  if (norm.includes("gst")) return "tax_rate";
+  if (norm.includes("tax") && norm.includes("rate")) return "tax_rate";
+  if (norm.includes("cost") && norm.includes("price")) return "rate_without_tax";
+  if (norm.includes("total") && norm.includes("amt")) return "total_amount";
   return null;
 }
 
+const INTEGER_FIELDS = new Set([
+  "box_number",
+  "box_quantity",
+  "original_demand",
+  "dispatched_quantity",
+  "consignment_quantity",
+]);
+
+const DECIMAL_FIELDS = new Set([
+  "mrp",
+  "rate_without_tax",
+  "tax_rate",
+  "landing_rate",
+  "total_amount",
+  "margin",
+  "overall_fill_rate",
+]);
+
 function coerceCell(field: string, v: unknown): unknown {
   if (v == null || v === "") return null;
-  if (
-    field === "box_number" ||
-    field === "box_quantity" ||
-    field === "original_demand" ||
-    field === "dispatched_quantity" ||
-    field === "consignment_quantity"
-  ) {
+  if (INTEGER_FIELDS.has(field)) {
     const n = Number(v);
     return Number.isFinite(n) ? Math.trunc(n) : String(v);
   }
+  if (DECIMAL_FIELDS.has(field)) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : String(v);
+  }
   return typeof v === "number" ? v : String(v).trim();
+}
+
+function isValidListingRow(row: Record<string, unknown>): boolean {
+  const sku = row.po_secondary_sku;
+  if (sku == null || String(sku).trim() === "") return false;
+  const skuStr = String(sku).trim();
+  if (/^total\b|^#$/i.test(skuStr)) return false;
+
+  for (const key of ["title", "mrp", "product_upc"] as const) {
+    const text = String(row[key] ?? "").trim();
+    if (/^total\s|^net\s|cart\s*discount|total\s*amount|total\s*quantity/i.test(text)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeListingRow(row: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...row };
+  const demand = out.original_demand ?? out.box_quantity ?? out.demand;
+  if (demand != null && demand !== "") {
+    const n = Number(demand);
+    if (Number.isFinite(n)) {
+      out.original_demand = Math.trunc(n);
+      out.demand = Math.trunc(n);
+    }
+  }
+  if (out.po_secondary_sku != null) {
+    out.po_secondary_sku = String(out.po_secondary_sku).trim();
+  }
+  return out;
+}
+
+function finalizeParsedRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return rows.map(normalizeListingRow).filter(isValidListingRow);
 }
 
 function parseCsv(buf: Buffer): Record<string, unknown>[] {
@@ -86,7 +186,7 @@ function parseCsv(buf: Buffer): Record<string, unknown>[] {
     }
     if (any) rows.push(row);
   }
-  return rows;
+  return finalizeParsedRows(rows);
 }
 
 function parseXlsx(buf: Buffer): Record<string, unknown>[] {
@@ -121,7 +221,7 @@ function parseXlsx(buf: Buffer): Record<string, unknown>[] {
     }
     if (any) rows.push(row);
   }
-  return rows;
+  return finalizeParsedRows(rows);
 }
 
 /**

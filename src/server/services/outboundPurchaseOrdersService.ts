@@ -1,6 +1,9 @@
+import { resolveCompanyLogoFromAttributes } from "@/lib/company-brand-logo";
+import { pickListingImageFromRow } from "@/lib/listing-image-url";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { enrichRowsWithZapEan } from "@/server/services/eanMappingsService";
+import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 
 /**
  * Keys eAutomate may merge into `analytics_object` that are NOT numeric PO KPIs — e.g. form payloads
@@ -296,6 +299,7 @@ export type OutboundCompanyOption = {
   id: number;
   name: string | null;
   description: string | null;
+  logo_url: string | null;
 };
 
 export type OutboundDeliveryLocationOption = {
@@ -335,6 +339,10 @@ export async function listOutboundCompaniesForForm(): Promise<OutboundCompanyOpt
     id: Number(row.id),
     name: row.name != null ? String(row.name) : null,
     description: companyDescriptionFromAttributes(row.attributes),
+    logo_url: resolveCompanyLogoFromAttributes(
+      row.name != null ? String(row.name) : null,
+      row.attributes
+    ),
   }));
 }
 
@@ -372,18 +380,6 @@ export type OutboundCompanyDirectorySummary = {
   cancelled_pos: number;
   last_po_at: string | null;
 };
-
-function companyLogoFromAttributes(attributes: unknown): string | null {
-  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
-    return null;
-  }
-  const att = attributes as Record<string, unknown>;
-  const raw =
-    att.logo_url ?? att.logoUrl ?? att.logo ?? att.company_logo_url ?? att.companyLogoUrl;
-  if (raw == null || typeof raw !== "string") return null;
-  const t = raw.trim();
-  return t.length ? t : null;
-}
 
 /**
  * Same per-company PO metrics as {@link listOutboundCompaniesPaginated}, aggregated for a summary strip.
@@ -527,7 +523,10 @@ export async function listOutboundCompaniesPaginated(opts: {
     return {
       id: Number(r.id),
       name: r.name != null ? String(r.name) : null,
-      logo_url: companyLogoFromAttributes(attr),
+      logo_url: resolveCompanyLogoFromAttributes(
+        r.name != null ? String(r.name) : null,
+        attr
+      ),
       status: null,
       ack_pending: Number(r.ack_pending) || 0,
       open_pos: Number(r.open_pos) || 0,
@@ -754,6 +753,135 @@ export async function updateOutboundPoListingsSnapshot(
   );
 }
 
+export async function updateOutboundPoAnalyticsObject(
+  outboundPoId: number,
+  analytics: Record<string, unknown>
+): Promise<void> {
+  if (!Number.isFinite(outboundPoId) || outboundPoId < 1) return;
+  await query(
+    `UPDATE outbound_purchase_orders SET analytics_object = $2::jsonb WHERE id = $1`,
+    [outboundPoId, JSON.stringify(analytics)]
+  );
+}
+
+function lineDemandFromRow(row: Record<string, unknown>): number {
+  const n = Number(row.original_demand ?? row.demand ?? row.box_quantity);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function lineNum(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** PO value before/after tax from line commercial fields (spreadsheet or eAutomate rows). */
+export function computeCommercialTotalsFromRows(
+  rows: Record<string, unknown>[]
+): { total_before_tax: number; total_after_tax: number } {
+  let before = 0;
+  let after = 0;
+  for (const r of rows) {
+    const demand = lineDemandFromRow(r);
+    if (demand <= 0) continue;
+
+    const totalAmount = lineNum(r.total_amount);
+    const rateWithoutTax = lineNum(r.rate_without_tax);
+    const landingRate = lineNum(r.landing_rate);
+    const taxRatePct = lineNum(r.tax_rate);
+    const taxMult = taxRatePct > 0 ? 1 + taxRatePct / 100 : 1;
+
+    if (totalAmount > 0) {
+      after += totalAmount;
+      if (rateWithoutTax > 0) {
+        before += rateWithoutTax * demand;
+      } else if (taxMult > 1) {
+        before += totalAmount / taxMult;
+      } else {
+        before += totalAmount;
+      }
+    } else if (rateWithoutTax > 0) {
+      const lineBefore = rateWithoutTax * demand;
+      before += lineBefore;
+      after += lineBefore * taxMult;
+    } else if (landingRate > 0) {
+      const lineBefore = landingRate * demand;
+      before += lineBefore;
+      after += lineBefore * taxMult;
+    }
+  }
+  return {
+    total_before_tax: roundMoney(before),
+    total_after_tax: roundMoney(after),
+  };
+}
+
+function commercialTotalsPresent(analytics: Record<string, unknown>): boolean {
+  const before = Number(analytics.total_before_tax);
+  const after = Number(analytics.total_after_tax);
+  return (
+    Number.isFinite(before) &&
+    Number.isFinite(after) &&
+    (before > 0 || after > 0)
+  );
+}
+
+/** Fill Commercial summary when analytics came from spreadsheet rollup (no eAutomate $ fields). */
+export function mergeCommercialIntoAnalytics(
+  analytics: Record<string, unknown>,
+  snapshot: unknown
+): Record<string, unknown> {
+  if (commercialTotalsPresent(analytics)) return analytics;
+  const rows = extractListingsRowsFromSnapshot(snapshot);
+  if (rows.length === 0) return analytics;
+  const commercial = computeCommercialTotalsFromRows(rows);
+  if (commercial.total_before_tax <= 0 && commercial.total_after_tax <= 0) {
+    return analytics;
+  }
+  return { ...analytics, ...commercial };
+}
+
+/** Basic KPI rollup from parsed spreadsheet / listing rows (no eAutomate sync). */
+export function computeAnalyticsFromListingsRows(
+  rows: Record<string, unknown>[]
+): Record<string, unknown> {
+  const totalDemand = rows.reduce((s, r) => s + lineDemandFromRow(r), 0);
+  return {
+    sku_count: rows.length,
+    total_demand: totalDemand,
+    total_pending: totalDemand,
+    total_packed: 0,
+    total_dispatched: 0,
+    boxes_packed: 0,
+    boxes_dispatched: 0,
+    total_consignments: 0,
+    sku_fill_rate: 0,
+    quantity_fill_rate: 0,
+    ...computeCommercialTotalsFromRows(rows),
+  };
+}
+
+/** Parse spreadsheet buffer and persist listings + summary KPIs when rows are found. */
+export async function applySpreadsheetToOutboundPo(
+  outboundPoId: number,
+  buf: Buffer,
+  filename: string
+): Promise<{ listingsUpdated: boolean; rowsParsed: number }> {
+  const envelope = parseOutboundPoLineItemsSpreadsheet(buf, filename);
+  if (envelope.content.length === 0) {
+    return { listingsUpdated: false, rowsParsed: 0 };
+  }
+  await updateOutboundPoListingsSnapshot(outboundPoId, envelope);
+  await updateOutboundPoAnalyticsObject(
+    outboundPoId,
+    computeAnalyticsFromListingsRows(envelope.content)
+  );
+  return { listingsUpdated: true, rowsParsed: envelope.content.length };
+}
+
 /**
  * Line-item rows from `listings_snapshot` (eAutomate paginated envelope stored as JSON, or legacy shapes).
  */
@@ -967,6 +1095,108 @@ export function paginateOutboundPoLineItemRows(opts: {
   };
 }
 
+function listingSkuKeysForImageLookup(row: Record<string, unknown>): string[] {
+  const keys = new Set<string>();
+  const add = (v: unknown) => {
+    const s = v != null ? String(v).trim() : "";
+    if (!s || s === "NA" || s === "—") return;
+    keys.add(s);
+  };
+  add(row.master_sku);
+  add(row.inventory_sku_id);
+  add(row.pack_combo_sku_id);
+  add(row.po_secondary_sku);
+  add(row.sku_id);
+  const listing = row.listing;
+  if (listing && typeof listing === "object" && !Array.isArray(listing)) {
+    const L = listing as Record<string, unknown>;
+    add(L.sku_id);
+    add(L.master_sku);
+    add(L.inventory_sku_id);
+  }
+  return [...keys];
+}
+
+/**
+ * Attach warehouse `listings` image fields when snapshot rows lack `listing.img_*`
+ * (e.g. spreadsheet-only PO lines).
+ */
+export async function enrichRowsWithListingImages(
+  rows: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  const needsKeys = new Set<string>();
+  for (const row of rows) {
+    if (pickListingImageFromRow(row)) continue;
+    for (const k of listingSkuKeysForImageLookup(row)) needsKeys.add(k);
+  }
+  if (needsKeys.size === 0) return rows;
+
+  const keyList = [...needsKeys];
+  const r = await query(
+    `SELECT sku_id, master_sku, inventory_sku_id,
+            img_hd, img_white, img_wdim, img_link1, img_link2
+     FROM listings
+     WHERE sku_id = ANY($1::text[])
+        OR master_sku = ANY($1::text[])
+        OR inventory_sku_id = ANY($1::text[])`,
+    [keyList]
+  );
+
+  const imageBySku = new Map<string, Record<string, unknown>>();
+  for (const dbRow of r.rows) {
+    const patch: Record<string, unknown> = {};
+    for (const col of [
+      "img_hd",
+      "img_white",
+      "img_wdim",
+      "img_link1",
+      "img_link2",
+    ] as const) {
+      const v = dbRow[col];
+      if (v != null && String(v).trim()) patch[col] = v;
+    }
+    if (Object.keys(patch).length === 0) continue;
+    for (const id of [dbRow.sku_id, dbRow.master_sku, dbRow.inventory_sku_id]) {
+      if (id != null && String(id).trim()) imageBySku.set(String(id).trim(), patch);
+    }
+  }
+
+  if (imageBySku.size === 0) return rows;
+
+  return rows.map((row) => {
+    if (pickListingImageFromRow(row)) return row;
+    for (const k of listingSkuKeysForImageLookup(row)) {
+      const patch = imageBySku.get(k);
+      if (!patch) continue;
+      const existing =
+        row.listing && typeof row.listing === "object" && !Array.isArray(row.listing)
+          ? (row.listing as Record<string, unknown>)
+          : {};
+      return { ...row, listing: { ...patch, ...existing } };
+    }
+    return row;
+  });
+}
+
+/** Enrich `{ content: [...] }` listings snapshot with warehouse images. */
+export async function enrichListingsSnapshotWithListingImages(
+  snapshot: unknown
+): Promise<unknown> {
+  if (snapshot == null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    if (Array.isArray(snapshot)) {
+      return enrichRowsWithListingImages(snapshot as Record<string, unknown>[]);
+    }
+    return snapshot;
+  }
+  const o = snapshot as Record<string, unknown>;
+  const content = o.content;
+  if (!Array.isArray(content)) return snapshot;
+  const enriched = await enrichRowsWithListingImages(
+    content.filter((x): x is Record<string, unknown> => x != null && typeof x === "object")
+  );
+  return { ...o, content: enriched };
+}
+
 /** Build paginated items payload from `listings_snapshot` (used by GET …/purchase-orders/:id/items). */
 export async function buildOutboundPoItemsPayloadFromSnapshot(
   snapshot: unknown,
@@ -985,7 +1215,8 @@ export async function buildOutboundPoItemsPayloadFromSnapshot(
 }> {
   const all = extractListingsRowsFromSnapshot(snapshot);
   const filtered = filterListingsRowsBySearch(all, opts.search);
-  const enriched = await enrichRowsWithZapEan(filtered, opts.companyId ?? null);
+  const withEan = await enrichRowsWithZapEan(filtered, opts.companyId ?? null);
+  const enriched = await enrichRowsWithListingImages(withEan);
   return paginateOutboundPoLineItemRows({
     rows: enriched,
     page: opts.page,

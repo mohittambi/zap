@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api-browser";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -231,7 +232,9 @@ export function BoxesTable() {
                         </Link>
                       ) : "—"}
                     </TableCell>
-                    <TableCell className="text-sm">{row.company_name ?? "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      <CompanyNameWithLogo name={row.company_name} />
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">{row.delivery_city ?? "—"}</TableCell>
                     <TableCell className={cn("text-xs", statusClass(row.dispatch_status))}>
                       {row.dispatch_status ?? "—"}

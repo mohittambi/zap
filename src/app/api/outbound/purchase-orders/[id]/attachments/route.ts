@@ -4,7 +4,6 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
-import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 import { uploadBufferToBucket, getOutboundBucket } from "@/server/zapStorage";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -105,20 +104,28 @@ export async function POST(request: Request, context: Ctx) {
     });
 
     let listingsUpdated = false;
+    let rowsParsed = 0;
     if (kind === "spreadsheet") {
       try {
-        const envelope = parseOutboundPoLineItemsSpreadsheet(buf, fname);
-        await outboundPoService.updateOutboundPoListingsSnapshot(
+        const result = await outboundPoService.applySpreadsheetToOutboundPo(
           poId,
-          envelope
+          buf,
+          fname
         );
-        listingsUpdated = envelope.content.length > 0;
+        listingsUpdated = result.listingsUpdated;
+        rowsParsed = result.rowsParsed;
       } catch {
         listingsUpdated = false;
+        rowsParsed = 0;
       }
     }
 
-    return NextResponse.json({ ok: true, listingsUpdated });
+    return NextResponse.json({
+      ok: true,
+      listingsUpdated,
+      parseResult:
+        kind === "spreadsheet" ? { rowsParsed } : undefined,
+    });
   } catch (err) {
     return handleApiError(err);
   }

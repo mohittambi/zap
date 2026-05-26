@@ -14,6 +14,7 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { cn } from "@/lib/utils";
 
 type Row = {
@@ -306,7 +307,9 @@ export function OutboundConsignmentsTable({
                         {row.id}
                       </Link>
                     </td>
-                    <td className="align-top px-2 py-2">{row.company_name ?? "—"}</td>
+                    <td className="align-top px-2 py-2">
+                      <CompanyNameWithLogo name={row.company_name} />
+                    </td>
                     <td className="align-top px-2 py-2">{row.location ?? "—"}</td>
                     <td className="align-top px-2 py-2">{row.sold_via ?? "—"}</td>
                     <td className="align-top px-2 py-2">{row.po_number ?? "—"}</td>

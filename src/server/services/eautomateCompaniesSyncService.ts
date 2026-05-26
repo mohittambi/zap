@@ -1,5 +1,17 @@
+import { localBrandLogoPath, matchBrandKey } from "@/lib/company-brand-logo";
 import { fetchEautomate, getEautomateBaseUrl } from "@/server/eautomate-proxy";
 import { query } from "@/server/db";
+
+function attributesWithBrandLogo(
+  name: string,
+  attrs: Record<string, unknown>
+): Record<string, unknown> {
+  const existing = attrs.logo_url ?? attrs.logoUrl;
+  if (existing != null && String(existing).trim()) return attrs;
+  const key = matchBrandKey(name);
+  if (!key) return attrs;
+  return { ...attrs, logo_url: localBrandLogoPath(key) };
+}
 
 export function extractEautomateCompanyRows(data: unknown): unknown[] {
   if (Array.isArray(data)) return data;
@@ -35,10 +47,11 @@ export async function upsertCompaniesFromEautomatePayload(payload: unknown): Pro
     if (!Number.isFinite(id) || id <= 0) continue;
     const name =
       r.company_name != null ? String(r.company_name).slice(0, 200) : `Company ${id}`;
-    const attrs =
+    const rawAttrs =
       r.attributes && typeof r.attributes === "object" && !Array.isArray(r.attributes)
-        ? r.attributes
+        ? (r.attributes as Record<string, unknown>)
         : {};
+    const attrs = attributesWithBrandLogo(name, rawAttrs);
     const active = r.is_active != null ? Number(r.is_active) : 1;
     const createdAt = r.created_at ? new Date(String(r.created_at)) : new Date();
     const updatedAt = r.updated_at ? new Date(String(r.updated_at)) : new Date();

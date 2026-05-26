@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListingThumbnail } from "@/components/listings/listing-thumbnail";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -19,16 +20,6 @@ function str(v: unknown): string {
 function pickListing(row: Record<string, unknown>): Record<string, unknown> | null {
   const l = row.listing;
   if (l && typeof l === "object" && !Array.isArray(l)) return l as Record<string, unknown>;
-  return null;
-}
-
-function firstListingImage(listing: Record<string, unknown> | null): string | null {
-  if (!listing) return null;
-  const keys = ["img_hd", "img_white", "img_wdim", "img_link1", "img_link2"] as const;
-  for (const k of keys) {
-    const u = str(listing[k]).trim();
-    if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  }
   return null;
 }
 
@@ -114,13 +105,13 @@ export function OutboundPoLineItemsTable({
             {content.map((row, idx) => {
               const rowId = num(row.id) || idx;
               const listing = pickListing(row);
-              const demand = num(row.demand);
+              const demand =
+                num(row.demand) || num(row.original_demand) || num(row.box_quantity);
               const dispatched = num(row.dispatched_quantity);
               const packed = num((row as { packed_quantity?: unknown }).packed_quantity);
               const pending = Math.max(0, demand - dispatched - packed);
               const fillPct =
                 demand > 0 ? Math.round((dispatched / demand) * 1000) / 10 : 0;
-              const img = firstListingImage(listing);
               const expanded = openIds.has(rowId);
 
               return (
@@ -145,19 +136,7 @@ export function OutboundPoLineItemsTable({
                     <td className="px-2 py-2 tabular-nums">{idx + 1}</td>
                     {showImages ? (
                       <td className="px-2 py-1 align-middle">
-                        {img ? (
-                          // eslint-disable-next-line @next/next/no-img-element -- remote image URLs
-                          <img
-                            src={img}
-                            alt=""
-                            className="bg-muted size-12 rounded object-cover"
-                            width={48}
-                            height={48}
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                        <ListingThumbnail row={row} size={48} />
                       </td>
                     ) : null}
                     <td className="px-2 py-2 font-mono text-xs">{str(row.po_secondary_sku)}</td>

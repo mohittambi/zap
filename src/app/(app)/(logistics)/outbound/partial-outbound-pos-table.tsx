@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { cn } from "@/lib/utils";
 
@@ -303,7 +304,9 @@ export function PartialOutboundPosTable() {
                         {row.po_number}
                       </Link>
                     </td>
-                    <td className="px-3 py-2">{row.company_name ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <CompanyNameWithLogo name={row.company_name} companyId={row.company_id ?? undefined} />
+                    </td>
                     <td className="px-3 py-2 tabular-nums">
                       {row.company_id != null ? String(row.company_id) : "—"}
                     </td>

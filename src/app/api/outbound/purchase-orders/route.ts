@@ -297,6 +297,13 @@ export async function POST(request: Request) {
         stored_path: objectPath,
         kind,
       });
+      if (kind === "spreadsheet") {
+        try {
+          await outboundPoService.applySpreadsheetToOutboundPo(id, buf, fname);
+        } catch {
+          /* parsing failure is non-fatal */
+        }
+      }
     }
 
     return NextResponse.json({ id, po_number });

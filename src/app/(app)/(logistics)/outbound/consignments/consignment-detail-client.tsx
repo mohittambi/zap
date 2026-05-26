@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, TruckIcon, FileTextIcon, CalendarIcon, Upload, Download } from "lucide-react";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -294,9 +295,9 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
             </Badge>
           ) : null}
         </div>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {row.company_name ?? "—"}
-          {row.location ? ` · ${row.location}` : ""}
+        <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <CompanyNameWithLogo name={row.company_name} size={18} />
+          {row.location ? <span>· {row.location}</span> : null}
         </p>
       </div>
 

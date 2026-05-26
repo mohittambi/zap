@@ -39,7 +39,12 @@ function classifyPoUploadLocal(file: File): "pdf" | "spreadsheet" | "other" {
 }
 
 type SoldViaOpt = { code: string; label: string };
-type CompanyOpt = { id: number; name: string | null; description: string | null };
+type CompanyOpt = {
+  id: number;
+  name: string | null;
+  description: string | null;
+  logo_url?: string | null;
+};
 
 async function authFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -114,6 +119,8 @@ export default function OutboundNewPoPage() {
   const companyOptions = companies.map((c) => ({
     key: String(c.id),
     label: `${c.name ?? "—"} [${c.id}]`,
+    imageUrl: c.logo_url,
+    imageName: c.name,
   }));
   const poTypeOptions = OUTBOUND_PO_TYPES.map((t) => ({ key: t, label: t }));
 
@@ -483,13 +490,14 @@ export default function OutboundNewPoPage() {
               <Label htmlFor="po-files">Upload Original PO files :</Label>
               <p className="text-muted-foreground text-xs leading-relaxed">
                 (Maximum 2 files are allowed. File size should not exceed 2MB. Please upload both
-                pdf and spreadsheet version of the PO.){" "}
+                pdf and spreadsheet version of the PO.) These appear on the PO detail page under{" "}
+                <strong>Original PO documents</strong>.{" "}
                 <Link
-                  href="/samples/outbound/sample_po_line_items_spreadsheet.csv"
+                  href="/samples/outbound/sample_po_line_items_spreadsheet.csv?v=2"
                   className="text-primary font-medium underline-offset-2 hover:underline"
                   download
                 >
-                  Sample spreadsheet (CSV)
+                  Sample spreadsheet (vendor format: HSN, IGST %, Quantity, MRP, …)
                 </Link>
               </p>
               <Input

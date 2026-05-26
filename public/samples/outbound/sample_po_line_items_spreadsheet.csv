@@ -1,3 +1,3 @@
-line_no,sku_id,product_description,qty_ordered,unit_mrp_inr,remarks
-1,EXAMPLE-SKU-001,Sample product line for PO spreadsheet attachment,10,499.00,Replace with real PO lines
-2,EXAMPLE-SKU-002,Second line item,5,899.00,
+Item Code,HSN Code,Product UPC,Product Description,Basic Cost Price,IGST %,Quantity,Landing Rate,MRP,Margin %,Total Amount
+10149864,39269099,8906176480245,eCraftIndia Buddha Figurines(Box),169.49,18,100,200,2999,93.33,20000
+10146920,39269099,8906176480030,eCraftIndia Golden Handcrafted Palm Buddha Showpiece Set (7 inch Black)(Box),42.33,18,51,49.95,999,95,2547.45

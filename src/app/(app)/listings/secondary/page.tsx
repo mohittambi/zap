@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CompanyLogo } from "@/components/company/company-logo";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { ListingsFilters } from "@/components/listings/listings-filters";
 import { ListingsSort } from "@/components/listings/listings-sort";
@@ -1386,21 +1387,18 @@ export default function ListingsSecondaryPage() {
                         const rk =
                           c.relation_id ??
                           `${c.company_id ?? "c"}-${c.company_code_primary ?? idx}`;
-                        const letter = (
-                          (c.company_name ?? "?").trim().charAt(0) || "?"
-                        ).toUpperCase();
                         return (
                           <li
                             key={rk}
                             className="flex items-start justify-between gap-2 rounded-md border p-2 text-xs"
                           >
                             <div className="flex min-w-0 flex-1 gap-2">
-                              <div
-                                className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold"
-                                aria-hidden
-                              >
-                                {letter}
-                              </div>
+                              <CompanyLogo
+                                name={c.company_name}
+                                seed={c.company_id ?? undefined}
+                                size={36}
+                                className="size-9 shrink-0"
+                              />
                               <div className="min-w-0">
                                 <p className="font-medium">{c.company_name ?? "—"}</p>
                                 <p className="text-muted-foreground font-mono">

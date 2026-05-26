@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type MappingRow = {
@@ -230,7 +231,12 @@ export default function EanMappingsPage() {
                   data.content.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="font-mono text-xs">{row.sku_code}</TableCell>
-                      <TableCell>{row.company_name ?? row.company_id}</TableCell>
+                      <TableCell>
+                        <CompanyNameWithLogo
+                          name={row.company_name}
+                          companyId={row.company_id}
+                        />
+                      </TableCell>
                       <TableCell className="font-mono text-xs tabular-nums">
                         {row.zap_ean?.trim() ? row.zap_ean : "—"}
                       </TableCell>

@@ -223,41 +223,45 @@ export function OpsSkuPoControlDetailPanel({
               <TrailSkeleton />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>PO</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Channel SKU</TableHead>
-                  <TableHead className="text-right">Demand</TableHead>
-                  <TableHead className="text-right">Packed</TableHead>
-                  <TableHead className="text-right">Dispatched</TableHead>
-                  <TableHead className="text-right">Pending</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(data?.outbound_lines.length ?? 0) === 0 ? (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[720px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-muted-foreground text-center">
-                      No open outbound lines
-                    </TableCell>
+                    <TableHead>PO</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Channel SKU</TableHead>
+                    <TableHead className="text-right">Demand</TableHead>
+                    <TableHead className="text-right">Packed</TableHead>
+                    <TableHead className="text-right">Dispatched</TableHead>
+                    <TableHead className="text-right">Pending</TableHead>
                   </TableRow>
-                ) : (
-                  data!.outbound_lines.map((line, i) => (
-                    <TableRow key={`${line.outbound_po_id}-${i}`}>
-                      <TableCell>
-                        <Link
-                          href={`/outbound/po/${line.outbound_po_id}`}
-                          className="text-primary font-mono text-xs hover:underline"
-                          onClick={(e) => e.stopPropagation()}
+                </TableHeader>
+                <TableBody>
+                  {(data?.outbound_lines.length ?? 0) === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-muted-foreground text-center">
+                        No open outbound lines
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    data!.outbound_lines.map((line, i) => (
+                      <TableRow key={`${line.outbound_po_id}-${i}`}>
+                        <TableCell>
+                          <Link
+                            href={`/outbound/po/${line.outbound_po_id}`}
+                            className="text-primary font-mono text-xs hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {line.po_number}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{line.company_name ?? "—"}</TableCell>
+                        <TableCell
+                          className="max-w-[200px] truncate font-mono text-xs"
+                          title={line.po_secondary_sku ?? undefined}
                         >
-                          {line.po_number}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{line.company_name ?? "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {line.po_secondary_sku ?? "—"}
-                      </TableCell>
+                          {line.po_secondary_sku ?? "—"}
+                        </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {line.line_demand}
                       </TableCell>
@@ -272,9 +276,10 @@ export function OpsSkuPoControlDetailPanel({
                       </TableCell>
                     </TableRow>
                   ))
-                )}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -289,46 +294,53 @@ export function OpsSkuPoControlDetailPanel({
               <TrailSkeleton />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>PO</TableHead>
-                  <TableHead>Vendor</TableHead>
-                  <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(data?.inbound_lines.length ?? 0) === 0 ? (
+            <div className="overflow-x-auto">
+              <Table className="min-w-[560px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground text-center">
-                      No open inbound lines
-                    </TableCell>
+                    <TableHead>PO</TableHead>
+                    <TableHead>Vendor</TableHead>
+                    <TableHead>SKU</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
-                ) : (
-                  data!.inbound_lines.map((line, i) => (
-                    <TableRow key={`${line.vendor_po_id}-${line.sku_id}-${i}`}>
-                      <TableCell>
-                        <Link
-                          href={`/inbound/vendors/${line.vendor_id}/purchase-orders/${line.vendor_po_id}`}
-                          className="text-primary font-mono text-xs hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {line.vendor_po_id}
-                        </Link>
+                </TableHeader>
+                <TableBody>
+                  {(data?.inbound_lines.length ?? 0) === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-muted-foreground text-center">
+                        No open inbound lines
                       </TableCell>
-                      <TableCell>{line.vendor_name ?? "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">{line.sku_id}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {line.line_quantity}
-                      </TableCell>
-                      <TableCell>{line.po_status ?? "—"}</TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  ) : (
+                    data!.inbound_lines.map((line, i) => (
+                      <TableRow key={`${line.vendor_po_id}-${line.sku_id}-${i}`}>
+                        <TableCell>
+                          <Link
+                            href={`/inbound/vendors/${line.vendor_id}/purchase-orders/${line.vendor_po_id}`}
+                            className="text-primary font-mono text-xs hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {line.vendor_po_id}
+                          </Link>
+                        </TableCell>
+                        <TableCell>{line.vendor_name ?? "—"}</TableCell>
+                        <TableCell
+                          className="max-w-[200px] truncate font-mono text-xs"
+                          title={line.sku_id}
+                        >
+                          {line.sku_id}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {line.line_quantity}
+                        </TableCell>
+                        <TableCell>{line.po_status ?? "—"}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CompanyNameWithLogo } from "@/components/company/company-logo";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -501,7 +502,9 @@ export function OutboundPurchaseOrdersTable({
                         </Link>
                       </td>
                       <td className="text-muted-foreground px-2 py-1.5">{row.po_type ?? "—"}</td>
-                      <td className="px-2 py-1.5">{row.company_name ?? "—"}</td>
+                      <td className="px-2 py-1.5">
+                        <CompanyNameWithLogo name={row.company_name} />
+                      </td>
                       <td className="px-2 py-1.5">{row.delivery_city ?? "—"}</td>
                       <td className="px-2 py-1.5">
                         <StatusPill status={row.calculated_po_status} />

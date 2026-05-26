@@ -3,10 +3,17 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { CompanyLogo } from "@/components/company/company-logo";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type SearchableSelectOption = { key: string; label: string };
+export type SearchableSelectOption = {
+  key: string;
+  label: string;
+  /** Company / brand mark shown beside the label when set. */
+  imageUrl?: string | null;
+  imageName?: string | null;
+};
 
 export function SearchableSelect({
   value,
@@ -130,7 +137,16 @@ export function SearchableSelect({
                     setQ("");
                   }}
                 >
-                  {o.label}
+                  <span className="flex items-center gap-2">
+                    {o.imageUrl != null || o.imageName ? (
+                      <CompanyLogo
+                        name={o.imageName ?? o.label}
+                        logoUrl={o.imageUrl}
+                        size={18}
+                      />
+                    ) : null}
+                    <span className="truncate">{o.label}</span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -157,7 +173,16 @@ export function SearchableSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="truncate">{selected?.label ?? placeholder}</span>
+        <span className="flex min-w-0 items-center gap-2 truncate">
+          {selected && (selected.imageUrl != null || selected.imageName) ? (
+            <CompanyLogo
+              name={selected.imageName ?? selected.label}
+              logoUrl={selected.imageUrl}
+              size={18}
+            />
+          ) : null}
+          <span className="truncate">{selected?.label ?? placeholder}</span>
+        </span>
         <ChevronDown
           className={cn(
             "size-4 shrink-0 opacity-90 transition-transform",
