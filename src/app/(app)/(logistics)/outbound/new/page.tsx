@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { apiUrl, getStoredToken } from "@/lib/api-browser";
@@ -19,11 +18,38 @@ const textareaClass =
   "border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[100px] w-full rounded-md border px-3 py-2 text-sm shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const MAX_PO_FILE_BYTES = 2 * 1024 * 1024;
+
+type NewPoFormValues = {
+  soldViaCode: string | null;
+  companyId: string | null;
+  poNumber: string;
+  poLocation: string;
+  billingAddress: string;
+  shippingAddress: string;
+  buyerGstin: string;
+  releaseDate: Date | null;
+  expiryDate: Date | null;
+  poType: string | null;
+  pdfFile: File | null;
+  spreadsheetFile: File | null;
+};
+
+function utcCalendarDayMs(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/** Expiry must be on a later calendar day than release (UTC). */
+function isExpiryAfterRelease(release: Date, expiry: Date): boolean {
+  return utcCalendarDayMs(expiry) > utcCalendarDayMs(release);
+}
 
 function classifyPoUploadLocal(file: File): "pdf" | "spreadsheet" | "other" {
   const lower = file.name.toLowerCase();
   const mt = (file.type || "").toLowerCase();
-  if (lower.endsWith(".pdf") || mt.includes("pdf")) return "pdf";
+  if (lower.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf")) {
+    return "pdf";
+  }
   if (
     lower.endsWith(".csv") ||
     lower.endsWith(".xlsx") ||
@@ -31,11 +57,114 @@ function classifyPoUploadLocal(file: File): "pdf" | "spreadsheet" | "other" {
     mt.includes("spreadsheet") ||
     mt.includes("csv") ||
     mt.includes("excel") ||
-    mt.includes("sheet")
+    mt.includes("sheet") ||
+    mt === "application/vnd.ms-excel" ||
+    mt ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mt === "text/csv"
   ) {
     return "spreadsheet";
   }
   return "other";
+}
+
+function validatePoPdfFile(file: File | null): string | undefined {
+  if (!file) return "PO PDF is required.";
+  if (classifyPoUploadLocal(file) !== "pdf") return "Upload a PDF file only.";
+  if (file.size > MAX_PO_FILE_BYTES) return "PDF exceeds the 2MB limit.";
+  return undefined;
+}
+
+function validatePoSpreadsheetFile(file: File | null): string | undefined {
+  if (!file) return "PO spreadsheet is required.";
+  if (classifyPoUploadLocal(file) !== "spreadsheet") {
+    return "Upload a CSV or Excel spreadsheet only.";
+  }
+  if (file.size > MAX_PO_FILE_BYTES) return "Spreadsheet exceeds the 2MB limit.";
+  return undefined;
+}
+
+function collectNewPoFieldErrors(values: NewPoFormValues): Record<string, string> {
+  const err: Record<string, string> = {};
+  if (!values.soldViaCode) err.soldVia = "Select Sold Via.";
+  if (!values.companyId) err.company = "Select Company.";
+  if (values.poNumber.trim().length === 0) {
+    err.poNumber = "PO Number is required.";
+  } else if (values.poNumber.trim().length > 80) {
+    err.poNumber = "PO Number must be at most 80 characters.";
+  }
+  if (values.poLocation.trim().length < 2) {
+    err.poLocation = "PO location is required (at least 2 characters).";
+  }
+  if (values.billingAddress.trim().length < 3) {
+    err.billingAddress = "Billing address is required (at least 3 characters).";
+  }
+  if (values.shippingAddress.trim().length < 3) {
+    err.shippingAddress = "Shipping address is required (at least 3 characters).";
+  }
+  const g = values.buyerGstin.trim();
+  if (g.length > 0) {
+    if (g.length !== 15) {
+      err.buyerGstin = "GSTIN must be exactly 15 characters or left empty.";
+    } else if (!GSTIN_RE.test(g)) {
+      err.buyerGstin = "Enter a valid GSTIN or leave the field empty.";
+    }
+  }
+  if (!values.releaseDate) {
+    err.releaseDate = "Select PO release date.";
+  }
+  if (!values.expiryDate) {
+    err.expiryDate = "Select PO expiry date.";
+  }
+  if (
+    values.releaseDate &&
+    values.expiryDate &&
+    !isExpiryAfterRelease(values.releaseDate, values.expiryDate)
+  ) {
+    err.expiryDate = "Expiry date must be after the release date.";
+  }
+  if (!values.poType) err.poType = "Select PO type.";
+  const pdfErr = validatePoPdfFile(values.pdfFile);
+  if (pdfErr) err.poPdf = pdfErr;
+  const ssErr = validatePoSpreadsheetFile(values.spreadsheetFile);
+  if (ssErr) err.poSpreadsheet = ssErr;
+  return err;
+}
+
+type NewPoFieldKey =
+  | "soldVia"
+  | "company"
+  | "poNumber"
+  | "poLocation"
+  | "billingAddress"
+  | "shippingAddress"
+  | "buyerGstin"
+  | "releaseDate"
+  | "expiryDate"
+  | "poType"
+  | "poPdf"
+  | "poSpreadsheet";
+
+function filterVisibleFieldErrors(
+  errors: Record<string, string>,
+  touched: Partial<Record<NewPoFieldKey, boolean>>,
+  showAll: boolean
+): Record<string, string> {
+  if (showAll) return errors;
+  const out: Record<string, string> = {};
+  for (const [key, message] of Object.entries(errors)) {
+    if (touched[key as NewPoFieldKey]) out[key] = message;
+  }
+  return out;
+}
+
+function markTouchedOnContainerBlur(
+  e: React.FocusEvent<HTMLElement>,
+  touch: () => void
+) {
+  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+    touch();
+  }
 }
 
 type SoldViaOpt = { code: string; label: string };
@@ -72,9 +201,15 @@ export default function OutboundNewPoPage() {
   const [releaseDate, setReleaseDate] = React.useState<Date | null>(null);
   const [expiryDate, setExpiryDate] = React.useState<Date | null>(null);
   const [poType, setPoType] = React.useState<string | null>(null);
-  const [files, setFiles] = React.useState<File[]>([]);
+  const [pdfFile, setPdfFile] = React.useState<File | null>(null);
+  const [spreadsheetFile, setSpreadsheetFile] = React.useState<File | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
-  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+  const [touched, setTouched] = React.useState<Partial<Record<NewPoFieldKey, boolean>>>({});
+  const [submitAttempted, setSubmitAttempted] = React.useState(false);
+
+  const touchField = React.useCallback((key: NewPoFieldKey) => {
+    setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
+  }, []);
 
   const loadOptions = React.useCallback(async () => {
     setLoading(true);
@@ -123,76 +258,57 @@ export default function OutboundNewPoPage() {
     imageName: c.name,
   }));
   const poTypeOptions = OUTBOUND_PO_TYPES.map((t) => ({ key: t, label: t }));
+  const formValues = React.useMemo<NewPoFormValues>(
+    () => ({
+      soldViaCode,
+      companyId,
+      poNumber,
+      poLocation,
+      billingAddress,
+      shippingAddress,
+      buyerGstin,
+      releaseDate,
+      expiryDate,
+      poType,
+      pdfFile,
+      spreadsheetFile,
+    }),
+    [
+      soldViaCode,
+      companyId,
+      poNumber,
+      poLocation,
+      billingAddress,
+      shippingAddress,
+      buyerGstin,
+      releaseDate,
+      expiryDate,
+      poType,
+      pdfFile,
+      spreadsheetFile,
+    ]
+  );
+  const validationErrors = React.useMemo(
+    () => collectNewPoFieldErrors(formValues),
+    [formValues]
+  );
+  const visibleErrors = React.useMemo(
+    () => filterVisibleFieldErrors(validationErrors, touched, submitAttempted),
+    [validationErrors, touched, submitAttempted]
+  );
+  const formComplete = Object.keys(validationErrors).length === 0;
   const selectedCompany =
     companyId ? companies.find((c) => String(c.id) === companyId) ?? null : null;
   const selectedCompanyDescription =
     selectedCompany?.description?.trim() ? selectedCompany.description : null;
 
-  const validateForm = React.useCallback((): boolean => {
-    const err: Record<string, string> = {};
-    if (!soldViaCode) err.soldVia = "Select Sold Via.";
-    if (!companyId) err.company = "Select Company.";
-    if (poNumber.trim().length === 0) {
-      err.poNumber = "PO Number is required.";
-    } else if (poNumber.trim().length > 80) {
-      err.poNumber = "PO Number must be at most 80 characters.";
-    }
-    if (poLocation.trim().length < 2) err.poLocation = "PO location is required (at least 2 characters).";
-    if (billingAddress.trim().length < 3) {
-      err.billingAddress = "Billing address is required (at least 3 characters).";
-    }
-    if (shippingAddress.trim().length < 3) {
-      err.shippingAddress = "Shipping address is required (at least 3 characters).";
-    }
-    const g = buyerGstin.trim();
-    if (g && !GSTIN_RE.test(g)) {
-      err.buyerGstin = "Enter a valid 15-character GSTIN or leave the field empty.";
-    }
-    if (!releaseDate) err.releaseDate = "Set PO release date using Year / Month / Day, then the button.";
-    if (!expiryDate) err.expiryDate = "Set PO expiry date using Year / Month / Day, then the button.";
-    if (releaseDate && expiryDate && expiryDate < releaseDate) {
-      err.expiryDate = "Expiry date must be on or after the release date.";
-    }
-    if (!poType) err.poType = "Select PO type.";
-    if (files.length !== 2) {
-      err.poFiles = "Choose exactly two files: one PDF and one spreadsheet (CSV or Excel).";
-    } else {
-      const pdfN = files.filter((f) => classifyPoUploadLocal(f) === "pdf").length;
-      const ssN = files.filter((f) => classifyPoUploadLocal(f) === "spreadsheet").length;
-      if (pdfN !== 1 || ssN !== 1) {
-        err.poFiles = "Provide one PDF and one spreadsheet or CSV (one of each, max 2MB per file).";
-      }
-      for (const f of files) {
-        if (classifyPoUploadLocal(f) === "other") {
-          err.poFiles = `Unsupported type: ${f.name}. Use PDF or Excel/CSV only.`;
-          break;
-        }
-        if (f.size > 2 * 1024 * 1024) {
-          err.poFiles = `File "${f.name}" exceeds the 2MB limit.`;
-          break;
-        }
-      }
-    }
-    setFieldErrors(err);
-    return Object.keys(err).length === 0;
-  }, [
-    soldViaCode,
-    companyId,
-    poNumber,
-    poLocation,
-    billingAddress,
-    shippingAddress,
-    buyerGstin,
-    releaseDate,
-    expiryDate,
-    poType,
-    files,
-  ]);
-
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canCreate) return;
-    if (!validateForm()) return;
+    if (!formComplete) {
+      setSubmitAttempted(true);
+      return;
+    }
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -206,9 +322,8 @@ export default function OutboundNewPoPage() {
       fd.set("poReleaseIso", releaseDate ? releaseDate.toISOString() : "");
       fd.set("poExpiryIso", expiryDate ? expiryDate.toISOString() : "");
       fd.set("poType", poType ?? "");
-      for (const f of files) {
-        fd.append("po_files", f);
-      }
+      if (pdfFile) fd.append("po_files", pdfFile);
+      if (spreadsheetFile) fd.append("po_files", spreadsheetFile);
       const res = await authFetch("/api/outbound/purchase-orders", {
         method: "POST",
         body: fd,
@@ -243,10 +358,7 @@ export default function OutboundNewPoPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-2 py-4 md:px-4">
-      <AppPageTitle
-        title="Add New Purchase Order"
-        description="Create an outbound PO with buyer details and original PDF + spreadsheet."
-      />
+      <AppPageTitle title="Add New Purchase Order" />
 
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading form…</p>
@@ -256,14 +368,7 @@ export default function OutboundNewPoPage() {
             <CardContent className="space-y-8 p-4 sm:p-6">
               {/* Identity */}
               <section className="space-y-3">
-                <div className="flex items-end justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold">Identity</h2>
-                    <p className="text-muted-foreground mt-0.5 text-xs">
-                      Sold Via lists the two channels from Zap. Companies refresh from the directory on open.
-                    </p>
-                  </div>
-                </div>
+                <h2 className="text-sm font-semibold">Identity</h2>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="space-y-2">
@@ -271,21 +376,15 @@ export default function OutboundNewPoPage() {
                     <Input
                       id="po-number"
                       value={poNumber}
-                      onChange={(e) => {
-                        setPoNumber(e.target.value);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.poNumber;
-                          return n;
-                        });
-                      }}
+                      onChange={(e) => setPoNumber(e.target.value)}
+                      onBlur={() => touchField("poNumber")}
                       className="min-h-11"
                       placeholder="Buyer's PO Number"
                       maxLength={80}
-                      aria-invalid={!!fieldErrors.poNumber}
+                      aria-invalid={!!visibleErrors.poNumber}
                     />
-                    {fieldErrors.poNumber ? (
-                      <p className="text-destructive text-xs">{fieldErrors.poNumber}</p>
+                    {visibleErrors.poNumber ? (
+                      <p className="text-destructive text-xs">{visibleErrors.poNumber}</p>
                     ) : null}
                   </div>
 
@@ -293,55 +392,33 @@ export default function OutboundNewPoPage() {
                     <Label>Sold Via</Label>
                     <SearchableSelect
                       value={soldViaCode}
-                      onChange={(v) => {
-                        setSoldViaCode(v);
-                        setFieldErrors((prev) => {
-                          const n = { ...prev };
-                          delete n.soldVia;
-                          return n;
-                        });
-                      }}
+                      onChange={setSoldViaCode}
+                      onBlur={() => touchField("soldVia")}
                       options={soldViaOptions}
                       placeholder="Select Sold Via"
                       emptyText="No sold-via options"
                       variant="soft"
                     />
-                    {fieldErrors.soldVia ? (
-                      <p className="text-destructive text-xs">{fieldErrors.soldVia}</p>
-                    ) : (
-                      <p className="text-muted-foreground text-xs">
-                        Typically Eunoia or Intellozene.
-                      </p>
-                    )}
+                    {visibleErrors.soldVia ? (
+                      <p className="text-destructive text-xs">{visibleErrors.soldVia}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2">
                     <Label>Company</Label>
                     <SearchableSelect
                       value={companyId}
-                      onChange={(v) => {
-                        setCompanyId(v);
-                        setFieldErrors((prev) => {
-                          const n = { ...prev };
-                          delete n.company;
-                          return n;
-                        });
-                      }}
+                      onChange={setCompanyId}
+                      onBlur={() => touchField("company")}
                       options={companyOptions}
                       placeholder="Select Company"
                       emptyText="No companies in Zap yet — check sync credentials and refresh."
                     />
-                    {fieldErrors.company ? (
-                      <p className="text-destructive text-xs">{fieldErrors.company}</p>
-                    ) : selectedCompany ? (
-                      <p className="text-muted-foreground text-xs">
-                        {selectedCompanyDescription ?? "No description stored for this company."}
-                      </p>
-                    ) : (
-                      <p className="text-muted-foreground text-xs">
-                        Buyer / marketplace this PO is for.
-                      </p>
-                    )}
+                    {visibleErrors.company ? (
+                      <p className="text-destructive text-xs">{visibleErrors.company}</p>
+                    ) : selectedCompanyDescription ? (
+                      <p className="text-muted-foreground text-xs">{selectedCompanyDescription}</p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -351,21 +428,15 @@ export default function OutboundNewPoPage() {
                     <Input
                       id="po-loc"
                       value={poLocation}
-                      onChange={(e) => {
-                        setPoLocation(e.target.value);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.poLocation;
-                          return n;
-                        });
-                      }}
+                      onChange={(e) => setPoLocation(e.target.value)}
+                      onBlur={() => touchField("poLocation")}
                       className="min-h-11"
                       placeholder="PO Location"
                       minLength={2}
-                      aria-invalid={!!fieldErrors.poLocation}
+                      aria-invalid={!!visibleErrors.poLocation}
                     />
-                    {fieldErrors.poLocation ? (
-                      <p className="text-destructive text-xs">{fieldErrors.poLocation}</p>
+                    {visibleErrors.poLocation ? (
+                      <p className="text-destructive text-xs">{visibleErrors.poLocation}</p>
                     ) : null}
                   </div>
 
@@ -373,21 +444,15 @@ export default function OutboundNewPoPage() {
                     <Label>PO Type</Label>
                     <SearchableSelect
                       value={poType}
-                      onChange={(v) => {
-                        setPoType(v);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.poType;
-                          return n;
-                        });
-                      }}
+                      onChange={setPoType}
+                      onBlur={() => touchField("poType")}
                       options={poTypeOptions}
                       placeholder="Select PO Type"
                       emptyText="No PO types"
                       variant="soft"
                     />
-                    {fieldErrors.poType ? (
-                      <p className="text-destructive text-xs">{fieldErrors.poType}</p>
+                    {visibleErrors.poType ? (
+                      <p className="text-destructive text-xs">{visibleErrors.poType}</p>
                     ) : null}
                   </div>
                 </div>
@@ -395,48 +460,40 @@ export default function OutboundNewPoPage() {
 
               {/* Dates */}
               <section className="space-y-3">
-                <div>
-                  <h2 className="text-sm font-semibold">Dates</h2>
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    Set release and expiry with Year / Month / Day, then the Set button.
-                  </p>
-                </div>
+                <h2 className="text-sm font-semibold">Dates</h2>
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-1">
+                  <div
+                    className="space-y-1"
+                    onBlur={(e) =>
+                      markTouchedOnContainerBlur(e, () => touchField("releaseDate"))
+                    }
+                  >
                     <TripletDatePicker
                       title="Select PO Release date"
                       value={releaseDate}
-                      onSet={(d) => {
-                        setReleaseDate(d);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.releaseDate;
-                          delete n.expiryDate;
-                          return n;
-                        });
-                      }}
+                      onSet={setReleaseDate}
                       setButtonLabel="Set PO Release date"
+                      autoCommit
                     />
-                    {fieldErrors.releaseDate ? (
-                      <p className="text-destructive px-1 text-xs">{fieldErrors.releaseDate}</p>
+                    {visibleErrors.releaseDate ? (
+                      <p className="text-destructive px-1 text-xs">{visibleErrors.releaseDate}</p>
                     ) : null}
                   </div>
-                  <div className="space-y-1">
+                  <div
+                    className="space-y-1"
+                    onBlur={(e) =>
+                      markTouchedOnContainerBlur(e, () => touchField("expiryDate"))
+                    }
+                  >
                     <TripletDatePicker
                       title="Select PO expiry date"
                       value={expiryDate}
-                      onSet={(d) => {
-                        setExpiryDate(d);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.expiryDate;
-                          return n;
-                        });
-                      }}
+                      onSet={setExpiryDate}
                       setButtonLabel="Set PO expiry date"
+                      autoCommit
                     />
-                    {fieldErrors.expiryDate ? (
-                      <p className="text-destructive px-1 text-xs">{fieldErrors.expiryDate}</p>
+                    {visibleErrors.expiryDate ? (
+                      <p className="text-destructive px-1 text-xs">{visibleErrors.expiryDate}</p>
                     ) : null}
                   </div>
                 </div>
@@ -444,33 +501,22 @@ export default function OutboundNewPoPage() {
 
               {/* Buyer */}
               <section className="space-y-3">
-                <div>
-                  <h2 className="text-sm font-semibold">Buyer</h2>
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    Addresses appear on the PO detail page and help Ops dispatch correctly.
-                  </p>
-                </div>
+                <h2 className="text-sm font-semibold">Buyer</h2>
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="bill">Billing Address</Label>
                     <textarea
                       id="bill"
                       value={billingAddress}
-                      onChange={(e) => {
-                        setBillingAddress(e.target.value);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.billingAddress;
-                          return n;
-                        });
-                      }}
+                      onChange={(e) => setBillingAddress(e.target.value)}
+                      onBlur={() => touchField("billingAddress")}
                       className={textareaClass}
                       placeholder="Billing Address"
                       minLength={3}
-                      aria-invalid={!!fieldErrors.billingAddress}
+                      aria-invalid={!!visibleErrors.billingAddress}
                     />
-                    {fieldErrors.billingAddress ? (
-                      <p className="text-destructive text-xs">{fieldErrors.billingAddress}</p>
+                    {visibleErrors.billingAddress ? (
+                      <p className="text-destructive text-xs">{visibleErrors.billingAddress}</p>
                     ) : null}
                   </div>
 
@@ -479,21 +525,15 @@ export default function OutboundNewPoPage() {
                     <textarea
                       id="ship"
                       value={shippingAddress}
-                      onChange={(e) => {
-                        setShippingAddress(e.target.value);
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.shippingAddress;
-                          return n;
-                        });
-                      }}
+                      onChange={(e) => setShippingAddress(e.target.value)}
+                      onBlur={() => touchField("shippingAddress")}
                       className={textareaClass}
                       placeholder="Shipping Address"
                       minLength={3}
-                      aria-invalid={!!fieldErrors.shippingAddress}
+                      aria-invalid={!!visibleErrors.shippingAddress}
                     />
-                    {fieldErrors.shippingAddress ? (
-                      <p className="text-destructive text-xs">{fieldErrors.shippingAddress}</p>
+                    {visibleErrors.shippingAddress ? (
+                      <p className="text-destructive text-xs">{visibleErrors.shippingAddress}</p>
                     ) : null}
                   </div>
                 </div>
@@ -504,92 +544,117 @@ export default function OutboundNewPoPage() {
                     <Input
                       id="gstin"
                       value={buyerGstin}
-                      onChange={(e) => {
-                        setBuyerGstin(e.target.value.toUpperCase());
-                        setFieldErrors((p) => {
-                          const n = { ...p };
-                          delete n.buyerGstin;
-                          return n;
-                        });
-                      }}
+                      onChange={(e) => setBuyerGstin(e.target.value.toUpperCase())}
+                      onBlur={() => touchField("buyerGstin")}
                       className="min-h-11 font-mono uppercase"
                       placeholder="Buyer GSTIN"
                       maxLength={15}
-                      aria-invalid={!!fieldErrors.buyerGstin}
+                      aria-invalid={!!visibleErrors.buyerGstin}
                     />
-                    {fieldErrors.buyerGstin ? (
-                      <p className="text-destructive text-xs">{fieldErrors.buyerGstin}</p>
-                    ) : (
-                      <p className="text-muted-foreground text-xs">
-                        Optional. If filled, must be a valid 15-character GSTIN.
-                      </p>
-                    )}
+                    {visibleErrors.buyerGstin ? (
+                      <p className="text-destructive text-xs">{visibleErrors.buyerGstin}</p>
+                    ) : null}
                   </div>
                 </div>
               </section>
 
               {/* Documents */}
-              <section className="space-y-3">
+              <section className="space-y-4">
                 <div>
                   <h2 className="text-sm font-semibold">Original PO documents</h2>
                   <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
-                    Upload exactly two files: <strong>one PDF</strong> and <strong>one spreadsheet</strong> (CSV/Excel),
-                    each up to <strong>2MB</strong>. These appear on the PO detail page under{" "}
-                    <strong>Original PO documents</strong>.{" "}
-                    <Link
-                      href="/samples/outbound/sample_po_line_items_spreadsheet.csv?v=2"
-                      className="text-primary font-medium underline-offset-2 hover:underline"
-                      download
-                    >
-                      Download sample spreadsheet
-                    </Link>
-                    .
+                    (Maximum 2 files are allowed. File size should not exceed 2MB. Please upload
+                    both pdf and spreadsheet version of the PO.)
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="po-files">Upload files</Label>
-                  <Input
-                    id="po-files"
-                    type="file"
-                    accept=".pdf,.csv,.xlsx,.xls,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                    multiple
-                    className="min-h-11 cursor-pointer"
-                    aria-invalid={!!fieldErrors.poFiles}
-                    onChange={(e) => {
-                      const list = e.target.files ? Array.from(e.target.files) : [];
-                      if (list.length > 2) {
-                        toast.message("Only two files are used", {
-                          description: "Select one PDF and one spreadsheet.",
-                        });
-                      }
-                      setFiles(list.slice(0, 2));
-                      setFieldErrors((p) => {
-                        const n = { ...p };
-                        delete n.poFiles;
-                        return n;
-                      });
-                      e.target.value = "";
-                    }}
-                  />
-                  {fieldErrors.poFiles ? (
-                    <p className="text-destructive text-xs">{fieldErrors.poFiles}</p>
-                  ) : null}
-                  {files.length > 0 ? (
-                    <ul className="text-muted-foreground font-mono text-xs">
-                      {files.map((f) => (
-                        <li key={f.name}>
-                          {f.name} ({Math.round(f.size / 1024)} KB)
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label htmlFor="po-pdf">
+                      PO PDF <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="po-pdf"
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      className="min-h-11 cursor-pointer"
+                      aria-required
+                      aria-invalid={!!visibleErrors.poPdf}
+                      onChange={(e) => {
+                        setPdfFile(e.target.files?.[0] ?? null);
+                        e.target.value = "";
+                      }}
+                      onBlur={() => touchField("poPdf")}
+                    />
+                    {visibleErrors.poPdf ? (
+                      <p className="text-destructive text-xs">{visibleErrors.poPdf}</p>
+                    ) : null}
+                    {pdfFile ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-muted-foreground font-mono text-xs">
+                          {pdfFile.name} ({Math.round(pdfFile.size / 1024)} KB)
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => setPdfFile(null)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2 rounded-md border p-3">
+                    <Label htmlFor="po-spreadsheet">
+                      PO spreadsheet <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="po-spreadsheet"
+                      type="file"
+                      accept=".csv,.xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                      className="min-h-11 cursor-pointer"
+                      aria-required
+                      aria-invalid={!!visibleErrors.poSpreadsheet}
+                      onChange={(e) => {
+                        setSpreadsheetFile(e.target.files?.[0] ?? null);
+                        e.target.value = "";
+                      }}
+                      onBlur={() => touchField("poSpreadsheet")}
+                    />
+                    {visibleErrors.poSpreadsheet ? (
+                      <p className="text-destructive text-xs">{visibleErrors.poSpreadsheet}</p>
+                    ) : null}
+                    {spreadsheetFile ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-muted-foreground font-mono text-xs">
+                          {spreadsheetFile.name} ({Math.round(spreadsheetFile.size / 1024)} KB)
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => setSpreadsheetFile(null)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </section>
             </CardContent>
           </Card>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {submitAttempted && !formComplete ? (
+              <p className="text-destructive order-last text-xs sm:order-first sm:mr-auto sm:text-left">
+                Please fix the highlighted fields above.
+              </p>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -603,7 +668,12 @@ export default function OutboundNewPoPage() {
               type="submit"
               size="lg"
               className="bg-primary min-h-11 px-8"
-              disabled={submitting}
+              disabled={submitting || !formComplete}
+              title={
+                formComplete
+                  ? undefined
+                  : "Complete all required fields to create the purchase order"
+              }
             >
               {submitting ? "Submitting…" : "Create purchase order"}
             </Button>

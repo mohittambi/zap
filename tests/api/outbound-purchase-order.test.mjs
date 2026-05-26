@@ -225,6 +225,17 @@ describe("Outbound PO creation — field validation", () => {
     assert.strictEqual(r.status, 400);
   });
 
+  it("POST with expiry on same day as release returns 400", async () => {
+    if (!token) return skip("login failed");
+    const fd = makeValidPoForm({
+      poReleaseIso: "2026-06-15T12:00:00.000Z",
+      poExpiryIso: "2026-06-15T18:00:00.000Z",
+    });
+    const r = await api("/api/outbound/purchase-orders", { method: "POST", body: fd });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 400);
+  });
+
   it("POST with invalid PO type returns 400", async () => {
     if (!token) return skip("login failed");
     const fd = makeValidPoForm({ poType: "NotAValidType" });

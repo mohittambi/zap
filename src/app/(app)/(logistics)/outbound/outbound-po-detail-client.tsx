@@ -615,8 +615,8 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         return;
       }
       const release = parseDateOnlyString(po?.po_issue_date ?? "");
-      if (release && editDateValue < release) {
-        toast.error("Expiry date must be on or after the release date.");
+      if (release && editDateValue.getTime() <= release.getTime()) {
+        toast.error("Expiry date must be after the release date.");
         return;
       }
       valueToSave = formatUtcDateOnly(editDateValue);

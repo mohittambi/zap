@@ -18,6 +18,7 @@ export type SearchableSelectOption = {
 export function SearchableSelect({
   value,
   onChange,
+  onBlur,
   options,
   placeholder,
   emptyText = "No matches",
@@ -25,12 +26,15 @@ export function SearchableSelect({
 }: {
   value: string | null;
   onChange: (key: string) => void;
+  /** Fired when the control loses focus or the dropdown closes. */
+  onBlur?: () => void;
   options: SearchableSelectOption[];
   placeholder: string;
   emptyText?: string;
   variant?: "solid" | "soft";
 }) {
   const [open, setOpen] = React.useState(false);
+  const wasOpenRef = React.useRef(false);
   const [q, setQ] = React.useState("");
   const [mounted, setMounted] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
@@ -79,6 +83,13 @@ export function SearchableSelect({
     document.addEventListener("pointerdown", onDocPointerDown);
     return () => document.removeEventListener("pointerdown", onDocPointerDown);
   }, [open]);
+
+  React.useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      onBlur?.();
+    }
+    wasOpenRef.current = open;
+  }, [open, onBlur]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -170,6 +181,7 @@ export function SearchableSelect({
         onClick={() => {
           setOpen((prev) => !prev);
         }}
+        onBlur={() => onBlur?.()}
         aria-expanded={open}
         aria-haspopup="listbox"
       >

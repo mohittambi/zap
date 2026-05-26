@@ -220,8 +220,13 @@ export async function POST(request: Request) {
     if (Number.isNaN(poIssueDate.getTime()) || Number.isNaN(expiryDate.getTime())) {
       throw new AppError("Invalid release or expiry date", 400);
     }
-    if (expiryDate < poIssueDate) {
-      throw new AppError("Expiry date must be on or after the release date", 400);
+    const releaseDay = poReleaseIso.trim().slice(0, 10);
+    const expiryDay = poExpiryIso.trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(releaseDay) || !/^\d{4}-\d{2}-\d{2}$/.test(expiryDay)) {
+      throw new AppError("Invalid release or expiry date", 400);
+    }
+    if (expiryDay <= releaseDay) {
+      throw new AppError("Expiry date must be after the release date", 400);
     }
     const allowedTypes = OUTBOUND_PO_TYPES as readonly string[];
     if (!poType || !allowedTypes.includes(poType)) {
@@ -230,7 +235,7 @@ export async function POST(request: Request) {
 
     if (files.length !== MAX_PO_FILES) {
       throw new AppError(
-        "Upload exactly two files: one PDF and one spreadsheet (CSV or Excel). Maximum 2 files, 2MB each.",
+        "Exactly 2 files are required: one PDF and one spreadsheet (CSV or Excel). Maximum 2MB per file.",
         400
       );
     }
@@ -249,7 +254,7 @@ export async function POST(request: Request) {
     const ssCount = files.filter((f) => classifyPoUpload(f) === "spreadsheet").length;
     if (pdfCount !== 1 || ssCount !== 1) {
       throw new AppError(
-        "Provide exactly one PDF and one spreadsheet or CSV (one of each).",
+        "Exactly 2 files are required: one PDF and one spreadsheet (CSV or Excel), not two of the same type.",
         400
       );
     }

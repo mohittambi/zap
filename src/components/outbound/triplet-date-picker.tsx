@@ -41,12 +41,21 @@ export function parseDateOnlyString(s: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+export function utcDateFromYmdParts(y: number, m: number, d: number): Date | null {
+  const local = new Date(y, m, d);
+  if (local.getFullYear() !== y || local.getMonth() !== m || local.getDate() !== d) {
+    return null;
+  }
+  return new Date(Date.UTC(y, m, d, 12, 0, 0));
+}
+
 export function TripletDatePicker({
   title,
   value,
   onSet,
   setButtonLabel,
   embedded = false,
+  autoCommit = false,
 }: {
   title: string;
   value: Date | null;
@@ -54,11 +63,14 @@ export function TripletDatePicker({
   setButtonLabel: string;
   /** When true, omits the outer Card (e.g. inside a dialog). */
   embedded?: boolean;
+  /** When true, applies the selected Y/M/D as soon as the user changes a dropdown. */
+  autoCommit?: boolean;
 }) {
   const seed = value ?? new Date();
   const [y, setY] = React.useState(seed.getUTCFullYear());
   const [m, setM] = React.useState(seed.getUTCMonth());
   const [d, setD] = React.useState(seed.getUTCDate());
+  const userAdjustedRef = React.useRef(false);
 
   React.useEffect(() => {
     if (!value) return;
@@ -71,6 +83,27 @@ export function TripletDatePicker({
   React.useEffect(() => {
     if (d > dim) setD(dim);
   }, [y, m, dim, d]);
+
+  const commitSelection = React.useCallback(() => {
+    const next = utcDateFromYmdParts(y, m, d);
+    if (!next) {
+      toast.error("Invalid calendar date for the selected month.");
+      return;
+    }
+    onSet(next);
+  }, [y, m, d, onSet]);
+
+  React.useEffect(() => {
+    if (!autoCommit || !userAdjustedRef.current) return;
+    const next = utcDateFromYmdParts(y, m, d);
+    if (!next) return;
+    if (value?.getTime() === next.getTime()) return;
+    onSet(next);
+  }, [autoCommit, y, m, d, value, onSet]);
+
+  const markAdjusted = React.useCallback(() => {
+    userAdjustedRef.current = true;
+  }, []);
 
   const years = React.useMemo(() => {
     const cy = new Date().getFullYear();
@@ -102,7 +135,10 @@ export function TripletDatePicker({
           <select
             className="border-input bg-background h-10 min-w-[100px] rounded-md border px-2 text-sm"
             value={y}
-            onChange={(e) => setY(Number(e.target.value))}
+            onChange={(e) => {
+              markAdjusted();
+              setY(Number(e.target.value));
+            }}
           >
             {years.map((yr) => (
               <option key={yr} value={yr}>
@@ -116,7 +152,10 @@ export function TripletDatePicker({
           <select
             className="border-input bg-background h-10 min-w-[140px] rounded-md border px-2 text-sm"
             value={m}
-            onChange={(e) => setM(Number(e.target.value))}
+            onChange={(e) => {
+              markAdjusted();
+              setM(Number(e.target.value));
+            }}
           >
             {MONTHS.map((name, idx) => (
               <option key={name} value={idx}>
@@ -130,7 +169,10 @@ export function TripletDatePicker({
           <select
             className="border-input bg-background h-10 min-w-[72px] rounded-md border px-2 text-sm"
             value={d}
-            onChange={(e) => setD(Number(e.target.value))}
+            onChange={(e) => {
+              markAdjusted();
+              setD(Number(e.target.value));
+            }}
           >
             {dayOptions.map((day) => (
               <option key={day} value={day}>
@@ -144,16 +186,8 @@ export function TripletDatePicker({
           variant="outline"
           className="border-primary text-primary hover:bg-primary/5 ml-auto"
           onClick={() => {
-            const local = new Date(y, m, d);
-            if (
-              local.getFullYear() !== y ||
-              local.getMonth() !== m ||
-              local.getDate() !== d
-            ) {
-              toast.error("Invalid calendar date for the selected month.");
-              return;
-            }
-            onSet(new Date(Date.UTC(y, m, d, 12, 0, 0)));
+            markAdjusted();
+            commitSelection();
           }}
         >
           {setButtonLabel}

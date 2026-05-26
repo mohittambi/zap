@@ -327,13 +327,15 @@ export function OutboundPoAddDocumentUpload({
         <p className="text-sm font-medium">Add PO document</p>
         <p className="text-muted-foreground text-xs leading-relaxed">
           PDF or spreadsheet/CSV, max 2MB. Spreadsheets update SKU line items when
-          column headers match the sample.{" "}
+          column headers match the sample.
+        </p>
+        <p className="text-xs">
           <Link
             href="/samples/outbound/sample_po_line_items_spreadsheet.csv?v=2"
             className="text-primary font-medium underline-offset-2 hover:underline"
             download
           >
-            Download sample spreadsheet (vendor format)
+            Sample spreadsheet (vendor format: HSN, IGST %, Quantity, MRP, …)
           </Link>
         </p>
       </div>
