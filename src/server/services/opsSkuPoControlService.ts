@@ -573,8 +573,9 @@ function filterAndSortRows(
   if (t) {
     out = out.filter((r) => r.master_sku.toLowerCase().includes(t));
   }
-  if (opts.minTotalPending != null && opts.minTotalPending > 0) {
-    out = out.filter((r) => r.total_pending >= opts.minTotalPending);
+  const minTotalPending = opts.minTotalPending;
+  if (minTotalPending != null && minTotalPending > 0) {
+    out = out.filter((r) => r.total_pending >= minTotalPending);
   }
   if (opts.onlyPlacePending) {
     out = out.filter((r) => r.order_place_pending > 0);
