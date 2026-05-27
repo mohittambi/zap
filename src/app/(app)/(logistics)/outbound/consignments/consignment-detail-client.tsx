@@ -18,29 +18,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { ConsignmentLineItemsEditor } from "@/components/outbound/consignment-line-items-editor";
+import { ConsignmentLineItemsTabViews } from "@/components/outbound/consignment-line-items-tab-views";
+import { isConsignmentLinesLocked } from "@/lib/outbound-consignment-status";
 import { ConsignmentPoLineItems } from "@/components/outbound/consignment-po-line-items";
 import { MarkConsignmentRtdDialog } from "@/components/outbound/mark-consignment-rtd-dialog";
 import type { OutboundConsignmentRow } from "@/server/services/outboundConsignmentsService";
-
-type ConsignmentItemRow = {
-  po_secondary_sku?: string | null;
-  company_code_primary?: string | null;
-  company_code_secondary?: string | null;
-  zap_ean?: string;
-  universal_ean?: string;
-  box_quantity?: number | null;
-  original_demand?: number | null;
-  dispatched_quantity?: number | null;
-  consignment_quantity?: number | null;
-  overall_fill_rate?: number | null;
-};
-
-type ItemsPayload = {
-  total: number;
-  current_page: number;
-  per_page_count: number;
-  content: ConsignmentItemRow[];
-};
 
 const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -144,8 +126,6 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [invoiceNumInput, setInvoiceNumInput] = React.useState("");
   const [savingInvoiceNum, setSavingInvoiceNum] = React.useState(false);
   const [downloadingExcel, setDownloadingExcel] = React.useState(false);
-  const [items, setItems] = React.useState<ItemsPayload | null>(null);
-  const [itemsLoading, setItemsLoading] = React.useState(true);
   const [rtdDialogOpen, setRtdDialogOpen] = React.useState(false);
   const { hasPermission } = useAuth();
   const canWritePo = hasPermission("purchase_orders", "write");
@@ -223,14 +203,10 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
 
   async function refreshConsignmentData() {
     try {
-      const [updated, itemsData] = await Promise.all([
-        apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`),
-        apiFetch<ItemsPayload>(
-          `/api/outbound/consignments/${encodeURIComponent(id)}/items?page=1&limit=200`
-        ),
-      ]);
+      const updated = await apiFetch<OutboundConsignmentRow>(
+        `/api/outbound/consignments/${encodeURIComponent(id)}`
+      );
       setRow(updated);
-      setItems(itemsData);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Refresh failed");
     }
@@ -258,26 +234,6 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
     return () => { cancelled = true; };
   }, [id]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setItemsLoading(true);
-      try {
-        const data = await apiFetch<ItemsPayload>(
-          `/api/outbound/consignments/${encodeURIComponent(id)}/items?page=1&limit=200`
-        );
-        if (!cancelled) setItems(data);
-      } catch {
-        if (!cancelled) setItems(null);
-      } finally {
-        if (!cancelled) setItemsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
   if (loading) {
     return (
       <div className="text-muted-foreground flex items-center gap-2 px-2 py-8 text-sm">
@@ -298,11 +254,14 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
     );
   }
 
-  const isMarkedRtd = row.consignment_status?.trim().toLowerCase() === "marked_rtd";
+  const linesLocked = isConsignmentLinesLocked({
+    consignment_status: row.consignment_status,
+    marked_rtd_at: row.marked_rtd_at,
+  });
   const shipmentType =
     typeof row.raw?.shipment_type === "string" ? row.raw.shipment_type : null;
   const canMarkRtd =
-    canWritePo && !isMarkedRtd && (row.boxes_count ?? 0) > 0;
+    canWritePo && !linesLocked && (row.boxes_count ?? 0) > 0;
 
   return (
     <div className="mx-auto max-w-[min(100%,96rem)] space-y-6 px-2 py-4 md:px-4">
@@ -329,107 +288,91 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
         </p>
       </div>
 
-      {/* Current Consignment Summary */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span>Current Consignment Summary</span>
-            {canMarkRtd ? (
-              <Button size="sm" onClick={() => setRtdDialogOpen(true)}>
-                Mark for dispatch
-              </Button>
-            ) : null}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-3">
-            <StatTile label="Boxes" value={row.boxes_count ?? 0} highlight />
-            <StatTile label="SKUs" value={row.sku_count ?? 0} />
-            <StatTile label="Total Qty" value={row.total_quantity ?? 0} />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* PO & Invoice */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center justify-between gap-2 text-sm">
-            <span className="flex items-center gap-2">
-              <FileTextIcon className="size-4" />
-              PO &amp; Invoice
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1 text-xs"
-              disabled={downloadingExcel}
-              onClick={() => void handleDownloadExcel()}
-            >
-              <Download className="size-3.5" />
-              {downloadingExcel ? "Downloading…" : "Excel"}
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y">
-          <MetaRow label="PO Number" value={row.po_number} mono />
-          <MetaRow label="PO Type" value={row.po_type} />
-          <MetaRow label="Sold via" value={row.sold_via} />
-          <InvoiceNumberRow
-            current={row.invoice_number}
-            inputVal={invoiceNumInput}
-            saving={savingInvoiceNum}
-            onChange={setInvoiceNumInput}
-            onSave={() => void handleSaveInvoiceNumber()}
-          />
-          <MetaRow label="Invoice status" value={row.invoice_number_status} />
-          <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
-          {row.invoice_file_name ? (
-            <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
-              <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice file</span>
-              <span className="flex items-center gap-2 text-right">
-                <span className="font-mono text-xs">{row.invoice_file_name}</span>
-                {row.invoice_uploaded_at ? (
-                  <span className="text-muted-foreground text-xs">{fmt(row.invoice_uploaded_at)}</span>
-                ) : null}
-                <Button size="sm" variant="outline" onClick={() => void handleDownloadInvoice()}>
-                  Download
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card className="h-full">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span>Current Consignment Summary</span>
+              {canMarkRtd ? (
+                <Button size="sm" onClick={() => setRtdDialogOpen(true)}>
+                  Mark for dispatch
                 </Button>
+              ) : null}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-3">
+              <StatTile label="Boxes" value={row.boxes_count ?? 0} highlight />
+              <StatTile label="SKUs" value={row.sku_count ?? 0} />
+              <StatTile label="Total Qty" value={row.total_quantity ?? 0} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="h-full">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-2">
+                <FileTextIcon className="size-4" />
+                PO &amp; Invoice
               </span>
-            </div>
-          ) : null}
-          {row.invoice_number_status && !row.invoice_file_name ? (
-            <div className="flex items-center justify-between gap-4 py-2">
-              <span className="text-muted-foreground shrink-0 text-xs font-medium">Upload invoice</span>
-              <div className="flex items-center gap-2">
-                <input ref={invoiceFileRef} type="file" accept=".pdf,.jpg,.jpeg" className="text-xs" />
-                <Button size="sm" variant="outline" disabled={uploadingInvoice} onClick={handleUploadInvoice}>
-                  <Upload className="size-3.5 mr-1" />
-                  {uploadingInvoice ? "Uploading…" : "Upload"}
-                </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                disabled={downloadingExcel}
+                onClick={() => void handleDownloadExcel()}
+              >
+                <Download className="size-3.5" />
+                {downloadingExcel ? "Downloading…" : "Excel"}
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            <MetaRow label="PO Number" value={row.po_number} mono />
+            <MetaRow label="PO Type" value={row.po_type} />
+            <MetaRow label="Sold via" value={row.sold_via} />
+            <InvoiceNumberRow
+              current={row.invoice_number}
+              inputVal={invoiceNumInput}
+              saving={savingInvoiceNum}
+              onChange={setInvoiceNumInput}
+              onSave={() => void handleSaveInvoiceNumber()}
+            />
+            <MetaRow label="Invoice status" value={row.invoice_number_status} />
+            <MetaRow label="Invoice upload" value={row.invoice_upload_status} />
+            {row.invoice_file_name ? (
+              <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
+                <span className="text-muted-foreground shrink-0 text-xs font-medium">Invoice file</span>
+                <span className="flex items-center gap-2 text-right">
+                  <span className="font-mono text-xs">{row.invoice_file_name}</span>
+                  {row.invoice_uploaded_at ? (
+                    <span className="text-muted-foreground text-xs">{fmt(row.invoice_uploaded_at)}</span>
+                  ) : null}
+                  <Button size="sm" variant="outline" onClick={() => void handleDownloadInvoice()}>
+                    Download
+                  </Button>
+                </span>
               </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+            ) : null}
+            {row.invoice_number_status && !row.invoice_file_name ? (
+              <div className="flex items-center justify-between gap-4 py-2">
+                <span className="text-muted-foreground shrink-0 text-xs font-medium">Upload invoice</span>
+                <div className="flex items-center gap-2">
+                  <input ref={invoiceFileRef} type="file" accept=".pdf,.jpg,.jpeg" className="text-xs" />
+                  <Button size="sm" variant="outline" disabled={uploadingInvoice} onClick={handleUploadInvoice}>
+                    <Upload className="size-3.5 mr-1" />
+                    {uploadingInvoice ? "Uploading…" : "Upload"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
 
-      <ConsignmentPoLineItems consignmentId={Number(id)} poNumber={row.po_number} />
-
-      <ConsignmentLineItemsEditor
-        consignmentId={Number(id)}
-        poNumber={row.po_number ?? "—"}
-        onSaved={() => void refreshConsignmentData()}
-      />
-
-      <MarkConsignmentRtdDialog
-        open={rtdDialogOpen}
-        onOpenChange={setRtdDialogOpen}
-        consignmentId={Number(id)}
-        onMarked={() => void refreshConsignmentData()}
-      />
-
-      {/* Transport */}
-      {(row.transporter_name || row.vehicle_number || row.docket_number || shipmentType) ? (
-        <Card>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card className="h-full">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <TruckIcon className="size-4" />
@@ -437,78 +380,55 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
             </CardTitle>
           </CardHeader>
           <CardContent className="divide-y">
-            <MetaRow label="Transporter" value={row.transporter_name} />
-            <MetaRow label="Shipment type" value={shipmentType} />
-            <MetaRow label="Vehicle" value={row.vehicle_number} mono />
-            <MetaRow label="Docket" value={row.docket_number} mono />
+            {row.transporter_name || row.vehicle_number || row.docket_number || shipmentType ? (
+              <>
+                <MetaRow label="Transporter" value={row.transporter_name} />
+                <MetaRow label="Shipment type" value={shipmentType} />
+                <MetaRow label="Vehicle" value={row.vehicle_number} mono />
+                <MetaRow label="Docket" value={row.docket_number} mono />
+              </>
+            ) : (
+              <p className="text-muted-foreground py-4 text-sm">
+                No transport details yet. Mark for dispatch to add transporter and docket.
+              </p>
+            )}
           </CardContent>
         </Card>
-      ) : null}
 
-      {/* Line items (Zap EAN for dispatch reference) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Consignment items</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {itemsLoading ? (
-            <p className="text-muted-foreground px-4 py-6 text-sm">Loading items…</p>
-          ) : !items?.content?.length ? (
-            <p className="text-muted-foreground px-4 py-6 text-sm">
-              No line items synced for this consignment yet.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-left text-xs">
-                <thead>
-                  <tr className="bg-muted/60 border-b">
-                    <th className="px-3 py-2">SKU</th>
-                    <th className="px-3 py-2">Company code</th>
-                    <th className="px-3 py-2">Zap EAN</th>
-                    <th className="px-3 py-2">Universal EAN</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {items.content.map((item, i) => (
-                    <tr key={item.po_secondary_sku ?? i}>
-                      <td className="px-3 py-2 font-mono">{item.po_secondary_sku ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono">
-                        {item.company_code_primary ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 font-mono tabular-nums">
-                        {item.zap_ean?.trim() ? item.zap_ean : "—"}
-                      </td>
-                      <td className="px-3 py-2 font-mono tabular-nums">
-                        {item.universal_ean?.trim() ? item.universal_ean : "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {item.consignment_quantity ?? item.dispatched_quantity ?? "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        <Card className="h-full">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <CalendarIcon className="size-4" />
+              Timeline
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            <MetaRow label="Created" value={fmt(row.created_at)} />
+            <MetaRow label="Marked RTD" value={fmt(row.marked_rtd_at)} />
+            <MetaRow label="Marked RTD by" value={row.marked_rtd_by} />
+            <MetaRow label="Synced at" value={fmt(row.synced_at)} />
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Timeline */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <CalendarIcon className="size-4" />
-            Timeline
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y">
-          <MetaRow label="Created" value={fmt(row.created_at)} />
-          <MetaRow label="Marked RTD" value={fmt(row.marked_rtd_at)} />
-          <MetaRow label="Marked RTD by" value={row.marked_rtd_by} />
-          <MetaRow label="Synced at" value={fmt(row.synced_at)} />
-        </CardContent>
-      </Card>
+      {linesLocked ? (
+        <ConsignmentLineItemsTabViews consignmentId={Number(id)} />
+      ) : (
+        <ConsignmentLineItemsEditor
+          consignmentId={Number(id)}
+          poNumber={row.po_number ?? "—"}
+          onSaved={() => void refreshConsignmentData()}
+        />
+      )}
+
+      <ConsignmentPoLineItems consignmentId={Number(id)} poNumber={row.po_number} />
+
+      <MarkConsignmentRtdDialog
+        open={rtdDialogOpen}
+        onOpenChange={setRtdDialogOpen}
+        consignmentId={Number(id)}
+        onMarked={() => void refreshConsignmentData()}
+      />
     </div>
   );
 }

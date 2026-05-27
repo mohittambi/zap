@@ -3,9 +3,12 @@ import { describe, it } from "node:test";
 import {
   buildConsignmentLineSampleCsv,
   extractConsignmentLineDraftsFromListings,
+  applyBulkFormRowsToSkus,
   extractConsignmentSkuPackingFromListings,
+  validateConsignmentSkuPackingClient,
   flattenSkuPackingToLineRows,
   groupLineRowsToSkuPacking,
+  skusToBulkFormRows,
   parseConsignmentLineCsv,
   parseConsignmentLineCsvToSkus,
   sumPackedQty,
@@ -141,6 +144,82 @@ describe("extractConsignmentLineDraftsFromListings", () => {
   });
 });
 
+describe("bulk form helpers", () => {
+  it("skusToBulkFormRows returns one row per PO SKU", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const rows = skusToBulkFormRows(template);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.po_secondary_sku, "10153349");
+    assert.equal(rows[1]?.po_secondary_sku, "10149918");
+  });
+
+  it("applyBulkFormRowsToSkus groups multiple box lines per SKU", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const { skus, errors } = applyBulkFormRowsToSkus(
+      [
+        {
+          id: "1",
+          po_secondary_sku: "10149918",
+          company_code_primary: "AAC500",
+          box_name: "Small Carton",
+          box_quantity: "10",
+          removable: false,
+        },
+        {
+          id: "2",
+          po_secondary_sku: "10149918",
+          company_code_primary: "AAC500",
+          box_name: "Small Carton",
+          box_quantity: "10",
+          removable: true,
+        },
+        {
+          id: "3",
+          po_secondary_sku: "10153349",
+          company_code_primary: "BAH501",
+          box_name: "Small Carton",
+          box_quantity: "50",
+          removable: false,
+        },
+      ],
+      template
+    );
+    assert.equal(errors.length, 0);
+    const a = skus.find((s) => s.po_secondary_sku === "10149918");
+    assert.equal(a?.boxes.length, 2);
+    assert.equal(sumPackedQty(a!), 20);
+  });
+
+  it("applyBulkFormRowsToSkus rejects when packed total exceeds pending", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const formRows = [
+      {
+        id: "1",
+        po_secondary_sku: "10149918",
+        company_code_primary: "AAC500",
+        box_name: "Small Carton",
+        box_quantity: "15",
+        removable: false,
+      },
+      {
+        id: "2",
+        po_secondary_sku: "10149918",
+        company_code_primary: "AAC500",
+        box_name: "Small Carton",
+        box_quantity: "10",
+        removable: true,
+      },
+    ];
+    const { skus, errors } = applyBulkFormRowsToSkus(formRows, template);
+    assert.equal(errors.length, 0);
+    const a = skus.find((s) => s.po_secondary_sku === "10149918");
+    assert.equal(a?.boxes.length, 2);
+    const validBins = new Set(["small carton"]);
+    const v = validateConsignmentSkuPackingClient(skus, validBins);
+    assert.equal(v.ok, false);
+  });
+});
+
 describe("flattenSkuPackingToLineRows / groupLineRowsToSkuPacking", () => {
   it("round-trips multiple boxes per SKU", () => {
     const template = extractConsignmentSkuPackingFromListings(LISTINGS);
@@ -231,6 +310,8 @@ describe("buildConsignmentLineSampleCsv", () => {
     const lines = csv.trim().split("\n");
     assert.ok(lines[0]?.includes("po_secondary_sku"));
     assert.ok(lines[0]?.includes("box_name"));
+    assert.ok(lines[0]?.includes(","));
+    assert.ok(!lines[0]?.includes("\t"));
     assert.ok(lines[1]?.startsWith("10153349"));
   });
 });

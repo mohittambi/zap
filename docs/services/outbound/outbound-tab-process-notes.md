@@ -76,7 +76,7 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 
 - On **Consignment detail** (`/outbound/consignments/[id]`), **Current Consignment Summary** shows **Boxes**, **SKUs**, and **Total Qty** (zeros until lines are saved).
 - Consignment detail includes a **PO line items** table (same columns as the PO detail page) loaded from the linked PO `listings_snapshot` via `GET /api/outbound/consignments/[id]/po-listings`.
-- Operators pack **per PO SKU** via **Enter packing** (modal): each SKU can span **multiple box lines** (box name, quantity). The editor shows **PO Secondary SKU** (`po_secondary_sku`, e.g. `10149918`) and **Company Code Primary** (`company_code_primary`, e.g. `AAC500`) — same columns as the PO line-items grid. TSV upload/download uses the same 9 columns with **multiple rows per SKU** allowed: `po_secondary_sku`, `company_code_primary`, then demand, dispatch, reserved, pending, box number, box quantity, and box name.
+- Operators pack **per PO SKU** via **Enter packing** (modal) or the **Bulk form** (grid + optional TSV paste): each SKU can span **multiple box lines** (box name, quantity). Apply updates the summary table; **Save lines** persists. The editor shows **PO Secondary SKU** (`po_secondary_sku`, e.g. `10149918`) and **Company Code Primary** (`company_code_primary`, e.g. `AAC500`) — same columns as the PO line-items grid. TSV upload/download uses the same 9 columns with **multiple rows per SKU** allowed: `po_secondary_sku`, `company_code_primary`, then demand, dispatch, reserved, pending, box number, box quantity, and box name.
 - Draft SKUs prefill from the PO `listings_snapshot`; demand/dispatch/pending are read-only. **Sum of box quantities per SKU must not exceed pending** (blocked server-side and in the modal).
 - **`GET /api/outbound/consignments/[id]/line-items/drafts`** — `{ skus, source, poNumber }`; **`POST …/line-items/save`** — body `{ skus: [...] }`, validate and replace all lines, refresh consignment aggregates.
 - Legacy bin CSV upload remains available via **`POST /api/outbound/consignments/[id]/packing-upload/*`** and **`POST …/boxes`** if needed.
@@ -88,6 +88,22 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 - After lines are saved (`boxes_count > 0`), use **Mark for dispatch** on **Consignment detail** to set status **`MARKED_RTD`**.
 - Dialog collects **transporter** (`GET /api/outbound/transporters`), **shipment type** (Surface / Air / Express, stored in `raw.shipment_type`), and **docket number**.
 - **`POST /api/outbound/consignments/[id]/mark-rtd`** — Zap-only; sets `marked_rtd_at`, `marked_rtd_by`, transporter, docket, and transport card on detail.
+
+### Post-RTD line item tab views
+
+When **`marked_rtd_at`** is set or status is **`MARKED_RTD`**, the packing editor is replaced by read-only **tab views** on saved `outbound_consignment_items` rows:
+
+| Tab | Purpose |
+|-----|---------|
+| **Default View** | One row per box line (Sr. No, SKUs, box, qty, name, submitted from, created by, timestamps) |
+| **Box Wise View** | Aggregated per box number |
+| **SKU Wise View** | Aggregated per PO secondary SKU |
+| **PO Wise View** | SKU-level commercial columns (MRP, demand, dispatch, consignment qty, fill rate %, box list) |
+
+- Data: **`GET /api/outbound/consignments/[id]/line-items/rows`** — flat rows ordered by box.
+- **Download Current View** exports the active tab as CSV.
+- **`POST …/line-items/save`** is rejected (409) once marked RTD.
+- Plan: [consignment-line-items-views-plan.md](consignment-line-items-views-plan.md).
 
 ---
 

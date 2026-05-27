@@ -1126,6 +1126,83 @@ function normalizeBinNameKey(name: string): string {
   return name.trim().toLowerCase();
 }
 
+export type ConsignmentLineItemFlatRow = {
+  id: number;
+  po_secondary_sku: string;
+  company_code_primary: string;
+  company_code_secondary: string;
+  box_number: number;
+  box_quantity: number;
+  box_name: string;
+  submitted_from: string;
+  created_by: string;
+  mrp: number | null;
+  original_demand: number;
+  dispatched_quantity: number;
+  consignment_quantity: number;
+  overall_fill_rate: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function formatConsignmentLineTimestamp(v: unknown): string {
+  if (v == null || v === "") return "";
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** Flat box lines for post-RTD tab views (default / box / SKU / PO wise). */
+export async function listConsignmentLineItemRowsFlat(
+  consignmentId: number
+): Promise<ConsignmentLineItemFlatRow[]> {
+  const r = await query(
+    `SELECT id, po_secondary_sku, company_code_primary, company_code_secondary,
+            box_number, box_quantity, box_name, submitted_from, created_by,
+            created_at_ea, updated_at_ea, mrp, original_demand,
+            dispatched_quantity, consignment_quantity, overall_fill_rate
+       FROM outbound_consignment_items
+      WHERE consignment_id = $1
+      ORDER BY box_number ASC NULLS LAST, id ASC`,
+    [consignmentId]
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    po_secondary_sku:
+      row.po_secondary_sku != null ? String(row.po_secondary_sku).trim() : "",
+    company_code_primary:
+      row.company_code_primary != null ? String(row.company_code_primary).trim() : "",
+    company_code_secondary:
+      row.company_code_secondary != null ? String(row.company_code_secondary).trim() : "",
+    box_number: row.box_number != null ? Number(row.box_number) : 0,
+    box_quantity: row.box_quantity != null ? Number(row.box_quantity) : 0,
+    box_name: row.box_name != null ? String(row.box_name).trim() : "",
+    submitted_from:
+      row.submitted_from != null ? String(row.submitted_from).trim() : "",
+    created_by: row.created_by != null ? String(row.created_by).trim() : "",
+    mrp: row.mrp != null && row.mrp !== "" ? Number(row.mrp) : null,
+    original_demand:
+      row.original_demand != null ? Number(row.original_demand) : 0,
+    dispatched_quantity:
+      row.dispatched_quantity != null ? Number(row.dispatched_quantity) : 0,
+    consignment_quantity:
+      row.consignment_quantity != null ? Number(row.consignment_quantity) : 0,
+    overall_fill_rate:
+      row.overall_fill_rate != null && row.overall_fill_rate !== ""
+        ? Number(row.overall_fill_rate)
+        : null,
+    created_at: formatConsignmentLineTimestamp(row.created_at_ea),
+    updated_at: formatConsignmentLineTimestamp(row.updated_at_ea),
+  }));
+}
+
 export async function countConsignmentItemLines(
   consignmentId: number
 ): Promise<number> {
@@ -1378,6 +1455,10 @@ export async function getConsignmentLineRowsForEditor(consignmentId: number): Pr
     const po = await getOutboundPurchaseOrderByPoNumber(poNumber);
     outboundPoId = po?.id ?? null;
     if (po?.listings_snapshot != null) {
+      // Must enrich before extract — same path as PO detail (`/purchase-orders/[id]/detail`)
+      // and consignment PO listings (`/consignments/[id]/po-listings`). Raw spreadsheet
+      // snapshots often set company_code_primary = po_secondary_sku (e.g. 10149918); EAN /
+      // listings resolution yields the product code (e.g. AAC500) shown in both tables.
       const enriched = await enrichListingsSnapshotWithZapEan(
         po.listings_snapshot,
         po.company_id
@@ -1449,6 +1530,24 @@ export async function saveConsignmentLineItems(opts: {
   createdBy: string | null;
 }): Promise<{ inserted: number }> {
   const { consignmentId, poNumber, skus, createdBy } = opts;
+
+  const statusR = await query(
+    `SELECT consignment_status FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (statusR.rows.length === 0) {
+    throw new AppError("Consignment not found", 404);
+  }
+  const statusNorm = String(statusR.rows[0]?.consignment_status ?? "")
+    .trim()
+    .toLowerCase();
+  if (statusNorm === "marked_rtd") {
+    throw new AppError(
+      "Cannot edit line items after consignment is marked for dispatch",
+      409
+    );
+  }
+
   const validation = await validateConsignmentSkuPacking(skus);
   if (!validation.ok) {
     throw new AppError(

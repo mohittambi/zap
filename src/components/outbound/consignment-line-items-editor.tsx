@@ -1,18 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { Download, Loader2, Upload } from "lucide-react";
+import { Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import {
   buildConsignmentLineSampleCsv,
-  downloadConsignmentLineSampleCsv,
   parseConsignmentLineCsvToSkus,
   sumPackedQty,
   validateConsignmentSkuPackingClient,
   type ConsignmentSkuPacking,
 } from "@/lib/outbound-consignment-line-drafts";
+import { cn } from "@/lib/utils";
 import { fetchOutboundValidBins } from "@/lib/outbound-valid-bins";
+import { ConsignmentLineItemsBulkForm } from "@/components/outbound/consignment-line-items-bulk-form";
 import { ConsignmentSkuPackingModal } from "@/components/outbound/consignment-sku-packing-modal";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,10 +28,12 @@ type DraftsPayload = {
 export function ConsignmentLineItemsEditor({
   consignmentId,
   poNumber,
+  readOnly = false,
   onSaved,
 }: Readonly<{
   consignmentId: number;
   poNumber: string;
+  readOnly?: boolean;
   onSaved?: () => void;
 }>) {
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -78,17 +81,25 @@ export function ConsignmentLineItemsEditor({
     });
   }
 
-  function downloadSample() {
-    if (skus.length === 0) {
-      toast.error("No PO line items to export");
-      return;
-    }
-    const csv = buildConsignmentLineSampleCsv(skus);
+  const sampleCsvFilename = React.useMemo(() => {
     const safePo = poNumber.replace(/[^\w.-]+/g, "_") || String(consignmentId);
-    downloadConsignmentLineSampleCsv(`consignment_lines_PO-${safePo}.tsv`, csv);
-  }
+    return `consignment_lines_PO-${safePo}.csv`;
+  }, [consignmentId, poNumber]);
+
+  const sampleCsvHref = React.useMemo(() => {
+    if (readOnly || skus.length === 0) return null;
+    const csv = buildConsignmentLineSampleCsv(skus);
+    return URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  }, [readOnly, skus]);
+
+  React.useEffect(() => {
+    return () => {
+      if (sampleCsvHref) URL.revokeObjectURL(sampleCsvHref);
+    };
+  }, [sampleCsvHref]);
 
   async function uploadFile(file: File) {
+    if (readOnly) return;
     const text = await file.text();
     const parsed = parseConsignmentLineCsvToSkus(text, skus);
     if (parsed.errors.length > 0) {
@@ -102,6 +113,7 @@ export function ConsignmentLineItemsEditor({
   }
 
   async function saveLines() {
+    if (readOnly) return;
     const validation = validateConsignmentSkuPackingClient(skus, validBinSet);
     if (!validation.ok) {
       const first = validation.errors[0];
@@ -141,13 +153,15 @@ export function ConsignmentLineItemsEditor({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Consignment line items</CardTitle>
           <CardDescription className="text-xs">
-            {source === "saved"
-              ? "Saved packing for this consignment. Edit per SKU and save to update the summary."
-              : "Prefilled from PO line items. Enter packing per SKU (multiple boxes allowed), then save."}
+            {readOnly
+              ? "Consignment is marked for dispatch. Saved line items cannot be edited."
+              : source === "saved"
+                ? "Saved packing for this consignment. Edit per SKU and save to update the summary."
+                : "Prefilled from PO line items. Enter packing per SKU (multiple boxes allowed), then save."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <input
               ref={fileRef}
               type="file"
@@ -158,21 +172,48 @@ export function ConsignmentLineItemsEditor({
                 if (f) void uploadFile(f);
               }}
             />
-            <Button type="button" variant="outline" size="sm" disabled={skus.length === 0} onClick={downloadSample}>
-              <Download className="mr-1 size-3.5" />
-              Download sample TSV
-            </Button>
+            {!readOnly ? (
+              <a
+                href={sampleCsvHref ?? undefined}
+                download={sampleCsvFilename}
+                className={cn(
+                  "text-xs underline-offset-2 hover:underline",
+                  skus.length > 0 && sampleCsvHref
+                    ? "text-primary"
+                    : "text-muted-foreground pointer-events-none"
+                )}
+                aria-disabled={skus.length === 0}
+              >
+                Download sample CSV
+              </a>
+            ) : null}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              disabled={busy}
+              disabled={readOnly || busy}
               onClick={() => fileRef.current?.click()}
             >
               <Upload className="mr-1 size-3.5" />
-              Upload TSV/CSV
+              Upload CSV
             </Button>
-            <Button type="button" size="sm" disabled={busy || skus.length === 0} onClick={() => void saveLines()}>
+            {!readOnly && !loading && skus.length > 0 ? (
+              <ConsignmentLineItemsBulkForm
+                skus={skus}
+                validBins={validBins}
+                validBinSet={validBinSet}
+                disabled={busy}
+                saving={busy}
+                onApply={setSkus}
+                onSave={saveLines}
+              />
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              disabled={readOnly || busy || skus.length === 0}
+              onClick={() => void saveLines()}
+            >
               {busy ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
               Save lines
             </Button>
@@ -215,15 +256,19 @@ export function ConsignmentLineItemsEditor({
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sumPackedQty(sku)}</td>
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.boxes.length}</td>
                       <td className="px-2 py-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => setPackingSkuIdx(idx)}
-                        >
-                          Enter packing
-                        </Button>
+                        {readOnly ? (
+                          <span className="text-muted-foreground text-xs">Locked</span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => setPackingSkuIdx(idx)}
+                          >
+                            Enter packing
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}

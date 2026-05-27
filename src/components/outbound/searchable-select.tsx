@@ -24,6 +24,8 @@ export function SearchableSelect({
   placeholder,
   emptyText = "No matches",
   variant = "solid",
+  size = "default",
+  className,
 }: {
   value: string | null;
   onChange: (key: string) => void;
@@ -33,6 +35,8 @@ export function SearchableSelect({
   placeholder: string;
   emptyText?: string;
   variant?: "solid" | "soft";
+  size?: "default" | "sm";
+  className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   const wasOpenRef = React.useRef(false);
@@ -168,12 +172,15 @@ export function SearchableSelect({
     ) : null;
 
   return (
-    <div className="relative w-full">
+    <div className={cn("relative w-full", className)}>
       <button
         ref={triggerRef}
         type="button"
         className={cn(
-          "flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-4 py-2 text-left text-sm font-medium shadow-sm",
+          "flex w-full items-center justify-between gap-1 rounded-md text-left font-medium shadow-sm",
+          size === "sm"
+            ? "min-h-8 h-8 px-2 py-1 text-xs"
+            : "min-h-11 px-4 py-2 text-sm",
           variant === "soft"
             ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
             : "bg-primary text-primary-foreground hover:bg-primary/90",
@@ -199,7 +206,8 @@ export function SearchableSelect({
         </span>
         <ChevronDown
           className={cn(
-            "size-4 shrink-0 opacity-90 transition-transform",
+            "shrink-0 opacity-90 transition-transform",
+            size === "sm" ? "size-3.5" : "size-4",
             open && "rotate-180",
             variant === "soft" && "text-foreground"
           )}

@@ -149,6 +149,7 @@ export function extractConsignmentSkuPackingFromListings(
     out.push({
       po_secondary_sku: channelItemCode,
       inventory_sku_id: inventorySkuId || channelItemCode,
+      // Do not fall back to po_secondary_sku — see enrichListingsSnapshotWithZapEan before extract.
       company_code_primary: companyCode,
       demand_quantity: demand,
       dispatched_quantity: dispatched,
@@ -168,13 +169,111 @@ export function extractConsignmentLineDraftsFromListings(
   return flattenSkuPackingToLineRows(extractConsignmentSkuPackingFromListings(listings));
 }
 
+/** One box line in the bulk packing form (PO SKU fixed; box name + qty editable). */
+export type ConsignmentBulkSkuRow = {
+  id: string;
+  po_secondary_sku: string;
+  company_code_primary: string;
+  box_name: string;
+  box_quantity: string;
+  /** False for the required base row per SKU; true for rows added via Add box. */
+  removable: boolean;
+};
+
+/** @deprecated Use ConsignmentBulkSkuRow */
+export type ConsignmentBulkBoxRow = ConsignmentBulkSkuRow;
+
+function bulkRowId(poSecondarySku: string, boxIndex: number): string {
+  return `${poSecondarySku}::${boxIndex}`;
+}
+
+export function skusToBulkFormRows(skus: ConsignmentSkuPacking[]): ConsignmentBulkSkuRow[] {
+  const out: ConsignmentBulkSkuRow[] = [];
+  for (const s of skus) {
+    const filled = s.boxes.filter(
+      (b) => b.box_name.trim() || (Number.isFinite(b.box_quantity) && b.box_quantity > 0)
+    );
+    if (filled.length > 0) {
+      filled.forEach((b, i) => {
+        out.push({
+          id: bulkRowId(s.po_secondary_sku, i),
+          po_secondary_sku: s.po_secondary_sku,
+          company_code_primary: s.company_code_primary,
+          box_name: b.box_name,
+          box_quantity: b.box_quantity > 0 ? String(b.box_quantity) : "",
+          removable: i > 0,
+        });
+      });
+      continue;
+    }
+    out.push({
+      id: bulkRowId(s.po_secondary_sku, 0),
+      po_secondary_sku: s.po_secondary_sku,
+      company_code_primary: s.company_code_primary,
+      box_name: "",
+      box_quantity: s.pending_quantity > 0 ? String(s.pending_quantity) : "",
+      removable: false,
+    });
+  }
+  return out;
+}
+
+export function applyBulkFormRowsToSkus(
+  rows: ConsignmentBulkSkuRow[],
+  templateSkus: ConsignmentSkuPacking[]
+): { skus: ConsignmentSkuPacking[]; errors: string[] } {
+  const errors: string[] = [];
+  const rowsBySku = new Map<string, ConsignmentBulkSkuRow[]>();
+
+  for (const row of rows) {
+    const sku = row.po_secondary_sku.trim();
+    if (!sku) continue;
+    const list = rowsBySku.get(sku) ?? [];
+    list.push(row);
+    rowsBySku.set(sku, list);
+  }
+
+  const next = templateSkus.map((tmpl) => {
+    const skuRows = rowsBySku.get(tmpl.po_secondary_sku) ?? [];
+    const label = `${tmpl.po_secondary_sku}${tmpl.company_code_primary ? ` / ${tmpl.company_code_primary}` : ""}`;
+    const boxes: ConsignmentBoxLine[] = [];
+
+    skuRows.forEach((row, boxIdx) => {
+      const bin = row.box_name.trim();
+      const qty = Math.trunc(Number(row.box_quantity));
+      if (!bin && (!Number.isFinite(qty) || qty < 1)) return;
+
+      if (!bin) {
+        errors.push(`${label} (box ${boxIdx + 1}): box name is required`);
+        return;
+      }
+      if (!Number.isFinite(qty) || qty < 1) {
+        errors.push(`${label} (box ${boxIdx + 1}): quantity must be at least 1`);
+        return;
+      }
+      boxes.push({
+        box_number: boxes.length + 1,
+        box_quantity: qty,
+        box_name: bin,
+      });
+    });
+
+    return { ...tmpl, boxes };
+  });
+
+  if (!next.some((s) => s.boxes.length > 0) && errors.length === 0) {
+    errors.push("Enter at least one box line with box name and quantity");
+  }
+
+  return { skus: next, errors };
+}
+
 export function flattenSkuPackingToLineRows(skus: ConsignmentSkuPacking[]): ConsignmentLineDraft[] {
   const out: ConsignmentLineDraft[] = [];
   for (const sku of skus) {
     for (const box of sku.boxes) {
       out.push({
         po_secondary_sku: sku.po_secondary_sku,
-        inventory_sku_id: sku.inventory_sku_id,
         company_code_primary: sku.company_code_primary,
         demand_quantity: sku.demand_quantity,
         dispatched_quantity: sku.dispatched_quantity,
@@ -224,7 +323,7 @@ export function groupLineRowsToSkuPacking(
         ? { ...tmpl, boxes: [] }
         : {
             po_secondary_sku: row.po_secondary_sku,
-            inventory_sku_id: row.inventory_sku_id || row.po_secondary_sku,
+            inventory_sku_id: row.po_secondary_sku,
             company_code_primary: row.company_code_primary,
             demand_quantity: row.demand_quantity,
             dispatched_quantity: row.dispatched_quantity,
@@ -372,7 +471,6 @@ export function buildConsignmentLineSampleCsv(skus: ConsignmentSkuPacking[]): st
     } else {
       rows.push({
         po_secondary_sku: sku.po_secondary_sku,
-        inventory_sku_id: sku.inventory_sku_id,
         company_code_primary: sku.company_code_primary,
         demand_quantity: sku.demand_quantity,
         dispatched_quantity: sku.dispatched_quantity,
@@ -384,7 +482,7 @@ export function buildConsignmentLineSampleCsv(skus: ConsignmentSkuPacking[]): st
       });
     }
   }
-  const lines = [CONSIGNMENT_LINE_CSV_HEADERS.join("\t")];
+  const lines = [CONSIGNMENT_LINE_CSV_HEADERS.join(",")];
   for (const d of rows) {
     lines.push(
       [
@@ -397,7 +495,7 @@ export function buildConsignmentLineSampleCsv(skus: ConsignmentSkuPacking[]): st
         String(d.box_number),
         String(d.box_quantity),
         csvEscapeCell(d.box_name),
-      ].join("\t")
+      ].join(",")
     );
   }
   return lines.join("\n") + "\n";
@@ -500,7 +598,7 @@ export function parseConsignmentLineCsvToSkus(
 }
 
 export function downloadConsignmentLineSampleCsv(filename: string, csv: string): void {
-  const blob = new Blob([csv], { type: "text/tab-separated-values;charset=utf-8" });
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

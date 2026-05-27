@@ -14,6 +14,7 @@ Base path: `/api/outbound`
 | POST | `/outbound/consignments/[id]/boxes` | Append packing lines (`outbound_consignment_items`) for a new box (requires `purchase_orders` write) |
 | GET | `/outbound/consignments/[id]/po-listings` | Enriched PO listings snapshot for tabular line items on consignment detail |
 | GET | `/outbound/consignments/[id]/line-items/drafts` | Draft or saved SKU packing groups for the editor (`{ skus, source, poNumber }`) |
+| GET | `/outbound/consignments/[id]/line-items/rows` | Flat saved box lines for post-RTD tab views (`{ rows: [...] }`) |
 | POST | `/outbound/consignments/[id]/line-items/save` | Validate and save all consignment line items (`{ skus: [...] }`) |
 | POST | `/outbound/consignments/[id]/mark-rtd` | Mark consignment ready to dispatch (transporter, shipment type, docket) |
 | POST | `/outbound/consignments/[id]/packing-upload/preview` | Preview legacy bin packing CSV/XLSX |

@@ -101,6 +101,7 @@ export function ConsignmentSkuPackingModal({
   }
 
   function removeBox(boxIdx: number) {
+    if (boxIdx === 0) return;
     setDraft((prev) => {
       if (!prev || prev.boxes.length <= 1) return prev;
       return {
@@ -124,76 +125,103 @@ export function ConsignmentSkuPackingModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="flex max-h-[90vh] w-[min(98vw,32rem)] max-w-[min(98vw,32rem)] flex-col gap-0 p-0 sm:max-w-[min(98vw,32rem)]">
+        <DialogHeader className="shrink-0 border-b px-6 py-4">
+          <DialogTitle className="text-base">
             Packing — {draft.po_secondary_sku || "—"}
             {draft.company_code_primary ? ` · ${draft.company_code_primary}` : ""}
           </DialogTitle>
-          <DialogDescription>Pending quantity: {draft.pending_quantity}</DialogDescription>
+          <DialogDescription className="text-sm">
+            Pending quantity: {draft.pending_quantity}. Add extra box lines below; the first
+            row cannot be removed.
+          </DialogDescription>
         </DialogHeader>
 
         {errors.length > 0 ? (
-          <ul className="text-destructive space-y-1 text-xs">
+          <ul className="text-destructive shrink-0 space-y-1 border-b px-6 py-2 text-xs">
             {errors.map((msg) => (
               <li key={msg}>{msg}</li>
             ))}
           </ul>
         ) : null}
 
-        <div className="space-y-3">
-          {draft.boxes.map((box, boxIdx) => {
-            const prefillQty = suggestedQtyForBox(draft, boxIdx);
-            return (
-            <div
-              key={`box-${boxIdx}`}
-              className="grid grid-cols-[1fr_5rem_auto] items-end gap-2 rounded-md border p-2"
-            >
-              <div>
-                <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase">Box name</p>
-                <SearchableSelect
-                  value={box.box_name || null}
-                  onChange={(key) => updateBox(boxIdx, { box_name: key ?? "" })}
-                  options={validBins}
-                  placeholder="Select box name"
-                  emptyText="No valid box names synced"
-                />
-              </div>
-              <div>
-                <p className="text-muted-foreground mb-1 text-[10px] font-medium uppercase">
-                  Qty ({prefillQty})
-                </p>
-                <Input
-                  value={String(box.box_quantity)}
-                  onChange={(e) =>
-                    updateBox(boxIdx, {
-                      box_quantity: e.target.value === "" ? 0 : Math.trunc(Number(e.target.value)),
-                    })
-                  }
-                  className="h-8 font-mono text-xs"
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0"
-                disabled={draft.boxes.length <= 1}
-                onClick={() => removeBox(boxIdx)}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-            );
-          })}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr className="bg-muted/60 border-b">
+                  <th className="w-36 px-2 py-2 font-semibold whitespace-nowrap">Box name</th>
+                  <th className="w-24 px-2 py-2 font-semibold whitespace-nowrap text-right">Qty</th>
+                  <th className="w-32 px-2 py-2 font-semibold whitespace-nowrap">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {draft.boxes.map((box, boxIdx) => {
+                  const prefillQty = suggestedQtyForBox(draft, boxIdx);
+                  const isParentRow = boxIdx === 0;
+                  return (
+                    <tr key={`box-${boxIdx}`}>
+                      <td className="px-2 py-1 align-top">
+                        <SearchableSelect
+                          value={box.box_name || null}
+                          onChange={(key) => updateBox(boxIdx, { box_name: key ?? "" })}
+                          options={validBins}
+                          placeholder="Box name"
+                          emptyText="No valid box names"
+                          variant="soft"
+                          size="sm"
+                          className="max-w-[9rem]"
+                        />
+                      </td>
+                      <td className="px-2 py-1 text-right align-top">
+                        <Input
+                          value={String(box.box_quantity)}
+                          onChange={(e) =>
+                            updateBox(boxIdx, {
+                              box_quantity:
+                                e.target.value === "" ? 0 : Math.trunc(Number(e.target.value)),
+                            })
+                          }
+                          placeholder={String(prefillQty)}
+                          className="ml-auto h-8 w-20 font-mono text-xs tabular-nums"
+                        />
+                      </td>
+                      <td className="px-2 py-1 align-top">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {isParentRow ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={addBox}
+                            >
+                              <Plus className="mr-0.5 size-3" />
+                              Add box
+                            </Button>
+                          ) : null}
+                          {!isParentRow ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0"
+                              onClick={() => removeBox(boxIdx)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <Button type="button" variant="outline" size="sm" onClick={addBox}>
-          <Plus className="mr-1 size-3.5" />
-          Add box
-        </Button>
-
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t px-6 py-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

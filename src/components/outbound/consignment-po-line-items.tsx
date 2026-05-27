@@ -2,16 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   OutboundPoLineItemsTable,
   type OutboundListingsEnvelope,
@@ -24,6 +19,12 @@ type PoListingsPayload = {
   poType: string | null;
   listings: OutboundListingsEnvelope | Record<string, unknown>;
 };
+
+function countLineItems(listings: OutboundListingsEnvelope | Record<string, unknown> | undefined): number | null {
+  const c = (listings as OutboundListingsEnvelope | undefined)?.content;
+  if (!Array.isArray(c)) return null;
+  return c.length;
+}
 
 export function ConsignmentPoLineItems({
   consignmentId,
@@ -71,33 +72,70 @@ export function ConsignmentPoLineItems({
     return null;
   }
 
+  const lineCount = countLineItems(data?.listings);
+  const description = data?.poNumber ? (
+    <>
+      PO <span className="font-mono">{data.poNumber}</span>
+      {data.poType ? ` · ${data.poType}` : null}
+      {data.poStatus ? ` · ${data.poStatus}` : null}
+    </>
+  ) : (
+    <>Line items from purchase order {poNumber}</>
+  );
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>PO line items</span>
-          {data?.outboundPoId ? (
+    <details
+      className={cn(
+        "group overflow-hidden rounded-lg border shadow-sm",
+        "bg-card text-card-foreground"
+      )}
+    >
+      <summary
+        className={cn(
+          "flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-3",
+          "border-b border-transparent group-open:border-border",
+          "hover:bg-muted/40 transition-colors"
+        )}
+      >
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <ChevronDown
+            className={cn(
+              "text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform",
+              "group-open:rotate-180"
+            )}
+          />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">PO line items</span>
+              {lineCount != null ? (
+                <Badge variant="secondary" className="text-[10px] font-normal">
+                  {lineCount} {lineCount === 1 ? "line" : "lines"}
+                </Badge>
+              ) : null}
+              {loading ? (
+                <Loader2 className="text-muted-foreground size-3.5 animate-spin" />
+              ) : null}
+            </div>
+            <p className="text-muted-foreground mt-0.5 text-xs">{description}</p>
+          </div>
+        </div>
+        {data?.outboundPoId ? (
+          <div
+            className="shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            role="presentation"
+          >
             <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" asChild>
               <Link href={`/outbound/po/${data.outboundPoId}`}>
                 Open PO
                 <ExternalLink className="size-3.5" />
               </Link>
             </Button>
-          ) : null}
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {data?.poNumber ? (
-            <>
-              PO <span className="font-mono">{data.poNumber}</span>
-              {data.poType ? ` · ${data.poType}` : null}
-              {data.poStatus ? ` · ${data.poStatus}` : null}
-            </>
-          ) : (
-            <>Line items from purchase order {poNumber}</>
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+          </div>
+        ) : null}
+      </summary>
+      <div className="px-4 pb-4 pt-3">
         {loading ? (
           <p className="text-muted-foreground flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin" />
@@ -108,7 +146,7 @@ export function ConsignmentPoLineItems({
         ) : data ? (
           <OutboundPoLineItemsTable listings={data.listings} />
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   );
 }
