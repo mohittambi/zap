@@ -21,6 +21,7 @@ import {
 import {
   buildPendencyRowsFromListings,
   createOutboundPoPendencyPdf,
+  loadPendencyLookups,
 } from "@/server/utils/outboundPoPendencyPdf";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 
@@ -106,6 +107,109 @@ function rawNum(raw: Record<string, unknown>, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function parsePercentLike(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const stripped = text.replace(/%/g, "").trim();
+  const n = Number(stripped);
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstPresentTaxRate(
+  row: Record<string, unknown>,
+  fallback?: Record<string, unknown>
+): number | null {
+  const keys = [
+    "tax_rate",
+    "gst_rate",
+    "igst",
+    "igst_percent",
+    "gst_percent",
+  ] as const;
+  for (const key of keys) {
+    const parsed = parsePercentLike(row[key]);
+    if (parsed != null) return parsed;
+    if (fallback) {
+      const parsedFallback = parsePercentLike(fallback[key]);
+      if (parsedFallback != null) return parsedFallback;
+    }
+  }
+  return null;
+}
+
+export function computeSkuReportTaxRatePct(input: {
+  explicitTaxRate: unknown;
+  explicitTaxRateFallback?: unknown;
+  demand: number;
+  rateWithoutTax: unknown;
+  totalAmount: unknown;
+  landingRate: unknown;
+}): number | null {
+  const explicit = firstPresentTaxRate(
+    { tax_rate: input.explicitTaxRate },
+    { tax_rate: input.explicitTaxRateFallback }
+  );
+  if (explicit != null) return round2(Math.max(0, explicit));
+
+  const rateWithoutTax = Number(input.rateWithoutTax);
+  const totalAmount = Number(input.totalAmount);
+  const demand = Number(input.demand);
+  if (
+    Number.isFinite(totalAmount) &&
+    totalAmount > 0 &&
+    Number.isFinite(rateWithoutTax) &&
+    rateWithoutTax > 0 &&
+    Number.isFinite(demand) &&
+    demand > 0
+  ) {
+    const pct = ((totalAmount / (rateWithoutTax * demand)) - 1) * 100;
+    if (Number.isFinite(pct)) {
+      const bounded = round2(Math.max(0, pct));
+      return bounded <= 100 ? bounded : null;
+    }
+  }
+
+  const landingRate = Number(input.landingRate);
+  if (
+    Number.isFinite(landingRate) &&
+    landingRate > 0 &&
+    Number.isFinite(rateWithoutTax) &&
+    rateWithoutTax > 0
+  ) {
+    const pct = ((landingRate / rateWithoutTax) - 1) * 100;
+    if (Number.isFinite(pct)) {
+      const bounded = round2(Math.max(0, pct));
+      return bounded <= 100 ? bounded : null;
+    }
+  }
+
+  return null;
+}
+
+export function resolveSkuReportMasterSku(
+  raw: Record<string, unknown>,
+  listObj: Record<string, unknown>,
+  item: SkuReportItemRow
+): string {
+  return (
+    rawStr(raw, "master_sku") ||
+    rawStr(listObj, "master_sku") ||
+    rawStr(raw, "sku_id") ||
+    rawStr(listObj, "sku_id") ||
+    rawStr(raw, "po_secondary_sku") ||
+    (item.po_secondary_sku ?? "") ||
+    ""
+  );
+}
+
 /**
  * Build SKU report CSV from `outbound_consignment_items` rows (deduped by SKU).
  * PO-header fields (buyer_name, po_number, dates, type, delivery) come from the PO row.
@@ -139,6 +243,14 @@ function skuReportFromConsignmentItems(
       (rawStr(listObj, "available_quantity") !== ""
         ? Number(listObj.available_quantity) || null
         : null);
+    const computedTaxRate = computeSkuReportTaxRatePct({
+      explicitTaxRate: raw.tax_rate,
+      explicitTaxRateFallback: listObj.tax_rate,
+      demand,
+      rateWithoutTax: raw.rate_without_tax,
+      totalAmount: raw.total_amount,
+      landingRate: raw.landing_rate,
+    });
 
     const cells: string[] = [
       csvEscapeCell(csvCell(po.company_name ?? rawStr(raw, "buyer_name"))),
@@ -149,7 +261,7 @@ function skuReportFromConsignmentItems(
       csvEscapeCell(csvCell(po.po_type ?? rawStr(raw, "po_type"))),
       csvEscapeCell(csvCell(po.delivery_city)),
       csvEscapeCell(csvCell(item.po_secondary_sku ?? rawStr(raw, "po_secondary_sku"))),
-      csvEscapeCell(csvCell(rawStr(raw, "master_sku") || rawStr(listObj, "master_sku"))),
+      csvEscapeCell(csvCell(resolveSkuReportMasterSku(raw, listObj, item))),
       csvEscapeCell(csvCell(rawStr(raw, "inventory_sku_id") || rawStr(listObj, "inventory_sku_id"))),
       csvEscapeCell(csvCell(rawStr(raw, "pack_combo_sku_id") || rawStr(listObj, "pack_combo_sku_id"))),
       csvEscapeCell(csvCell(rawStr(raw, "sku_type") || rawStr(listObj, "sku_type"))),
@@ -158,7 +270,7 @@ function skuReportFromConsignmentItems(
       csvEscapeCell(csvCell(rawStr(raw, "title"))),
       csvEscapeCell(csvCell(item.mrp ?? rawStr(raw, "mrp"))),
       csvEscapeCell(csvCell(rawStr(raw, "rate_without_tax"))),
-      csvEscapeCell(csvCell(rawStr(raw, "tax_rate"))),
+      csvEscapeCell(csvCell(computedTaxRate ?? "")),
       csvEscapeCell(csvCell(rawStr(raw, "hsn_code") || rawStr(raw, "hsn"))),
       csvEscapeCell(csvCell(rawStr(raw, "size") || rawStr(listObj, "size"))),
       csvEscapeCell(csvCell(rawStr(raw, "color") || rawStr(listObj, "color"))),
@@ -323,7 +435,8 @@ export async function POST(request: Request, context: Ctx) {
           { status: 422 }
         );
       }
-      const pendRows = buildPendencyRowsFromListings(rows);
+      const lookups = await loadPendencyLookups(rows, po.company_id);
+      const pendRows = buildPendencyRowsFromListings(rows, lookups);
       const pdfBytes = await createOutboundPoPendencyPdf({
         companyName: po.company_name,
         poNumber: po.po_number,

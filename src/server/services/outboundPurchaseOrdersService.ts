@@ -1001,6 +1001,107 @@ function numberFromUnknown(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function parsePercentLike(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const stripped = text.replace(/%/g, "").trim();
+  const n = Number(stripped);
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstPresentTaxRate(
+  row: Record<string, unknown>,
+  fallback?: Record<string, unknown>
+): number | null {
+  const keys = [
+    "tax_rate",
+    "gst_rate",
+    "igst",
+    "igst_percent",
+    "gst_percent",
+  ] as const;
+  for (const key of keys) {
+    const parsed = parsePercentLike(row[key]);
+    if (parsed != null) return parsed;
+    if (fallback) {
+      const parsedFallback = parsePercentLike(fallback[key]);
+      if (parsedFallback != null) return parsedFallback;
+    }
+  }
+  return null;
+}
+
+function readListingObject(row: Record<string, unknown>): Record<string, unknown> {
+  const listing = row.listing;
+  if (listing && typeof listing === "object" && !Array.isArray(listing)) {
+    return listing as Record<string, unknown>;
+  }
+  return {};
+}
+
+export function resolveSnapshotReportMasterSku(row: Record<string, unknown>): string {
+  const listing = readListingObject(row);
+  return csvCellValue(
+    row.master_sku ??
+      listing.master_sku ??
+      row.sku_id ??
+      listing.sku_id ??
+      row.po_secondary_sku ??
+      ""
+  );
+}
+
+export function computeSnapshotReportTaxRatePct(row: Record<string, unknown>): number | null {
+  const listing = readListingObject(row);
+  const explicitTaxRate = firstPresentTaxRate(row, listing);
+  if (explicitTaxRate != null) return round2(Math.max(0, explicitTaxRate));
+
+  const demand =
+    numberFromUnknown(row.demand) ??
+    numberFromUnknown(row.original_demand) ??
+    numberFromUnknown(row.box_quantity) ??
+    0;
+  const rateWithoutTax = numberFromUnknown(row.rate_without_tax);
+  const totalAmount = numberFromUnknown(row.total_amount);
+
+  if (
+    totalAmount != null &&
+    totalAmount > 0 &&
+    rateWithoutTax != null &&
+    rateWithoutTax > 0 &&
+    demand > 0
+  ) {
+    const pct = ((totalAmount / (rateWithoutTax * demand)) - 1) * 100;
+    if (Number.isFinite(pct)) {
+      const bounded = round2(Math.max(0, pct));
+      return bounded <= 100 ? bounded : null;
+    }
+  }
+
+  const landingRate = numberFromUnknown(row.landing_rate);
+  if (
+    landingRate != null &&
+    landingRate > 0 &&
+    rateWithoutTax != null &&
+    rateWithoutTax > 0
+  ) {
+    const pct = ((landingRate / rateWithoutTax) - 1) * 100;
+    if (Number.isFinite(pct)) {
+      const bounded = round2(Math.max(0, pct));
+      return bounded <= 100 ? bounded : null;
+    }
+  }
+  return null;
+}
+
 function reportCellFromRow(
   row: Record<string, unknown>,
   po: OutboundPoRow,
@@ -1014,6 +1115,13 @@ function reportCellFromRow(
   if (col === "po_type") return csvCellValue(po.po_type);
   if (col === "delivery_location") {
     return csvCellValue(row.delivery_location ?? po.delivery_city);
+  }
+  if (col === "master_sku") {
+    return resolveSnapshotReportMasterSku(row);
+  }
+  if (col === "tax_rate") {
+    const pct = computeSnapshotReportTaxRatePct(row);
+    return pct != null ? String(pct) : "";
   }
   if (col === "pending") {
     const explicit = numberFromUnknown(row.pending);
