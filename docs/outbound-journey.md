@@ -55,14 +55,14 @@ flowchart TD
 | 3. List / filter POs | Ops | `/outbound`, `/outbound/wip`, `/outbound/partial` | `GET /api/outbound/purchase-orders` | [workflows.md](services/outbound/workflows.md) |
 | 4. Acknowledge / cancel | Ops | PO detail actions | `POST …/eautomate-actions` (`acknowledge`, `cancel`) | [api.md](services/outbound/api.md) |
 | 5. EAN / master SKU | Ops | `/outbound/ean-mappings` | `GET /api/ean-mappings/matrix` | Supports pendency + line-item display |
-| 6. Consignment | Ops / WH | PO detail → consignments | `POST …/consignments` | [Process notes §V](services/outbound/outbound-tab-process-notes.md) |
+| 6. Consignment | Ops / WH | PO detail → consignments | `POST …/consignments` (Zap-native create) | [Process notes §V](services/outbound/outbound-tab-process-notes.md) |
 | 7. Packing / boxes | Warehouse | PO detail, `/outbound/boxes` | `POST …/consignments/[id]/boxes` | [Process notes §VI](services/outbound/outbound-tab-process-notes.md) |
 | 8. RTD | Logistics | `/outbound/consignments/[id]` | Consignment status / transport fields | [Process notes §VII](services/outbound/outbound-tab-process-notes.md) |
 | 9. Pending invoices | Accounts | `/outbound/pending-invoices` | Invoice number + `POST …/invoice-upload` | [Process notes §VIII](services/outbound/outbound-tab-process-notes.md) |
 | 10. Reports | Ops | PO detail actions | `download_pendency_pdf`, `download_sku_report` | [pendency-pdf.md](services/outbound/pendency-pdf.md) |
 | 11. Labels | Ops / WH | PO detail, `/labels` | `generate_phase1_box_labels`, `POST /api/labels/generate` | [Process notes §IX](services/outbound/outbound-tab-process-notes.md) |
 
-New Zap PO rows default **`is_wip = YES`**. Synced POs with **`is_wip = NO`** may need upstream WIP resolution before consignment creation.
+New Zap PO rows default **`is_wip = Y`**. Mark **WIP → Y** on the PO **Details** tab before creating consignments (`Y` and legacy **YES** both qualify). Consignment create runs entirely in Zap; eAutomate sync scripts can import consignments separately.
 
 ---
 

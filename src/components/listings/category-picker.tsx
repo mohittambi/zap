@@ -5,6 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { cn } from "@/lib/utils";
 
 type Category = { name: string; count: number };
@@ -68,6 +69,7 @@ export function CategoryPicker({
           size="sm"
           className="h-9 w-56 justify-between text-xs"
           onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => openSelectDropdownOnArrowKey(e, setOpen, open)}
         >
           <span className="truncate">{value ?? "Any"}</span>
           {value ? (

@@ -12,7 +12,14 @@ Base path: `/api/outbound`
 | GET | `/outbound/consignments/[id]/items` | Paginated SKU lines for a consignment (`outbound_consignment_items`, aggregated by SKU) |
 | GET | `/outbound/consignments/[id]/logs` | PO log rows filtered by `consignment_id` |
 | POST | `/outbound/consignments/[id]/boxes` | Append packing lines (`outbound_consignment_items`) for a new box (requires `purchase_orders` write) |
-| GET | `/outbound/box-names` | Valid box names (`outbound_valid_box_names`) |
+| GET | `/outbound/consignments/[id]/po-listings` | Enriched PO listings snapshot for tabular line items on consignment detail |
+| GET | `/outbound/consignments/[id]/line-items/drafts` | Draft or saved SKU packing groups for the editor (`{ skus, source, poNumber }`) |
+| POST | `/outbound/consignments/[id]/line-items/save` | Validate and save all consignment line items (`{ skus: [...] }`) |
+| POST | `/outbound/consignments/[id]/mark-rtd` | Mark consignment ready to dispatch (transporter, shipment type, docket) |
+| POST | `/outbound/consignments/[id]/packing-upload/preview` | Preview legacy bin packing CSV/XLSX |
+| POST | `/outbound/consignments/[id]/packing-upload/apply` | Apply bin packing upload (append or replace) |
+| GET | `/outbound/box-names` | Valid bin names (`outbound_valid_box_names`) |
+| GET | `/outbound/transporters` | Transporter directory (`outbound_transporter_details`) |
 | GET, POST | `/outbound/purchase-orders` | List / create PO |
 | GET | `/outbound/purchase-orders/filter-options` | Filter chips (delivery locations, etc.) |
 | DELETE | `/outbound/purchase-orders/[id]` | Delete PO (constraints apply) |
@@ -21,7 +28,7 @@ Base path: `/api/outbound`
 | GET | `/outbound/purchase-orders/[id]/logs` | `outbound_po_logs` |
 | POST | `/outbound/purchase-orders/[id]/attachments` | Upload attachment metadata / file |
 | GET | `/outbound/purchase-orders/[id]/attachments/[attachmentId]` | Download Zap attachment |
-| GET, POST | `/outbound/purchase-orders/[id]/consignments` | List / create consignment link |
+| GET, POST | `/outbound/purchase-orders/[id]/consignments` | List consignments; **POST creates empty consignment in Zap** (PO must be WIP and acknowledged; lines entered on detail) |
 | POST | `/outbound/purchase-orders/[id]/eautomate-actions` | Workflow actions: `acknowledge`, `cancel`, `download_sku_report`, `download_pendency_pdf`, label prep — see [pendency-pdf.md](pendency-pdf.md) |
 | GET | `/outbound/purchase-orders/[id]/eautomate-files/[fileId]` | Download eAutomate-sourced file (or Storage) |
 | POST | `/outbound/purchase-orders/[id]/files-zap` | Upload file to Zap Storage |

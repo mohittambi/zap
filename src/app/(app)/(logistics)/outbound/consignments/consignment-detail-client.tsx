@@ -16,6 +16,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
+import { ConsignmentLineItemsEditor } from "@/components/outbound/consignment-line-items-editor";
+import { ConsignmentPoLineItems } from "@/components/outbound/consignment-po-line-items";
+import { MarkConsignmentRtdDialog } from "@/components/outbound/mark-consignment-rtd-dialog";
 import type { OutboundConsignmentRow } from "@/server/services/outboundConsignmentsService";
 
 type ConsignmentItemRow = {
@@ -142,6 +146,9 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [downloadingExcel, setDownloadingExcel] = React.useState(false);
   const [items, setItems] = React.useState<ItemsPayload | null>(null);
   const [itemsLoading, setItemsLoading] = React.useState(true);
+  const [rtdDialogOpen, setRtdDialogOpen] = React.useState(false);
+  const { hasPermission } = useAuth();
+  const canWritePo = hasPermission("purchase_orders", "write");
 
   async function handleDownloadInvoice() {
     try {
@@ -214,6 +221,21 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
     }
   }
 
+  async function refreshConsignmentData() {
+    try {
+      const [updated, itemsData] = await Promise.all([
+        apiFetch<OutboundConsignmentRow>(`/api/outbound/consignments/${encodeURIComponent(id)}`),
+        apiFetch<ItemsPayload>(
+          `/api/outbound/consignments/${encodeURIComponent(id)}/items?page=1&limit=200`
+        ),
+      ]);
+      setRow(updated);
+      setItems(itemsData);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Refresh failed");
+    }
+  }
+
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -276,8 +298,14 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
     );
   }
 
+  const isMarkedRtd = row.consignment_status?.trim().toLowerCase() === "marked_rtd";
+  const shipmentType =
+    typeof row.raw?.shipment_type === "string" ? row.raw.shipment_type : null;
+  const canMarkRtd =
+    canWritePo && !isMarkedRtd && (row.boxes_count ?? 0) > 0;
+
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-2 py-4 md:px-4">
+    <div className="mx-auto max-w-[min(100%,96rem)] space-y-6 px-2 py-4 md:px-4">
       <Button variant="ghost" size="sm" asChild className="gap-1">
         <Link href="/outbound/consignments">
           <ArrowLeft className="size-4" />
@@ -301,12 +329,26 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
         </p>
       </div>
 
-      {/* Key metrics */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatTile label="Boxes" value={row.boxes_count} highlight />
-        <StatTile label="SKUs" value={row.sku_count} />
-        <StatTile label="Total Qty" value={row.total_quantity} />
-      </div>
+      {/* Current Consignment Summary */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span>Current Consignment Summary</span>
+            {canMarkRtd ? (
+              <Button size="sm" onClick={() => setRtdDialogOpen(true)}>
+                Mark for dispatch
+              </Button>
+            ) : null}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3">
+            <StatTile label="Boxes" value={row.boxes_count ?? 0} highlight />
+            <StatTile label="SKUs" value={row.sku_count ?? 0} />
+            <StatTile label="Total Qty" value={row.total_quantity ?? 0} />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* PO & Invoice */}
       <Card>
@@ -370,8 +412,23 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
         </CardContent>
       </Card>
 
+      <ConsignmentPoLineItems consignmentId={Number(id)} poNumber={row.po_number} />
+
+      <ConsignmentLineItemsEditor
+        consignmentId={Number(id)}
+        poNumber={row.po_number ?? "—"}
+        onSaved={() => void refreshConsignmentData()}
+      />
+
+      <MarkConsignmentRtdDialog
+        open={rtdDialogOpen}
+        onOpenChange={setRtdDialogOpen}
+        consignmentId={Number(id)}
+        onMarked={() => void refreshConsignmentData()}
+      />
+
       {/* Transport */}
-      {(row.transporter_name || row.vehicle_number || row.docket_number) ? (
+      {(row.transporter_name || row.vehicle_number || row.docket_number || shipmentType) ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm">
@@ -381,6 +438,7 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
           </CardHeader>
           <CardContent className="divide-y">
             <MetaRow label="Transporter" value={row.transporter_name} />
+            <MetaRow label="Shipment type" value={shipmentType} />
             <MetaRow label="Vehicle" value={row.vehicle_number} mono />
             <MetaRow label="Docket" value={row.docket_number} mono />
           </CardContent>

@@ -26,7 +26,7 @@ flowchart LR
 ```
 
 - **Solid arrows** = synchronous request/response.
-- **Dashed boxes** (eAutomate) = touched only by sync scripts and explicit user-initiated writes (e.g. creating a consignment), never by UI reads.
+- **Dashed boxes** (eAutomate) = touched only by sync scripts, not by consignment create from the PO detail UI.
 
 ---
 
@@ -392,22 +392,19 @@ sequenceDiagram
   API-->>U: { po, listings, eautomateFiles, zapAttachments, ... }
 ```
 
-### Create consignment — the one UI write to eAutomate
+### Create consignment — Zap-native
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant API as POST /api/outbound/purchase-orders/{id}/consignments
   participant PG as Postgres
-  participant EA as eAutomate
 
-  U->>API: action: create consignment (PO must be is_wip=YES)
+  U->>API: create consignment (PO must be WIP: Y or YES)
   API->>PG: SELECT outbound_purchase_orders WHERE id=$1
-  API->>EA: POST workflow create-consignment
-  EA-->>API: consignment payload
-  API->>PG: UPSERT outbound_consignments (from response)
-  API-->>U: { ok: true }
-  Note over API: No inline sync-back. To refresh PO header,<br/>run npm run sync:outbound-po-detail.
+  API->>PG: INSERT outbound_consignments (Zap id sequence)
+  API->>PG: INSERT outbound_po_logs + refresh analytics
+  API-->>U: { ok: true, consignment: { id } }
 ```
 
 ### Action menu — `POST /eautomate-actions`

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ChevronDown, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -109,6 +110,7 @@ function RoleMultiSelect({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => openSelectDropdownOnArrowKey(e, setOpen, open)}
         className="flex w-full min-h-9 flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm transition-colors hover:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {selected.length === 0 ? (

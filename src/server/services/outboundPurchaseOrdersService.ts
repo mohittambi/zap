@@ -1,5 +1,6 @@
 import { resolveCompanyLogoFromAttributes } from "@/lib/company-brand-logo";
 import { pickListingImageFromRow } from "@/lib/listing-image-url";
+import { normalizeOutboundPoWipForStorage } from "@/lib/outbound-po-wip";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import type { SkuReportItemRow } from "@/server/services/outboundConsignmentItemsService";
@@ -190,10 +191,7 @@ export async function listOutboundPurchaseOrders(opts: {
   let p = 1;
 
   if (wipOnly) {
-    /** Match Zap web + mobile display logic (YES/yes, trimming); strict `= 'YES'` misses legacy rows. */
-    conditions.push(`UPPER(TRIM(COALESCE(o.is_wip::text, ''))) = $${p}`);
-    params.push("YES");
-    p += 1;
+    conditions.push(`UPPER(TRIM(COALESCE(o.is_wip::text, ''))) IN ('Y', 'YES')`);
   }
 
   if (partialOnly) {
@@ -602,7 +600,7 @@ export async function createOutboundPurchaseOrderRow(input: {
         input.po_type,
         "SUBMITTED",
         input.created_by,
-        "YES",
+        "Y",
         input.company_name,
       ]
     );
@@ -662,6 +660,23 @@ export async function getOutboundPurchaseOrderById(
   return rowToApi(r.rows[0] as Record<string, unknown>);
 }
 
+export async function getOutboundPurchaseOrderByPoNumber(
+  poNumber: string
+): Promise<OutboundPoRow | null> {
+  const pn = String(poNumber || "").trim();
+  if (!pn) return null;
+  const r = await query(
+    `SELECT id, sold_via, company_id, po_number, delivery_city, delivery_address, billing_address,
+            buyer_gstin, po_issue_date, expiry_date, po_type, po_creation_status,
+            po_acknowledgement_status, po_fulfillment_status, created_by, created_at, updated_at,
+            is_wip, remarks, company_name, analytics_object, listings_snapshot, calculated_po_status, eautomate_synced_at
+     FROM outbound_purchase_orders WHERE po_number = $1 LIMIT 1`,
+    [pn]
+  );
+  if (r.rows.length === 0) return null;
+  return rowToApi(r.rows[0] as Record<string, unknown>);
+}
+
 export type OutboundPoEditableField =
   | "po_type"
   | "delivery_city"
@@ -688,10 +703,11 @@ function normalizePatchValue(field: OutboundPoEditableField, value: string | nul
     return Number.isNaN(d.getTime()) ? null : d;
   }
   if (field === "is_wip") {
-    if (!value?.trim()) return null;
-    const upper = value.trim().toUpperCase();
-    if (upper !== "Y" && upper !== "N") throw new AppError("is_wip must be 'Y', 'N', or null", 400);
-    return upper;
+    const normalized = normalizeOutboundPoWipForStorage(value);
+    if (value != null && String(value).trim() !== "" && normalized == null) {
+      throw new AppError("is_wip must be Y, YES, N, NO, or null", 400);
+    }
+    return normalized;
   }
   if (value == null) return null;
   const s = String(value).trim();
@@ -768,6 +784,29 @@ export async function updateOutboundPoAnalyticsObject(
     `UPDATE outbound_purchase_orders SET analytics_object = $2::jsonb WHERE id = $1`,
     [outboundPoId, JSON.stringify(analytics)]
   );
+}
+
+/** Refresh `total_consignments` on PO analytics from `outbound_consignments` count. */
+export async function refreshOutboundPoConsignmentCountAnalytics(
+  outboundPoId: number,
+  poNumber: string
+): Promise<void> {
+  if (!Number.isFinite(outboundPoId) || outboundPoId < 1) return;
+  const pn = String(poNumber || "").trim();
+  if (!pn) return;
+  const po = await getOutboundPurchaseOrderById(outboundPoId);
+  if (!po) return;
+  const countR = await query(
+    `SELECT COUNT(*)::int AS n FROM outbound_consignments WHERE po_number = $1`,
+    [pn]
+  );
+  const n = Number(countR.rows[0]?.n) || 0;
+  const ao =
+    po.analytics_object && typeof po.analytics_object === "object"
+      ? { ...(po.analytics_object as Record<string, unknown>) }
+      : {};
+  ao.total_consignments = n;
+  await updateOutboundPoAnalyticsObject(outboundPoId, ao);
 }
 
 function lineDemandFromRow(row: Record<string, unknown>): number {

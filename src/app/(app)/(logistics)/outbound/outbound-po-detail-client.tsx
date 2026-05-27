@@ -35,12 +35,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SearchableSelect } from "@/components/outbound/searchable-select";
+import { CreateConsignmentDialog } from "@/components/outbound/create-consignment-dialog";
 import {
   TripletDatePicker,
   formatUtcDateOnly,
   parseDateOnlyString,
 } from "@/components/outbound/triplet-date-picker";
 import { OUTBOUND_PO_TYPES } from "@/lib/outbound-po-types";
+import { isOutboundPoAcknowledged } from "@/lib/outbound-po-acknowledgement";
+import { isOutboundPoWip } from "@/lib/outbound-po-wip";
 import { cn } from "@/lib/utils";
 
 const textareaClass =
@@ -477,7 +480,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [logsPayload, setLogsPayload] = React.useState<PoLogRow[] | null>(null);
   const [logsLoading, setLogsLoading] = React.useState(false);
   const [createConsignmentOpen, setCreateConsignmentOpen] = React.useState(false);
-  const [createConsignmentBusy, setCreateConsignmentBusy] = React.useState(false);
+  const [packingConsignmentId, setPackingConsignmentId] = React.useState<number | null>(null);
   const [labelDialogOpen, setLabelDialogOpen] = React.useState(false);
   const [labelRows, setLabelRows] = React.useState<LabelRow[]>([]);
   const [labelStep, setLabelStep] = React.useState<1 | 2 | 3 | 4>(1);
@@ -553,6 +556,35 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       cancelled = true;
     };
   }, [tab, poId]);
+
+  React.useEffect(() => {
+    if (!consignmentsData?.content?.length) {
+      setPackingConsignmentId(null);
+      return;
+    }
+    setPackingConsignmentId((prev) => {
+      if (prev != null && consignmentsData.content.some((c) => c.id === prev)) {
+        return prev;
+      }
+      return consignmentsData.content[0]?.id ?? null;
+    });
+  }, [consignmentsData]);
+
+  async function reloadConsignmentsTab() {
+    setConsignmentsLoading(true);
+    try {
+      const res = await authFetchRaw(
+        `/api/outbound/purchase-orders/${poId}/consignments?page=1&count=200`
+      );
+      const j = (await res.json()) as ConsignmentsListPayload & { error?: string };
+      if (res.ok) setConsignmentsData(j);
+      else setConsignmentsData(null);
+    } catch {
+      setConsignmentsData(null);
+    } finally {
+      setConsignmentsLoading(false);
+    }
+  }
 
   React.useEffect(() => {
     if (tab !== "logs") return;
@@ -1081,16 +1113,14 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   }
 
   const analytics = parseOutboundAnalyticsForSummary(po.analytics_object);
+  const wipIsYes = isOutboundPoWip(po.is_wip);
+  const ackIsYes = isOutboundPoAcknowledged(po.po_acknowledgement_status);
+  const canCreateConsignment = wipIsYes && ackIsYes && canMutate;
   const wip = (po.is_wip ?? "").toUpperCase().trim();
   const listingsEnvelope = (data.listings ?? {}) as OutboundListingsEnvelope;
 
   const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
   const zapReady = data.zapStorageConfigured === true;
-  const listingsContent = listingsEnvelope.content;
-  const hasParsedListings =
-    Array.isArray(listingsContent) && listingsContent.length > 0;
-  const showSyncLinesHint = hasParsedListings && !po.eautomate_synced_at;
-
   const summaryTable = (
     <Card className="border-primary/10 shadow-sm overflow-hidden">
       <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
@@ -1136,11 +1166,13 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         type="button"
         variant="outline"
         className="border-primary text-primary hover:bg-primary/5 h-auto min-h-11 w-full whitespace-normal py-2"
-        disabled={!canMutate || stubBusy !== null}
+        disabled={!canMutate || stubBusy !== null || ackIsYes}
         onClick={() => void onStubWorkflow("acknowledge")}
       >
         {stubBusy === "acknowledge" ? (
           <Loader2 className="size-4 animate-spin" />
+        ) : ackIsYes ? (
+          "Purchase order acknowledged"
         ) : (
           "Acknowledge Purchase Order"
         )}
@@ -1280,28 +1312,28 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                         <span
                           className={cn(
                             "font-semibold",
-                            wip === "N" && "text-muted-foreground",
-                            wip === "Y" && "text-green-600 dark:text-green-500"
+                            !wipIsYes && "text-muted-foreground",
+                            wipIsYes && "text-green-600 dark:text-green-500"
                           )}
                         >
-                          {wip === "Y" ? "Yes" : wip === "N" ? "No" : (po.is_wip ?? "—")}
+                          {wipIsYes ? "Yes" : wip === "N" || wip === "NO" ? "No" : (po.is_wip ?? "—")}
                         </span>
                         {canMutate && (
                           <div className="flex gap-1">
                             <Button
                               size="sm"
-                              variant={wip === "Y" ? "default" : "outline"}
+                              variant={wipIsYes ? "default" : "outline"}
                               className="h-6 px-2 text-xs"
-                              disabled={wipBusy || wip === "Y"}
+                              disabled={wipBusy || wipIsYes}
                               onClick={() => void toggleWip("Y")}
                             >
                               Y
                             </Button>
                             <Button
                               size="sm"
-                              variant={wip === "N" ? "default" : "outline"}
+                              variant={wip === "N" || wip === "NO" ? "default" : "outline"}
                               className="h-6 px-2 text-xs"
-                              disabled={wipBusy || wip === "N"}
+                              disabled={wipBusy || wip === "N" || wip === "NO"}
                               onClick={() => void toggleWip("N")}
                             >
                               N
@@ -1459,13 +1491,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                   <CardTitle className="text-base">SKU line items</CardTitle>
                   <CardDescription>
                     From uploaded spreadsheet or eAutomate sync.
-                    {showSyncLinesHint ? (
-                      <span className="mt-1 block text-amber-700 dark:text-amber-400">
-                        Lines below are from the uploaded spreadsheet. Run{" "}
-                        <code className="text-xs">npm run sync:outbound-po-detail</code>{" "}
-                        for live eAutomate quantities.
-                      </span>
-                    ) : null}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1510,7 +1535,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         </TabsContent>
 
         <TabsContent value="consignments" className="mt-4 space-y-4">
-          {wip === "YES" && canMutate ? (
+          {canCreateConsignment ? (
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
@@ -1519,12 +1544,17 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 Create New Consignment
               </Button>
               <p className="text-muted-foreground text-xs">
-                A consignment can only be created once a PO is marked as WIP.
+                Creates an empty consignment — enter line items on the consignment detail page.
               </p>
             </div>
-          ) : wip !== "YES" ? (
+          ) : !wipIsYes ? (
             <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
-              Mark this PO as WIP in eCraft/eAutomate before creating consignments.
+              Mark this PO as WIP on the Details tab (WIP status → Y) before creating consignments.
+            </p>
+          ) : !ackIsYes ? (
+            <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+              Acknowledge this purchase order (Acknowledge Purchase Order on the workflow panel) before
+              creating consignments.
             </p>
           ) : null}
 
@@ -1644,6 +1674,43 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
               </tbody>
             </table>
           </div>
+
+          {canWritePo && consignmentsData?.content?.length ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Enter consignment lines</CardTitle>
+                <CardDescription className="text-xs">
+                  Line items (bin packing) are entered on each consignment&apos;s detail page after
+                  creation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="max-w-sm space-y-1">
+                  <Label className="text-xs">Consignment</Label>
+                  <SearchableSelect
+                    value={
+                      packingConsignmentId != null
+                        ? String(packingConsignmentId)
+                        : null
+                    }
+                    onChange={(key) => setPackingConsignmentId(Number(key))}
+                    options={consignmentsData.content.map((c) => ({
+                      key: String(c.id),
+                      label: `#${c.id} · ${c.consignment_status ?? "—"}`,
+                    }))}
+                    placeholder="Select consignment"
+                  />
+                </div>
+                {packingConsignmentId != null ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/outbound/consignments/${packingConsignmentId}`}>
+                      Open consignment #{packingConsignmentId} to enter lines
+                    </Link>
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Button variant="outline" asChild>
             <Link
@@ -1868,67 +1935,16 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       </DialogContent>
     </Dialog>
 
-      <Dialog open={createConsignmentOpen} onOpenChange={setCreateConsignmentOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create New Consignment</DialogTitle>
-            <DialogDescription>
-              Calls eAutomate to create a consignment for PO {po.po_number}. A consignment can
-              only be created once a PO is marked as WIP. Override the URL on the server with
-              EAUTOMATE_CREATE_CONSIGNMENT_URL if the default path does not match your build.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setCreateConsignmentOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={createConsignmentBusy}
-              onClick={() => {
-                void (async () => {
-                  setCreateConsignmentBusy(true);
-                  try {
-                    const res = await authFetchRaw(
-                      `/api/outbound/purchase-orders/${poId}/consignments`,
-                      { method: "POST" }
-                    );
-                    const j = (await res.json().catch(() => ({}))) as {
-                      error?: string;
-                      detail?: string;
-                    };
-                    if (!res.ok) {
-                      throw new Error(j.error ?? j.detail ?? "Failed to create consignment");
-                    }
-                    toast.success("Consignment created");
-                    setCreateConsignmentOpen(false);
-                    await load();
-                    const cr = await authFetchRaw(
-                      `/api/outbound/purchase-orders/${poId}/consignments?page=1&count=200`
-                    );
-                    const cj = (await cr.json()) as ConsignmentsListPayload;
-                    if (cr.ok) setConsignmentsData(cj);
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
-                  } finally {
-                    setCreateConsignmentBusy(false);
-                  }
-                })();
-              }}
-            >
-              {createConsignmentBusy ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                "Confirm"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateConsignmentDialog
+        open={createConsignmentOpen}
+        onOpenChange={setCreateConsignmentOpen}
+        poId={poId}
+        poNumber={po.po_number}
+        onCreated={() => {
+          void load();
+          void reloadConsignmentsTab();
+        }}
+      />
 
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
         <DialogContent className="flex h-[90vh] max-h-[720px] w-[95vw] max-w-6xl flex-col gap-0 p-0">

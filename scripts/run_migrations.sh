@@ -96,7 +96,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/063_debit_note_lines_rejected_short_qty.sql \
          migrations/064_create_favourites.sql \
          migrations/065_company_ean_mappings.sql \
-         migrations/066_ops_master_sku_po_metrics.sql; do
+         migrations/066_ops_master_sku_po_metrics.sql \
+         migrations/067_outbound_consignments_zap_id_seq.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

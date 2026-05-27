@@ -62,27 +62,32 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 ## IV. Move PO to WIP (Work in Progress)
 
 - The Operations team selects the PO from **All Purchase Orders** or **WIP Purchase Orders** (`/outbound/wip`).
-- **Move to WIP:** POs created in Zap are inserted with **`is_wip = 'YES'`** by default ([`createOutboundPurchaseOrderRow`](../../../src/server/services/outboundPurchaseOrdersService.ts)). If **`is_wip`** reads **NO** on the PO detail card, that usually reflects **synced / channel** state — the PO detail UI may direct teams to resolve WIP in the upstream channel (**eCraft / eAutomate**) before creating consignments.
+- **Move to WIP:** POs created in Zap default to **`is_wip = 'Y'`** ([`createOutboundPurchaseOrderRow`](../../../src/server/services/outboundPurchaseOrdersService.ts)). On PO detail (**Details** tab), use **WIP status → Y** to mark WIP in Zap (`save_field` on `is_wip` — local DB only). Legacy synced rows may still show **YES**; both **Y** and **YES** count as WIP.
 
 ---
 
 ## V. Consignment Creation
 
-- In **WIP** (or when `is_wip` is YES and rules allow mutation), create a **Consignment** from the PO detail flow (**Consignments** affordance — see PO detail client).
-- **Assign a Crate / box:** Consignment packing uses box lines via **`POST /api/outbound/consignments/[id]/boxes`** (box name, box number, per-SKU quantities) — see [`boxes/route.ts`](../../../src/app/api/outbound/consignments/[id]/boxes/route.ts). **Manage Boxes:** `/outbound/boxes`.
+- When the PO is **WIP** (`Y` or `YES`) and **acknowledged** (`po_acknowledgement_status` = YES), create a **Consignment** from the PO detail **PO Consignments** tab (**Create New Consignment**). A confirm dialog creates an **empty** consignment in Zap via **`POST /api/outbound/purchase-orders/[id]/consignments`** (no packing at create time). The UI navigates to **Consignment detail** to enter lines.
 
 ---
 
-## VI. Packing List Upload (PL Upload)
+## VI. Consignment line items (packing)
 
-- Packing list style data (SKU per box, box number, quantities) aligns with **box line capture** APIs above and consignment tooling.
-- **Mobile vs web:** Fulfilment steps may split across web consignment/detail and mobile flows — see [Mobile — Outbound screens](../../mobile/outbound-screens.md) for current screen coverage and gaps.
+- On **Consignment detail** (`/outbound/consignments/[id]`), **Current Consignment Summary** shows **Boxes**, **SKUs**, and **Total Qty** (zeros until lines are saved).
+- Consignment detail includes a **PO line items** table (same columns as the PO detail page) loaded from the linked PO `listings_snapshot` via `GET /api/outbound/consignments/[id]/po-listings`.
+- Operators pack **per PO SKU** via **Enter packing** (modal): each SKU can span **multiple box lines** (box name, quantity). The editor shows **PO Secondary SKU** (`po_secondary_sku`, e.g. `10149918`) and **Company Code Primary** (`company_code_primary`, e.g. `AAC500`) — same columns as the PO line-items grid. TSV upload/download uses the same 9 columns with **multiple rows per SKU** allowed: `po_secondary_sku`, `company_code_primary`, then demand, dispatch, reserved, pending, box number, box quantity, and box name.
+- Draft SKUs prefill from the PO `listings_snapshot`; demand/dispatch/pending are read-only. **Sum of box quantities per SKU must not exceed pending** (blocked server-side and in the modal).
+- **`GET /api/outbound/consignments/[id]/line-items/drafts`** — `{ skus, source, poNumber }`; **`POST …/line-items/save`** — body `{ skus: [...] }`, validate and replace all lines, refresh consignment aggregates.
+- Legacy bin CSV upload remains available via **`POST /api/outbound/consignments/[id]/packing-upload/*`** and **`POST …/boxes`** if needed.
 
 ---
 
 ## VII. Mark as RTD (Ready to Dispatch)
 
-- Mark the consignment **RTD** and enter dispatch-style fields as supported on **Consignment detail** (`/outbound/consignments/[id]`) — e.g. transporter, vehicle, docket ([`consignment-detail-client.tsx`](../../../src/app/(app)/(logistics)/outbound/consignments/consignment-detail-client.tsx) shows **Marked RTD** metadata and transport fields).
+- After lines are saved (`boxes_count > 0`), use **Mark for dispatch** on **Consignment detail** to set status **`MARKED_RTD`**.
+- Dialog collects **transporter** (`GET /api/outbound/transporters`), **shipment type** (Surface / Air / Express, stored in `raw.shipment_type`), and **docket number**.
+- **`POST /api/outbound/consignments/[id]/mark-rtd`** — Zap-only; sets `marked_rtd_at`, `marked_rtd_by`, transporter, docket, and transport card on detail.
 
 ---
 
@@ -117,7 +122,7 @@ PO Creation → Details Fill (+ **two files at submit**) → Line spreadsheet re
 | Narrative shorthand | Zap behaviour |
 |--------------------|----------------|
 | “Template downloaded after PO submit” | Create requires **PDF + spreadsheet** immediately; PO detail links **sample CSV** for column shape; optional **attachments** uploads refresh lines when parsed. |
-| “Add to WIP” | New Zap PO rows default **`is_wip = YES`**; **NO** often means sync/upstream — use WIP hub + PO detail messaging. |
+| “Add to WIP” | New Zap PO rows default **`is_wip = Y`**; toggle **Y/N** on PO detail; **Y** and **YES** both count as WIP for consignment create. |
 | “Invoice Excel auto-generated” | Outbound invoice artefact here is **file upload/download** + reports/stubs—not the inbound GRN `invoice-export` workbook. |
 
 ---

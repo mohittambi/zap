@@ -1,11 +1,25 @@
 import getPool, { query } from "@/server/db";
+import { AppError } from "@/server/errors";
+import type {
+  ConsignmentLineDraft,
+  ConsignmentSkuPacking,
+} from "@/lib/outbound-consignment-line-drafts";
+import {
+  extractConsignmentSkuPackingFromListings,
+  flattenSkuPackingToLineRows,
+  groupLineRowsToSkuPacking,
+  validateConsignmentSkuPackingClient,
+} from "@/lib/outbound-consignment-line-drafts";
 import {
   batchGetZapEanByCompany,
+  enrichListingsSnapshotWithZapEan,
   enrichRowsWithZapEan,
   mappingSkuKeysFromRow,
   resolveZapEanDisplay,
   type ZapEanLookup,
 } from "@/server/services/eanMappingsService";
+import { getOutboundPurchaseOrderByPoNumber } from "@/server/services/outboundPurchaseOrdersService";
+import { groupPackingRowsByBin } from "@/server/utils/outboundConsignmentPackingSpreadsheetParse";
 
 function pickFirst(
   obj: Record<string, unknown>,
@@ -153,6 +167,7 @@ export function mapListingRowToItemColumns(
       "original_demand",
       "originalDemand",
       "demand",
+      "demand_quantity",
     ]),
     dispatched_quantity: pickInt(normalized, [
       "dispatched_quantity",
@@ -1072,4 +1087,400 @@ export async function insertOutboundConsignmentBoxLines(opts: {
     n += 1;
   }
   return n;
+}
+
+export type ConsignmentPackingValidationIssue = {
+  row: number;
+  field: string;
+  message: string;
+  severity: "error" | "warning";
+};
+
+export type ConsignmentPackingPreviewRow = {
+  rowNumber: number;
+  binNumber: number;
+  binName: string;
+  itemCode: string;
+  quantity: number;
+  companyCodePrimary: string | null;
+  companyCodeSecondary: string | null;
+  status: "ok" | "error" | "warning";
+  issues: string[];
+};
+
+export type ConsignmentPackingValidationResult = {
+  ok: boolean;
+  rowsPreview: ConsignmentPackingPreviewRow[];
+  binSummary: { binNumber: number; binName: string; lineCount: number; totalQuantity: number }[];
+  errors: ConsignmentPackingValidationIssue[];
+  warnings: ConsignmentPackingValidationIssue[];
+  stats: {
+    totalRows: number;
+    binCount: number;
+    existingLineCount: number;
+  };
+  rows: import("@/server/utils/outboundConsignmentPackingSpreadsheetParse").ParsedConsignmentPackingRow[];
+};
+
+function normalizeBinNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export async function countConsignmentItemLines(
+  consignmentId: number
+): Promise<number> {
+  const r = await query(
+    `SELECT COUNT(*)::int AS n FROM outbound_consignment_items WHERE consignment_id = $1`,
+    [consignmentId]
+  );
+  return Number(r.rows[0]?.n) || 0;
+}
+
+export async function validateConsignmentPackingRows(opts: {
+  consignmentId: number;
+  poNumber: string;
+  rows: import("@/server/utils/outboundConsignmentPackingSpreadsheetParse").ParsedConsignmentPackingRow[];
+  parseErrors: import("@/server/utils/outboundConsignmentPackingSpreadsheetParse").ConsignmentPackingParseError[];
+  knownPoSkus?: Set<string>;
+  knownConsignmentSkus?: Set<string>;
+  /** When creating a new consignment, pass 0 to skip item-line count query. */
+  existingLineCount?: number;
+}): Promise<ConsignmentPackingValidationResult> {
+  const { consignmentId, rows, parseErrors } = opts;
+  const validBinNames = await listOutboundValidBoxNames();
+  const validBinSet = new Set(
+    validBinNames.map((b) => normalizeBinNameKey(b.name))
+  );
+
+  const errors: ConsignmentPackingValidationIssue[] = parseErrors.map((e) => ({
+    row: e.row,
+    field: e.field,
+    message: e.message,
+    severity: "error" as const,
+  }));
+
+  const warnings: ConsignmentPackingValidationIssue[] = [];
+  const binNumberToName = new Map<number, string>();
+  const knownPoSkus = opts.knownPoSkus ?? new Set<string>();
+  const knownConsignmentSkus = opts.knownConsignmentSkus ?? new Set<string>();
+
+  for (const row of rows) {
+    const binKey = normalizeBinNameKey(row.box_name);
+    if (validBinSet.size > 0 && !validBinSet.has(binKey)) {
+      errors.push({
+        row: row.rowNumber,
+        field: "Bin Name",
+        message: `Bin Name "${row.box_name}" not in system — sync bin names or pick from list`,
+        severity: "error",
+      });
+    }
+
+    const prevName = binNumberToName.get(row.box_number);
+    if (prevName && normalizeBinNameKey(prevName) !== binKey) {
+      errors.push({
+        row: row.rowNumber,
+        field: "Bin Number",
+        message: `Bin Number ${row.box_number} is used with different bin names in this file`,
+        severity: "error",
+      });
+    } else {
+      binNumberToName.set(row.box_number, row.box_name);
+    }
+
+    if (
+      knownPoSkus.size > 0 &&
+      !knownPoSkus.has(row.po_secondary_sku) &&
+      (knownConsignmentSkus.size === 0 ||
+        !knownConsignmentSkus.has(row.po_secondary_sku))
+    ) {
+      warnings.push({
+        row: row.rowNumber,
+        field: "Item Code",
+        message: `Item Code "${row.po_secondary_sku}" not found on PO or existing consignment lines`,
+        severity: "warning",
+      });
+    }
+  }
+
+  const errorRows = new Set(errors.map((e) => e.row));
+
+  const rowsPreview: ConsignmentPackingPreviewRow[] = rows.map((row) => {
+    const rowErrors = errors.filter((e) => e.row === row.rowNumber);
+    const rowWarnings = warnings.filter((w) => w.row === row.rowNumber);
+    const issues = [
+      ...rowErrors.map((e) => e.message),
+      ...rowWarnings.map((w) => w.message),
+    ];
+    let status: "ok" | "error" | "warning" = "ok";
+    if (rowErrors.length > 0 || errorRows.has(row.rowNumber)) status = "error";
+    else if (rowWarnings.length > 0) status = "warning";
+    return {
+      rowNumber: row.rowNumber,
+      binNumber: row.box_number,
+      binName: row.box_name,
+      itemCode: row.po_secondary_sku,
+      quantity: row.quantity,
+      companyCodePrimary: row.company_code_primary,
+      companyCodeSecondary: row.company_code_secondary,
+      status,
+      issues,
+    };
+  });
+
+  const binMap = new Map<string, { binNumber: number; binName: string; lineCount: number; totalQuantity: number }>();
+  for (const row of rows) {
+    const key = `${row.box_number}::${normalizeBinNameKey(row.box_name)}`;
+    const cur = binMap.get(key) ?? {
+      binNumber: row.box_number,
+      binName: row.box_name,
+      lineCount: 0,
+      totalQuantity: 0,
+    };
+    cur.lineCount += 1;
+    cur.totalQuantity += row.quantity;
+    binMap.set(key, cur);
+  }
+
+  const existingLineCount =
+    opts.existingLineCount ??
+    (consignmentId > 0 ? await countConsignmentItemLines(consignmentId) : 0);
+  const blockingErrors = errors.filter((e) => e.severity === "error");
+
+  return {
+    ok: blockingErrors.length === 0 && rows.length > 0,
+    rowsPreview,
+    binSummary: [...binMap.values()].sort((a, b) => a.binNumber - b.binNumber),
+    errors: blockingErrors,
+    warnings,
+    stats: {
+      totalRows: rows.length,
+      binCount: binMap.size,
+      existingLineCount,
+    },
+    rows,
+  };
+}
+
+export async function refreshOutboundConsignmentAggregates(
+  consignmentId: number
+): Promise<void> {
+  await query(
+    `UPDATE outbound_consignments AS c SET
+       boxes_count = sub.boxes_count,
+       sku_count = sub.sku_count,
+       total_quantity = sub.total_quantity
+     FROM (
+       SELECT
+         COUNT(DISTINCT box_number)::int AS boxes_count,
+         COUNT(DISTINCT po_secondary_sku)::int AS sku_count,
+         COALESCE(SUM(box_quantity), 0)::int AS total_quantity
+       FROM outbound_consignment_items
+       WHERE consignment_id = $1
+     ) AS sub
+     WHERE c.id = $1`,
+    [consignmentId]
+  );
+}
+
+export async function applyConsignmentPackingUpload(opts: {
+  consignmentId: number;
+  poNumber: string;
+  rows: import("@/server/utils/outboundConsignmentPackingSpreadsheetParse").ParsedConsignmentPackingRow[];
+  mode: "append" | "replace";
+  createdBy: string | null;
+}): Promise<{ inserted: number; deleted: number; binsAffected: number }> {
+  const { consignmentId, poNumber, rows, mode, createdBy } = opts;
+  const grouped = groupPackingRowsByBin(rows);
+  let deleted = 0;
+  let inserted = 0;
+
+  if (mode === "replace") {
+    const mappedRows = rows.map((row) => ({
+      box_number: row.box_number,
+      box_name: row.box_name,
+      po_secondary_sku: row.po_secondary_sku,
+      box_quantity: row.quantity,
+      consignment_quantity: row.quantity,
+      company_code_primary: row.company_code_primary,
+      company_code_secondary: row.company_code_secondary,
+      submitted_from: "zap_web_csv",
+      source: "zap_web_csv",
+    }));
+    deleted = await countConsignmentItemLines(consignmentId);
+    inserted = await replaceConsignmentItems(
+      consignmentId,
+      mappedRows,
+      poNumber
+    );
+  } else {
+    for (const bin of grouped) {
+      const n = await insertOutboundConsignmentBoxLines({
+        consignmentId,
+        poNumber,
+        boxNumber: bin.box_number,
+        boxName: bin.box_name,
+        items: bin.items.map((it) => ({
+          po_secondary_sku: it.po_secondary_sku,
+          quantity: it.quantity,
+        })),
+        createdBy,
+      });
+      inserted += n;
+    }
+  }
+
+  await refreshOutboundConsignmentAggregates(consignmentId);
+  return { inserted, deleted, binsAffected: grouped.length };
+}
+
+function numFromUnknown(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function itemDbRowToLineDraft(row: Record<string, unknown>): ConsignmentLineDraft {
+  const raw =
+    row.raw && typeof row.raw === "object" && !Array.isArray(row.raw)
+      ? (row.raw as Record<string, unknown>)
+      : {};
+  return {
+    po_secondary_sku:
+      row.po_secondary_sku != null ? String(row.po_secondary_sku).trim() : "",
+    company_code_primary:
+      row.company_code_primary != null ? String(row.company_code_primary).trim() : "",
+    demand_quantity: numFromUnknown(row.original_demand),
+    dispatched_quantity: numFromUnknown(row.dispatched_quantity),
+    reserved_quantity: numFromUnknown(raw.reserved_quantity),
+    pending_quantity: numFromUnknown(raw.pending_quantity),
+    box_number: Math.trunc(numFromUnknown(row.box_number)),
+    box_quantity: Math.trunc(numFromUnknown(row.box_quantity)),
+    box_name: row.box_name != null ? String(row.box_name).trim() : "",
+  };
+}
+
+export async function getConsignmentLineRowsForEditor(consignmentId: number): Promise<{
+  source: "saved" | "draft";
+  skus: ConsignmentSkuPacking[];
+  outboundPoId: number | null;
+  poNumber: string | null;
+}> {
+  const cR = await query(
+    `SELECT po_number FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  const poNumber =
+    cR.rows[0]?.po_number != null ? String(cR.rows[0].po_number).trim() : null;
+
+  const lineCount = await countConsignmentItemLines(consignmentId);
+  let outboundPoId: number | null = null;
+  let templateSkus: ConsignmentSkuPacking[] = [];
+  if (poNumber) {
+    const po = await getOutboundPurchaseOrderByPoNumber(poNumber);
+    outboundPoId = po?.id ?? null;
+    if (po?.listings_snapshot != null) {
+      const enriched = await enrichListingsSnapshotWithZapEan(
+        po.listings_snapshot,
+        po.company_id
+      );
+      templateSkus = extractConsignmentSkuPackingFromListings(enriched);
+    }
+  }
+
+  if (lineCount > 0) {
+    const r = await query(
+      `SELECT po_secondary_sku, company_code_primary, box_number, box_name, box_quantity,
+              original_demand, dispatched_quantity, raw
+         FROM outbound_consignment_items
+        WHERE consignment_id = $1
+        ORDER BY id ASC`,
+      [consignmentId]
+    );
+    const flat = r.rows.map((row) => itemDbRowToLineDraft(row as Record<string, unknown>));
+    return {
+      source: "saved",
+      skus: groupLineRowsToSkuPacking(flat, templateSkus),
+      outboundPoId,
+      poNumber,
+    };
+  }
+
+  return {
+    source: "draft",
+    skus: templateSkus,
+    outboundPoId,
+    poNumber,
+  };
+}
+
+export type ConsignmentLineValidationIssue = {
+  skuIndex: number;
+  boxIndex?: number;
+  field: string;
+  message: string;
+};
+
+export async function validateConsignmentSkuPacking(
+  skus: ConsignmentSkuPacking[]
+): Promise<{ ok: boolean; errors: ConsignmentLineValidationIssue[] }> {
+  const validBinNames = await listOutboundValidBoxNames();
+  const validBinSet = new Set(
+    validBinNames.map((b) => normalizeBinNameKey(b.name))
+  );
+  const result = validateConsignmentSkuPackingClient(skus, validBinSet);
+  return { ok: result.ok, errors: result.errors };
+}
+
+export async function listOutboundTransporters(): Promise<
+  { id: number; name: string }[]
+> {
+  const r = await query(
+    `SELECT id, name FROM outbound_transporter_details ORDER BY name ASC`
+  );
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name != null ? String(row.name) : "",
+  }));
+}
+
+export async function saveConsignmentLineItems(opts: {
+  consignmentId: number;
+  poNumber: string;
+  skus: ConsignmentSkuPacking[];
+  createdBy: string | null;
+}): Promise<{ inserted: number }> {
+  const { consignmentId, poNumber, skus, createdBy } = opts;
+  const validation = await validateConsignmentSkuPacking(skus);
+  if (!validation.ok) {
+    throw new AppError(
+      validation.errors[0]?.message ?? "Invalid consignment line items",
+      400
+    );
+  }
+
+  const rows = flattenSkuPackingToLineRows(skus);
+  const mapped = rows.map((row) => {
+    const demand = Math.trunc(row.demand_quantity);
+    const boxQty = Math.trunc(row.box_quantity);
+    const fillRate = demand > 0 ? boxQty / demand : null;
+    return {
+      po_secondary_sku: row.po_secondary_sku.trim(),
+      company_code_primary: row.company_code_primary.trim(),
+      original_demand: demand,
+      demand_quantity: demand,
+      dispatched_quantity: Math.trunc(row.dispatched_quantity),
+      reserved_quantity: Math.trunc(row.reserved_quantity),
+      pending_quantity: Math.trunc(row.pending_quantity),
+      box_number: Math.trunc(row.box_number),
+      box_quantity: boxQty,
+      box_name: row.box_name.trim(),
+      consignment_quantity: boxQty,
+      overall_fill_rate: fillRate,
+      submitted_from: "zap_web_lines",
+      created_by: createdBy,
+    };
+  });
+
+  const inserted = await replaceConsignmentItems(consignmentId, mapped, poNumber);
+  await refreshOutboundConsignmentAggregates(consignmentId);
+  return { inserted };
 }

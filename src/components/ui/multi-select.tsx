@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, ChevronDown, X } from "lucide-react";
+import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { cn } from "@/lib/utils";
 
 export type MultiSelectOption = {
@@ -92,6 +93,7 @@ export function MultiSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => openSelectDropdownOnArrowKey(e, setOpen, open)}
         className={cn(
           "border-input bg-background flex h-7 w-full items-center justify-between gap-1 rounded border px-1.5 text-[11px]",
           "hover:bg-muted/40"

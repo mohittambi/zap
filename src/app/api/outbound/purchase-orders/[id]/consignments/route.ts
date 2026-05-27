@@ -2,79 +2,25 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
+import { isOutboundPoAcknowledged } from "@/lib/outbound-po-acknowledgement";
+import { isOutboundPoWip } from "@/lib/outbound-po-wip";
 import { parsePagination } from "@/server/validators/pagination";
+import { getOutboundPurchaseOrderById } from "@/server/services/outboundPurchaseOrdersService";
 import {
-  getOutboundPurchaseOrderById,
-} from "@/server/services/outboundPurchaseOrdersService";
-import {
+  createOutboundConsignmentInZap,
   listOutboundConsignments,
-  upsertOutboundConsignmentFromEautomate,
 } from "@/server/services/outboundConsignmentsService";
-import {
-  eautomateConfigured,
-  fetchEautomate,
-} from "@/server/eautomate-proxy";
-import {
-  poWorkflowJsonBody,
-  workflowCreateConsignmentUrl,
-} from "@/server/eautomate-outbound-po-workflow";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-function unwrapConsignmentPayload(
-  json: unknown
-): Record<string, unknown> | null {
-  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-  const o = json as Record<string, unknown>;
-  for (const k of ["consignment", "data", "payload", "result"]) {
-    const v = o[k];
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      return v as Record<string, unknown>;
-    }
-  }
-  return o;
-}
 
 /**
  * @swagger
  * /outbound/purchase-orders/{id}/consignments:
  *   get:
  *     summary: List consignments for an outbound PO
- *     description: Requires purchase_orders:read.
- *     tags: [Outbound]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *       - { in: query, name: page, schema: { type: integer, default: 1 } }
- *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 200 } }
- *       - { in: query, name: search, schema: { type: string } }
- *       - { in: query, name: sort, schema: { type: string } }
- *       - { in: query, name: dir, schema: { type: string, enum: [asc, desc] } }
- *     responses:
- *       200: { description: OK }
- *       400: { description: Invalid PO id }
- *       401: { description: Unauthorized }
- *       403: { description: Forbidden }
- *       404: { description: PO not found }
  *   post:
- *     summary: Create a consignment in eAutomate for this PO
- *     description: Requires purchase_orders:create. PO must be WIP.
- *     tags: [Outbound]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200: { description: OK }
- *       400: { description: Bad request }
- *       401: { description: Unauthorized }
- *       403: { description: Forbidden }
- *       404: { description: PO not found }
+ *     summary: Create empty consignment in Zap (line items entered on consignment detail)
  */
-/** Consignments for one outbound PO — filters `outbound_consignments` by `po_number`. */
 export async function GET(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);
@@ -116,7 +62,7 @@ export async function GET(request: Request, context: Ctx) {
   }
 }
 
-/** Create consignment in eAutomate (PO must be WIP); upserts into `outbound_consignments`. */
+/** Create empty consignment in Zap (PO must be WIP and acknowledged). */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);
@@ -132,65 +78,36 @@ export async function POST(request: Request, context: Ctx) {
       return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
     }
 
-    const wip = (po.is_wip ?? "").toUpperCase().trim();
-    if (wip !== "YES") {
+    if (!isOutboundPoWip(po.is_wip)) {
       return NextResponse.json(
         {
           error:
-            "PO must be marked WIP before creating a consignment.",
+            "PO must be marked WIP before creating a consignment. Set WIP status to Y on the PO Details tab.",
         },
         { status: 400 }
       );
     }
 
-    if (!eautomateConfigured()) {
+    if (!isOutboundPoAcknowledged(po.po_acknowledgement_status)) {
       return NextResponse.json(
         {
           error:
-            "eAutomate is not configured. Cannot create consignment upstream.",
+            "PO must be acknowledged before creating a consignment. Use Acknowledge Purchase Order on the PO detail page.",
         },
-        { status: 503 }
+        { status: 400 }
       );
     }
 
-    const url = workflowCreateConsignmentUrl(po.po_number);
-    const upstream = await fetchEautomate(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(poWorkflowJsonBody(po.id, po.po_number)),
-      cache: "no-store",
-      signal: AbortSignal.timeout(120_000),
+    const result = await createOutboundConsignmentInZap({
+      outboundPoId: id,
+      po,
+      createdBy: user.email,
     });
 
-    const text = await upstream.text().catch(() => "");
-    if (!upstream.ok) {
-      return NextResponse.json(
-        {
-          error: `Upstream ${upstream.status}`,
-          detail: text.slice(0, 400),
-          hint: "Override URL with EAUTOMATE_CREATE_CONSIGNMENT_URL if needed.",
-        },
-        { status: 502 }
-      );
-    }
-
-    let parsed: unknown = null;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      parsed = null;
-    }
-
-    const cons = unwrapConsignmentPayload(parsed);
-    if (cons) {
-      await upsertOutboundConsignmentFromEautomate(cons);
-    }
-
-    /** PO detail is not re-synced inline; run `npm run sync:outbound-po-detail` to refresh. */
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      consignment: { id: result.id },
+    });
   } catch (err) {
     return handleApiError(err);
   }

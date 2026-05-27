@@ -1,4 +1,5 @@
 import { query } from "@/server/db";
+import { ensureZapOutboundSequences } from "@/server/utils/ensureZapOutboundSequences";
 
 export type OutboundPoLogRow = {
   id: number;
@@ -174,4 +175,43 @@ export async function listOutboundPoLogsByConsignmentId(
     [consignmentId]
   );
   return r.rows.map((row) => rowToApi(row as Record<string, unknown>));
+}
+
+/** Insert a PO activity log row created in Zap (not from eAutomate sync). */
+export async function insertOutboundPoLogFromZap(opts: {
+  outboundPoId: number;
+  poNumber: string | null;
+  consignmentId: number | null;
+  operation: string;
+  remarks?: string | null;
+  createdBy: string | null;
+}): Promise<number> {
+  await ensureZapOutboundSequences();
+  const idR = await query(`SELECT nextval('outbound_po_logs_zap_id_seq')::bigint AS id`);
+  const logId = Number(idR.rows[0]?.id);
+  if (!Number.isFinite(logId) || logId < 1) {
+    throw new Error("Failed to allocate Zap PO log id");
+  }
+  const raw = JSON.stringify({
+    source: "zap",
+    operation: opts.operation,
+    consignment_id: opts.consignmentId,
+  });
+  await query(
+    `INSERT INTO outbound_po_logs (
+      id, outbound_po_id, po_number, consignment_id, foreign_key, operation, remarks,
+      created_by, created_at, raw, synced_at
+    ) VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,NOW(),$8::jsonb,NOW())`,
+    [
+      logId,
+      opts.outboundPoId,
+      opts.poNumber != null ? String(opts.poNumber).slice(0, 80) : null,
+      opts.consignmentId,
+      opts.operation.slice(0, 160),
+      opts.remarks != null ? String(opts.remarks).slice(0, 8000) : null,
+      opts.createdBy != null ? String(opts.createdBy).slice(0, 160) : null,
+      raw,
+    ]
+  );
+  return logId;
 }

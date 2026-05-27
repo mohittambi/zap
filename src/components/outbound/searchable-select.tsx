@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { CompanyLogo } from "@/components/company/company-logo";
 import { Input } from "@/components/ui/input";
+import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { cn } from "@/lib/utils";
 
 export type SearchableSelectOption = {
@@ -181,6 +182,7 @@ export function SearchableSelect({
         onClick={() => {
           setOpen((prev) => !prev);
         }}
+        onKeyDown={(e) => openSelectDropdownOnArrowKey(e, setOpen, open)}
         onBlur={() => onBlur?.()}
         aria-expanded={open}
         aria-haspopup="listbox"
