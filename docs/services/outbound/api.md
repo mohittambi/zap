@@ -22,7 +22,7 @@ Base path: `/api/outbound`
 | POST | `/outbound/purchase-orders/[id]/attachments` | Upload attachment metadata / file |
 | GET | `/outbound/purchase-orders/[id]/attachments/[attachmentId]` | Download Zap attachment |
 | GET, POST | `/outbound/purchase-orders/[id]/consignments` | List / create consignment link |
-| POST | `/outbound/purchase-orders/[id]/eautomate-actions` | Workflow actions (ack, cancel, reports, label prep) |
+| POST | `/outbound/purchase-orders/[id]/eautomate-actions` | Workflow actions: `acknowledge`, `cancel`, `download_sku_report`, `download_pendency_pdf`, label prep — see [pendency-pdf.md](pendency-pdf.md) |
 | GET | `/outbound/purchase-orders/[id]/eautomate-files/[fileId]` | Download eAutomate-sourced file (or Storage) |
 | POST | `/outbound/purchase-orders/[id]/files-zap` | Upload file to Zap Storage |
 

@@ -15,6 +15,8 @@ Your sales channels (e.g. Swiggy Instamart, Blinkit, Zepto, Amazon) place orders
 
 ## The Outbound Journey — Step by Step
 
+**Canonical reference (routes, APIs, pendency PDF):** [Outbound journey](../../outbound-journey.md)
+
 ```
 Step 1: Channel places a Purchase Order (PO)
         (received from Blinkit, Swiggy, etc.)
@@ -116,7 +118,8 @@ Used for individual product units. Each label includes:
 > To generate: open the PO → click "Generate Product Labels" → confirm fixed fields (brand, manufacturer) → adjust per-SKU quantities → choose label size → download PDF.
 
 ### Download reports
-- **SKU Pendency / Dispatch Report** — shows all SKUs in a PO with ordered vs dispatched quantity
+- **Pendency PDF** (`download_pendency_pdf`) — open lines with **PO SKU** (channel item code), **Company Code Primary** (warehouse `master_sku` e.g. `AAC500`, EAN, or mappings — not the same as PO SKU), **Warehouse Inventory** (Zap bin stock), **M.R.P**, and **Pending** quantity. Technical detail: [Pendency PDF](../../services/outbound/pendency-pdf.md).
+- **SKU Level Report** (`download_sku_report`) — CSV with commercial columns, Master SKU, and GST % for records / accounts.
 - **Consignment packing list** — full manifest of a shipment
 
 ### Upload original PO files
@@ -153,6 +156,7 @@ Used for individual product units. Each label includes:
 ## See also (operator & technical)
 
 - [Outbound Tab – Process Notes (ZAP Website)](../../services/outbound/outbound-tab-process-notes.md) — step-by-step checklist aligned to live routes and APIs
+- [Pendency PDF — column data](../../services/outbound/pendency-pdf.md)
 
 ---
 

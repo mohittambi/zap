@@ -15,6 +15,8 @@ Zap's inbound module covers the full journey from the moment a Purchase Order is
 
 ## The Inbound Journey — Step by Step
 
+**Canonical reference (routes, APIs, roles):** [Inbound journey](../../inbound-journey.md)
+
 ```
 Step 1: Purchase Order raised
         (sent to vendor by Procurement)

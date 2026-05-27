@@ -9,6 +9,8 @@ This folder is the **single entry point** for understanding the Zap system: web 
 | Audience | Start here |
 |----------|----------------|
 | **Business stakeholders / leadership** | [business/index.md](business/index.md) — plain-English, no technical knowledge required |
+| **End-to-end inbound flow** (ops + engineering) | [inbound-journey.md](inbound-journey.md) |
+| **End-to-end outbound flow** (ops + engineering) | [outbound-journey.md](outbound-journey.md) |
 | New engineers | [current-system/overview.md](current-system/overview.md) → [architecture/hld.md](architecture/hld.md) |
 | API consumers | [architecture/api-index.md](architecture/api-index.md) → service-specific `services/*/api.md` |
 | DB / migrations | [architecture/database-schema.md](architecture/database-schema.md) |
@@ -21,6 +23,8 @@ This folder is the **single entry point** for understanding the Zap system: web 
 ```
 web/docs/
 ├── README.md                 ← you are here
+├── inbound-journey.md        ← canonical inbound flow (steps, routes, APIs)
+├── outbound-journey.md       ← canonical outbound flow (steps, routes, reports)
 ├── business/                 ← plain-English docs for stakeholders (start here if non-technical)
 │   ├── index.md              ← stakeholder navigation guide
 │   ├── platform-overview.md  ← what Zap is and the value it delivers
@@ -51,8 +55,10 @@ web/docs/
 
 ## Legacy files in `web/docs/` (root)
 
-Some older one-off docs remain at the root of `web/docs/` for deep links; prefer the **services/** and **architecture/** paths for new content. Notable:
+Some older one-off docs remain at the root of `web/docs/` for deep links; prefer **journey hubs** and **services/** for operational flows. Notable:
 
+- [inbound-journey.md](inbound-journey.md), [outbound-journey.md](outbound-journey.md) — preferred entry for fulfilment flows.
+- [inbound-journey-api-test-matrix.md](inbound-journey-api-test-matrix.md) — inbound API + test mapping (appendix to inbound journey).
 - `auth-flow.md` — superseded by [services/auth/](services/auth/) (see auth overview for JWT + API key model).
 - `project-features-modules.md` — superseded by [current-system/overview.md](current-system/overview.md).
 

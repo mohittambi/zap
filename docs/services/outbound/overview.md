@@ -4,7 +4,7 @@
 
 Manage **channel (outbound) purchase orders**, **consignments**, **attachments**, **company/delivery metadata**, and **operator workflows** (acknowledge, cancel, reports, labels).
 
-**Primary services:** `outboundPurchaseOrdersService.ts`, `outboundConsignmentsService.ts`, `outboundConsignmentItemsService.ts`, `outboundPoLogsService.ts`, `labelPdfService.ts` (labels PDF), utilities for pendency PDF and spreadsheet parse.
+**Primary services:** `outboundPurchaseOrdersService.ts`, `outboundConsignmentsService.ts`, `outboundConsignmentItemsService.ts`, `outboundPoLogsService.ts`, `labelPdfService.ts` (labels PDF), [`outboundPoPendencyPdf.ts`](../../../src/server/utils/outboundPoPendencyPdf.ts), [`outboundPoListingSpreadsheetParse.ts`](../../../src/server/utils/outboundPoListingSpreadsheetParse.ts).
 
 ## Key concepts
 
@@ -32,5 +32,6 @@ Manage **channel (outbound) purchase orders**, **consignments**, **attachments**
 ## See also
 
 - [workflows.md](workflows.md)
+- [pendency-pdf.md](pendency-pdf.md) — pendency PDF columns and field resolution
 - [api.md](api.md)
 - [data-model.md](data-model.md)

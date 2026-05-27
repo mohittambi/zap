@@ -122,5 +122,6 @@ Vendor Selection → Item Selection → PO Generation → GRN Open → Quantity 
 
 ## See also
 
+- [Inbound journey (canonical hub)](../inbound-journey.md)
 - [workflows.md](workflows.md)
 - [overview.md](overview.md)

@@ -13,6 +13,8 @@ export type EanMappingRow = {
 };
 
 export type ZapEanLookup = {
+  /** Internal product SKU (`listings.master_sku` / warehouse sku_code). */
+  sku_code: string;
   /** Company-specific code from dump (EAN, SKU code, item code, etc.). */
   channel_ean: string;
   universal_ean: string;
@@ -53,6 +55,137 @@ export function resolveZapEanDisplay(
   if (hit.ean_type === "ean" && channel) return channel;
   if (channel && channel !== primary) return channel;
   return universal;
+}
+
+/** Resolve warehouse master SKU from company_ean_mappings via channel / PO item code. */
+export function resolveMasterSkuFromEanMapping(
+  channelOrPoSku: string,
+  eanBySkuKey: Map<string, ZapEanLookup>
+): string {
+  const key = channelOrPoSku.trim();
+  if (!key) return "";
+  const hit = eanBySkuKey.get(key);
+  return hit?.sku_code?.trim() ?? "";
+}
+
+export type ListingSkuFields = {
+  master_sku: string;
+  inventory_sku_id: string;
+};
+
+function strTrimSkuField(v: unknown): string {
+  if (v == null) return "";
+  const s = String(v).trim();
+  if (!s || s.toUpperCase() === "NA") return "";
+  return s;
+}
+
+function pickListingNested(row: Record<string, unknown>): Record<string, unknown> | null {
+  const l = row.listing;
+  if (l && typeof l === "object" && !Array.isArray(l)) {
+    return l as Record<string, unknown>;
+  }
+  return null;
+}
+
+/** Keys used to resolve listings / EAN / warehouse SKU for an outbound line item. */
+export function outboundSkuLookupKeys(row: Record<string, unknown>): string[] {
+  const keys = new Set<string>();
+  const add = (v: unknown) => {
+    const s = strTrimSkuField(v);
+    if (s) keys.add(s);
+  };
+  add(row.master_sku);
+  add(row.inventory_sku_id);
+  add(row.pack_combo_sku_id);
+  add(row.po_secondary_sku);
+  add(row.sku_id);
+  add(row.product_upc);
+  const listing = pickListingNested(row);
+  if (listing) {
+    add(listing.sku_id);
+    add(listing.master_sku);
+    add(listing.inventory_sku_id);
+  }
+  for (const k of mappingSkuKeysFromRow(row)) {
+    if (k) keys.add(k);
+  }
+  return [...keys];
+}
+
+export function resolveListingSkuFieldsFromMap(
+  row: Record<string, unknown>,
+  listingSkuByKey: Map<string, ListingSkuFields>
+): ListingSkuFields {
+  for (const k of outboundSkuLookupKeys(row)) {
+    const hit = listingSkuByKey.get(k);
+    if (hit && (hit.master_sku || hit.inventory_sku_id)) return hit;
+  }
+  return { master_sku: "", inventory_sku_id: "" };
+}
+
+export async function batchListingSkuByKeys(
+  keys: string[]
+): Promise<Map<string, ListingSkuFields>> {
+  const listingSkuByKey = new Map<string, ListingSkuFields>();
+  const unique = [...new Set(keys.map((k) => String(k).trim()).filter(Boolean))];
+  if (unique.length === 0) return listingSkuByKey;
+
+  const listR = await query(
+    `SELECT sku_id, master_sku, inventory_sku_id
+       FROM listings
+      WHERE sku_id = ANY($1::text[])
+         OR master_sku = ANY($1::text[])
+         OR inventory_sku_id = ANY($1::text[])`,
+    [unique]
+  );
+  for (const dbRow of listR.rows as {
+    sku_id: string | null;
+    master_sku: string | null;
+    inventory_sku_id: string | null;
+  }[]) {
+    const fields: ListingSkuFields = {
+      master_sku: strTrimSkuField(dbRow.master_sku),
+      inventory_sku_id: strTrimSkuField(dbRow.inventory_sku_id),
+    };
+    if (!fields.master_sku && !fields.inventory_sku_id) continue;
+    for (const id of [dbRow.sku_id, dbRow.master_sku, dbRow.inventory_sku_id]) {
+      const k = strTrimSkuField(id);
+      if (k) listingSkuByKey.set(k, fields);
+    }
+  }
+  return listingSkuByKey;
+}
+
+/** Product SKU fields for PO line items and pendency (not EAN barcodes). */
+export function resolveOutboundLineItemProductSkuFields(
+  row: Record<string, unknown>,
+  eanBySkuKey: Map<string, ZapEanLookup>,
+  listingSkuByKey: Map<string, ListingSkuFields>
+): { master_sku: string; company_code_primary: string; inventory_sku_id: string } {
+  const secondarySku = strTrimSkuField(row.po_secondary_sku);
+  const listing = pickListingNested(row);
+  const fromListings = resolveListingSkuFieldsFromMap(row, listingSkuByKey);
+  const fromEan = resolveMasterSkuFromEanMapping(secondarySku, eanBySkuKey);
+
+  const rawCcp = strTrimSkuField(row.company_code_primary);
+  const topLevelCode =
+    rawCcp && rawCcp !== secondarySku ? rawCcp : "";
+
+  const masterSku =
+    strTrimSkuField(row.master_sku) ||
+    strTrimSkuField(listing?.master_sku) ||
+    fromListings.master_sku ||
+    fromEan;
+
+  const inventorySkuId =
+    strTrimSkuField(row.inventory_sku_id) ||
+    strTrimSkuField(listing?.inventory_sku_id) ||
+    fromListings.inventory_sku_id;
+
+  const company_code_primary = topLevelCode || masterSku || inventorySkuId || "";
+
+  return { master_sku: masterSku, company_code_primary, inventory_sku_id: inventorySkuId };
 }
 
 /** Company code for pendency PDF when row has no explicit marketplace code. */
@@ -118,6 +251,7 @@ export async function batchGetZapEanByCompany(opts: {
   );
   for (const row of r.rows) {
     const hit: ZapEanLookup = {
+      sku_code: row.sku_code != null ? String(row.sku_code).trim() : "",
       channel_ean: row.zap_ean != null ? String(row.zap_ean) : "",
       universal_ean: row.universal_ean != null ? String(row.universal_ean) : "",
       ean_type: row.ean_type != null ? String(row.ean_type) : "",
@@ -132,10 +266,11 @@ export async function batchGetZapEanByCompany(opts: {
   return map;
 }
 
-/** Merge zap_ean (display) + universal_ean onto each row via internal master SKU lookup. */
+/** Merge zap_ean + product SKU fields onto each outbound line item row. */
 export function mergeZapEanIntoRows(
   rows: Record<string, unknown>[],
-  lookup: Map<string, ZapEanLookup>
+  lookup: Map<string, ZapEanLookup>,
+  listingSkuByKey: Map<string, ListingSkuFields> = new Map()
 ): Record<string, unknown>[] {
   return rows.map((row) => {
     const keys = mappingSkuKeysFromRow(row);
@@ -144,12 +279,21 @@ export function mergeZapEanIntoRows(
       hit = lookup.get(k);
       if (hit) break;
     }
-    const companyPrimary = String(
+    const skuFields = resolveOutboundLineItemProductSkuFields(
+      row,
+      lookup,
+      listingSkuByKey
+    );
+    const companyPrimaryForEan = String(
       row.company_code_primary ?? row.po_secondary_sku ?? ""
     );
     return {
       ...row,
-      zap_ean: resolveZapEanDisplay(companyPrimary, hit),
+      master_sku: skuFields.master_sku || row.master_sku,
+      company_code_primary:
+        skuFields.company_code_primary || row.company_code_primary,
+      inventory_sku_id: skuFields.inventory_sku_id || row.inventory_sku_id,
+      zap_ean: resolveZapEanDisplay(companyPrimaryForEan, hit),
       universal_ean: hit?.universal_ean ?? "",
       channel_ean: hit?.channel_ean ?? "",
     };
@@ -160,12 +304,18 @@ export async function enrichRowsWithZapEan(
   rows: Record<string, unknown>[],
   companyId: number | null | undefined
 ): Promise<Record<string, unknown>[]> {
-  const allKeys = rows.flatMap((r) => mappingSkuKeysFromRow(r));
+  const allKeys = rows.flatMap((r) => outboundSkuLookupKeys(r));
   const lookup = await batchGetZapEanByCompany({
     company_id: companyId,
     sku_codes: allKeys,
   });
-  return mergeZapEanIntoRows(rows, lookup);
+  const listingQueryKeys = new Set(allKeys);
+  for (const hit of lookup.values()) {
+    const code = hit.sku_code?.trim();
+    if (code) listingQueryKeys.add(code);
+  }
+  const listingSkuByKey = await batchListingSkuByKeys([...listingQueryKeys]);
+  return mergeZapEanIntoRows(rows, lookup, listingSkuByKey);
 }
 
 /** Enrich listings_snapshot envelope `{ content: [...] }` in place. */

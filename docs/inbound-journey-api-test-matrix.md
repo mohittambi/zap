@@ -1,5 +1,7 @@
 # Inbound journey — API routes, services, and automated tests
 
+> **Canonical journey hub (operator + engineering):** [inbound-journey.md](inbound-journey.md)
+
 This matrix ties the **canonical inbound flow** (see [inbound-grn-debit-credit-note-flows.md](./inbound-grn-debit-credit-note-flows.md) and [mobile/inbound-grn-flow-parity.md](./mobile/inbound-grn-flow-parity.md)) to **Next.js routes**, **server services**, and **automated tests**.
 
 | Journey step | User-facing intent | Primary API routes | Primary service modules | Automated coverage |
@@ -38,5 +40,6 @@ Successfully calling `POST …/register-operational` **replaces** the draft `grn
 
 ## Related docs
 
+- [inbound-journey.md](./inbound-journey.md) — end-to-end inbound journey (steps, routes, roles)  
 - [services/inbound/workflows.md](./services/inbound/workflows.md) — bundle shape and queue tables  
 - [inbound-grn-debit-credit-note-flows.md](./inbound-grn-debit-credit-note-flows.md) — Zap DN vs eAutomate DCN state diagrams  

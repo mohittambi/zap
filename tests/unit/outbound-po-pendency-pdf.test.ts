@@ -125,18 +125,66 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(fields.company_code_primary, null);
   });
 
-  it("resolvePendencyRowFields uses EAN channel code when it differs from po sku", () => {
+  it("resolvePendencyRowFields resolves master_sku from company_ean_mappings by PO SKU", () => {
     const lookups = emptyLookups();
     lookups.eanBySkuKey.set("10149864", {
-      channel_ean: "8901234567890",
-      universal_ean: "",
+      sku_code: "AAC500",
+      channel_ean: "10149864",
+      universal_ean: "8901234567890",
       ean_type: "ean",
     });
     const fields = resolvePendencyRowFields(
       { po_secondary_sku: "10149864" },
       lookups
     );
-    assert.equal(fields.company_code_primary, "8901234567890");
+    assert.equal(fields.company_code_primary, "AAC500");
+  });
+
+  it("resolvePendencyRowFields does not show EAN barcode as company code primary", () => {
+    const lookups = emptyLookups();
+    lookups.eanBySkuKey.set("10149864", {
+      sku_code: "AAC500",
+      channel_ean: "10149864",
+      universal_ean: "8901234567890",
+      ean_type: "ean",
+    });
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.notEqual(fields.company_code_primary, "8901234567890");
+    assert.equal(fields.company_code_primary, "AAC500");
+  });
+
+  it("resolvePendencyRowFields prefers listing master_sku when present on row", () => {
+    const lookups = emptyLookups();
+    lookups.eanBySkuKey.set("10149864", {
+      sku_code: "AAC500",
+      channel_ean: "10149864",
+      universal_ean: "",
+      ean_type: "",
+    });
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864", master_sku: "MASTER-ON-ROW" },
+      lookups
+    );
+    assert.equal(fields.company_code_primary, "MASTER-ON-ROW");
+  });
+
+  it("resolvePendencyRowFields skips company_secondary_sku when it equals PO SKU", () => {
+    const lookups = emptyLookups();
+    lookups.companyCodeBySecondarySku.set("10149864", "10149864");
+    lookups.eanBySkuKey.set("10149864", {
+      sku_code: "AAC500",
+      channel_ean: "10149864",
+      universal_ean: "",
+      ean_type: "",
+    });
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.equal(fields.company_code_primary, "AAC500");
   });
 
   it("resolvePendencyRowFields prefers company code over sku fallbacks", () => {

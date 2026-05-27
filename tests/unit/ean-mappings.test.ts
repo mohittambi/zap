@@ -35,6 +35,7 @@ describe("eanMappingsService helpers", () => {
 
   it("resolveZapEanDisplay uses EAN barcode for ean_type ean", () => {
     const hit: ZapEanLookup = {
+      sku_code: "MSKU1",
       channel_ean: "8906176480269",
       universal_ean: "8906176480269",
       ean_type: "ean",
@@ -44,6 +45,7 @@ describe("eanMappingsService helpers", () => {
 
   it("resolveZapEanDisplay falls back to universal when channel equals company code", () => {
     const hit: ZapEanLookup = {
+      sku_code: "AAC500",
       channel_ean: "ECIASWPS80164558",
       universal_ean: "8906176480269",
       ean_type: "sku_code",
@@ -56,6 +58,7 @@ describe("eanMappingsService helpers", () => {
       [
         "AAC500",
         {
+          sku_code: "AAC500",
           channel_ean: "ECIASWPS80164558",
           universal_ean: "8906176480269",
           ean_type: "sku_code",
@@ -81,6 +84,7 @@ describe("eanMappingsService helpers", () => {
       [
         "10149864",
         {
+          sku_code: "AAC500",
           channel_ean: "10149864",
           universal_ean: "8906176480498",
           ean_type: "sku_code",
@@ -93,6 +97,27 @@ describe("eanMappingsService helpers", () => {
     );
     assert.equal(out[0].zap_ean, "8906176480498");
     assert.equal(out[0].universal_ean, "8906176480498");
+  });
+
+  it("mergeZapEanIntoRows sets master_sku and company_code_primary from EAN sku_code", () => {
+    const lookup = new Map<string, ZapEanLookup>([
+      [
+        "10149864",
+        {
+          sku_code: "AAC500",
+          channel_ean: "10149864",
+          universal_ean: "8901234567890",
+          ean_type: "sku_code",
+        },
+      ],
+    ]);
+    const out = mergeZapEanIntoRows(
+      [{ po_secondary_sku: "10149864", company_code_primary: "10149864" }],
+      lookup
+    );
+    assert.equal(out[0].master_sku, "AAC500");
+    assert.equal(out[0].company_code_primary, "AAC500");
+    assert.equal(out[0].zap_ean, "8901234567890");
   });
 
   it("mergeZapEanIntoRows returns empty zap_ean when no mapping", () => {

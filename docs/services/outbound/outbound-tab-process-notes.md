@@ -91,7 +91,12 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 - After RTD, consignments that still need invoice capture appear under **Pending Invoices** (`/outbound/pending-invoices`) — same row filter as the mobile pending-invoices list.
 - **Accounts** assigns or confirms **Invoice Number** / status as represented on the consignment row (`invoice_number`, `invoice_number_status`) — often **populated through sync** into Zap for this module; confirm your tenant’s source of truth for assigning numbers.
 
-**Invoice file / download (not “Excel push”):** There is **no** inbound-style `buildInvoiceExcel` for outbound in this repo. Operators **download** the **uploaded** invoice file (when present) via **`GET /api/outbound/consignments/[id]/invoice`** (signed URL). For spreadsheet-style channel reports, PO detail may offer **stub** actions (e.g. SKU report / pendency) via [`eautomate-actions`](../../../src/app/api/outbound/purchase-orders/[id]/eautomate-actions/route.ts) — environment-dependent.
+**Invoice file / download (not “Excel push”):** There is **no** inbound-style `buildInvoiceExcel` for outbound in this repo. Operators **download** the **uploaded** invoice file (when present) via **`GET /api/outbound/consignments/[id]/invoice`** (signed URL).
+
+**PO reports (Zap-generated):** From PO detail, [`eautomate-actions`](../../../src/app/api/outbound/purchase-orders/[id]/eautomate-actions/route.ts) can return:
+
+- **`download_sku_report`** — CSV (Master SKU, GST %, commercial columns).
+- **`download_pendency_pdf`** — PDF with **PO SKU** (channel code), **Company Code Primary** (`master_sku` such as `AAC500`, not a duplicate of PO SKU), **Warehouse Inventory** (Zap bins), **M.R.P**, **Pending**. Full column rules: [pendency-pdf.md](pendency-pdf.md).
 
 ---
 
@@ -119,4 +124,6 @@ PO Creation → Details Fill (+ **two files at submit**) → Line spreadsheet re
 
 ## See also
 
+- [Outbound journey (canonical hub)](../outbound-journey.md)
 - [Outbound — business overview](../../business/modules/outbound.md)
+- [Pendency PDF — columns and data resolution](pendency-pdf.md)

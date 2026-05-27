@@ -4,6 +4,8 @@ Logistics and operations platform — listings, inventory, inbound/outbound, cat
 
 **Documentation index:** [docs/README.md](docs/README.md) (architecture, services, deployment, enhancements)
 
+**Operator journeys:** [Inbound](docs/inbound-journey.md) · [Outbound](docs/outbound-journey.md)
+
 > **Architectural rules:** before changing anything that affects data boundaries, ID allocation, or the historical import pipeline, read [**docs/zap-doctrine.md**](../docs/zap-doctrine.md) (9 principles, learned from production incidents). AI coding assistants: see [CLAUDE.md](CLAUDE.md).
 >
 > **Runtime note:** Zap serves production traffic entirely from its own PostgreSQL database — no live calls to eAutomate. The `sync:eautomate:*` scripts below were used for the **initial one-time historical import** and remain available for ad-hoc backfills or local development; they are not part of the request path in production.

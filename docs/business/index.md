@@ -20,7 +20,9 @@ This folder contains **plain-English documentation** for the Zap platform. No co
 | How to get started and who does what | [Getting Started & Roles](getting-started.md) |
 | Who can access what | [Roles and Access](roles-and-access.md) |
 | How goods come in (vendor POs, GRNs, invoices) | [Inbound Operations](modules/inbound.md) |
+| Inbound journey (steps, web routes, APIs) | [Inbound journey](../inbound-journey.md) |
 | How goods go out (channel orders, dispatch, labels) | [Outbound Operations](modules/outbound.md) |
+| Outbound journey (steps, web routes, reports) | [Outbound journey](../outbound-journey.md) |
 | Product catalog and SKU management | [Listings and Inventory](modules/listings-inventory.md) |
 | Product catalogues and PDF/Excel exports | [Catalogues and Exports](modules/catalogue-and-labels.md) |
 | Label printing and barcodes | [Label Generation](modules/catalogue-and-labels.md#label-generation) |

@@ -54,6 +54,7 @@ After a successful **`POST /api/inbound/grns/{grnId}/close`** (vendor invoice al
 ## See also
 
 - [overview.md](overview.md)
+- [Inbound journey (canonical hub)](../inbound-journey.md)
 - [Operator process notes — Inbound tab](inbound-tab-process-notes.md)
 - [Inbound journey — API & test matrix](../inbound-journey-api-test-matrix.md)
 - [../../operations/sync-runbook.md](../../operations/sync-runbook.md)

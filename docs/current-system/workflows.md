@@ -419,7 +419,7 @@ flowchart TD
   Act -->|cancel| A2[UPDATE outbound_purchase_orders → CANCELLED]
   Act -->|save_field| A3[UPDATE one editable column]
   Act -->|download_sku_report| A4[Read outbound_consignment_items OR listings_snapshot → CSV]
-  Act -->|download_pendency_pdf| A5[Read listings_snapshot → PDF via outboundPoPendencyPdf]
+  Act -->|download_pendency_pdf| A5[listings_snapshot + loadPendencyLookups → PDF: PO SKU, master_sku, bins]
   Act -->|generate_product_labels| A6[Read snapshot + labels_master_data → JSON for label wizard]
   Act -->|generate_phase1_box_labels| A7[Local PDF generator from box range]
 ```

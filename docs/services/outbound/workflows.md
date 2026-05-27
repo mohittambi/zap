@@ -23,7 +23,8 @@
 `POST /api/outbound/purchase-orders/[id]/eautomate-actions` with JSON `{ action: ... }`:
 
 - **acknowledge / cancel** — update statuses in Postgres.
-- **download_sku_report / download_pendency_pdf** — generate CSV/PDF from DB snapshots/items.
+- **download_sku_report** — CSV from `listings_snapshot` and/or `outbound_consignment_items` (Master SKU, GST %, rates).
+- **download_pendency_pdf** — landscape PDF from `listings_snapshot` via [`outboundPoPendencyPdf.ts`](../../../src/server/utils/outboundPoPendencyPdf.ts): **PO SKU** = channel item code; **Company Code Primary** = product `master_sku` (not EAN; never duplicated PO SKU); **Warehouse Inventory** = Zap `bins` sum. See [pendency-pdf.md](pendency-pdf.md).
 - **generate_product_labels** — returns row data for the label wizard; PDF via `/api/labels/generate`.
 - **generate_phase1_box_labels** — PDF box labels from range + PO header fields.
 
@@ -32,4 +33,6 @@ Upstream eAutomate is **not** called for these paths when running in “local”
 ## See also
 
 - [overview.md](overview.md)
+- [Outbound journey (canonical hub)](../outbound-journey.md)
+- [pendency-pdf.md](pendency-pdf.md)
 - [../eautomate-integration/sync-flows.md](../eautomate-integration/sync-flows.md)
