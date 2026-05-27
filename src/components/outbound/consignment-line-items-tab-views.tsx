@@ -61,7 +61,7 @@ export function ConsignmentLineItemsTabViews({
   }
 
   return (
-    <Card>
+    <Card className="w-full">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">Consignment line items</CardTitle>
         <CardDescription className="text-xs">
@@ -69,62 +69,68 @@ export function ConsignmentLineItemsTabViews({
           active tab as CSV.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="w-full p-0">
         <Tabs
           value={view}
           onValueChange={(v) => setView(v as ConsignmentLineViewId)}
-          className="w-full"
+          className="w-full gap-0"
         >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-full flex-col gap-0 border-b">
             <TabsList
               variant="line"
-              className="bg-primary/15 w-full flex-wrap justify-start gap-1 p-1 sm:w-auto"
+              className="bg-primary/15 grid h-auto w-full grid-cols-2 gap-0 rounded-none p-0 lg:grid-cols-4"
             >
               {TAB_ORDER.map((tabId) => (
-                <TabsTrigger key={tabId} value={tabId} className="min-w-[100px] text-xs sm:text-sm">
+                <TabsTrigger
+                  key={tabId}
+                  value={tabId}
+                  className="h-10 w-full flex-1 rounded-none px-2 text-xs sm:text-sm"
+                >
                   {CONSIGNMENT_LINE_VIEW_LABELS[tabId]}
                 </TabsTrigger>
               ))}
             </TabsList>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="shrink-0 self-end sm:self-auto"
-              disabled={loading || activeRows.length === 0}
-              onClick={handleDownload}
-            >
-              Download Current View
-            </Button>
+            <div className="flex w-full justify-end border-b bg-muted/20 px-4 py-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={loading || activeRows.length === 0}
+                onClick={handleDownload}
+              >
+                Download Current View
+              </Button>
+            </div>
           </div>
 
           {TAB_ORDER.map((tabId) => {
             const tabRows = buildViewRows(tabId, flat);
             const columns = VIEW_COLUMNS[tabId];
             return (
-            <TabsContent key={tabId} value={tabId} className="mt-4">
+            <TabsContent key={tabId} value={tabId} className="mt-0 w-full pb-4 pt-4">
               {loading ? (
-                <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                <p className="text-muted-foreground flex items-center gap-2 px-4 text-sm">
                   <Loader2 className="size-4 animate-spin" />
                   Loading line items…
                 </p>
               ) : err ? (
-                <p className="text-destructive text-sm">{err}</p>
+                <p className="text-destructive px-4 text-sm">{err}</p>
               ) : tabRows.length === 0 ? (
-                <p className="text-muted-foreground rounded-md border border-dashed p-4 text-sm">
+                <p className="text-muted-foreground mx-4 rounded-md border border-dashed p-4 text-sm">
                   No saved line items for this consignment.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-md border">
-                  <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+                <div className="w-full overflow-x-auto">
+                  <table className="w-full table-fixed border-collapse text-left text-xs">
                     <thead>
                       <tr className="bg-muted/60 border-b">
                         {columns.map((col) => (
                           <th
                             key={col.key}
                             className={cn(
-                              "px-2 py-2 font-semibold whitespace-nowrap",
-                              col.align === "right" && "text-right"
+                              "px-3 py-2 font-semibold",
+                              col.align === "right" ? "text-right" : "text-left"
                             )}
                           >
                             {col.label}
@@ -139,7 +145,7 @@ export function ConsignmentLineItemsTabViews({
                             <td
                               key={col.key}
                               className={cn(
-                                "px-2 py-2",
+                                "px-3 py-2 align-top break-words",
                                 col.align === "right" && "text-right font-mono tabular-nums",
                                 !col.align &&
                                   (col.key.includes("sku") ||

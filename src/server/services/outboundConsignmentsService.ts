@@ -19,6 +19,7 @@ import {
   OUTBOUND_SHIPMENT_TYPES,
   type OutboundShipmentType,
 } from "@/lib/outbound-consignment-line-drafts";
+import { logConsignmentActivityFromZap } from "@/server/services/outboundPoLogsService";
 
 export type OutboundConsignmentRow = {
   id: number;
@@ -28,6 +29,17 @@ export type OutboundConsignmentRow = {
   sold_via: string | null;
   po_number: string | null;
   po_type: string | null;
+  /** From linked `outbound_purchase_orders.delivery_city`. */
+  po_reference_location: string | null;
+  /** From linked `outbound_purchase_orders.po_issue_date`. */
+  po_release_date: string | null;
+  /** From linked `outbound_purchase_orders.expiry_date`. */
+  po_expiry_date: string | null;
+  /** Linked `outbound_purchase_orders.id` when PO number matches. */
+  outbound_po_id: number | null;
+  po_calculated_status: string | null;
+  po_is_wip: string | null;
+  po_remarks: string | null;
   consignment_status: string | null;
   invoice_number_status: string | null;
   invoice_number: string | null;
@@ -502,6 +514,13 @@ export async function upsertOutboundConsignmentFromEautomate(
   return { ok: true };
 }
 
+function formatPoDateField(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  const d = new Date(String(v));
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toISOString().replace("T", " ").slice(0, 19);
+}
+
 function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
   const raw = r.raw;
   return {
@@ -512,6 +531,18 @@ function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
     sold_via: r.sold_via as string | null,
     po_number: r.po_number as string | null,
     po_type: r.po_type as string | null,
+    po_reference_location:
+      r.po_reference_location != null ? String(r.po_reference_location) : null,
+    po_release_date: formatPoDateField(r.po_release_date),
+    po_expiry_date: formatPoDateField(r.po_expiry_date),
+    outbound_po_id:
+      r.outbound_po_id != null && Number.isFinite(Number(r.outbound_po_id))
+        ? Number(r.outbound_po_id)
+        : null,
+    po_calculated_status:
+      r.po_calculated_status != null ? String(r.po_calculated_status) : null,
+    po_is_wip: r.po_is_wip != null ? String(r.po_is_wip) : null,
+    po_remarks: r.po_remarks != null ? String(r.po_remarks) : null,
     consignment_status: r.consignment_status as string | null,
     invoice_number_status: r.invoice_number_status as string | null,
     invoice_number: r.invoice_number as string | null,
@@ -544,12 +575,22 @@ export async function getOutboundConsignmentById(
 ): Promise<OutboundConsignmentRow | null> {
   if (!Number.isFinite(id) || id < 1) return null;
   const r = await query(
-    `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
-            consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
-            invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
-            boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
-            created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
-     FROM outbound_consignments WHERE id = $1`,
+    `SELECT c.id, c.company_id, c.company_name, c.location, c.sold_via, c.po_number, c.po_type,
+            c.consignment_status, c.invoice_number_status, c.invoice_number, c.invoice_upload_status,
+            c.invoice_file_path, c.invoice_file_name, c.invoice_uploaded_at, c.invoice_uploaded_by,
+            c.boxes_count, c.sku_count, c.total_quantity, c.transporter_name, c.vehicle_number,
+            c.docket_number, c.created_at, c.marked_rtd_at, c.marked_rtd_by, c.raw, c.synced_at,
+            o.delivery_city AS po_reference_location,
+            o.po_issue_date AS po_release_date,
+            o.expiry_date AS po_expiry_date,
+            o.id AS outbound_po_id,
+            o.calculated_po_status AS po_calculated_status,
+            o.is_wip AS po_is_wip,
+            o.remarks AS po_remarks
+     FROM outbound_consignments c
+     LEFT JOIN outbound_purchase_orders o
+       ON TRIM(COALESCE(o.po_number, '')) = TRIM(COALESCE(c.po_number, ''))
+     WHERE c.id = $1`,
     [id]
   );
   if (r.rows.length === 0) return null;
@@ -727,6 +768,13 @@ export async function attachConsignmentInvoice(
      WHERE id = $4`,
     [filePath, fileName, uploadedBy, consignmentId]
   );
+
+  await logConsignmentActivityFromZap({
+    consignmentId,
+    operation: "Invoice file uploaded",
+    remarks: `File: ${fileName}`,
+    createdBy: uploadedBy,
+  });
 }
 
 /**
@@ -735,7 +783,8 @@ export async function attachConsignmentInvoice(
  */
 export async function patchOutboundConsignmentInvoiceNumber(
   consignmentId: number,
-  invoiceNumber: string | null
+  invoiceNumber: string | null,
+  updatedBy?: string | null
 ): Promise<void> {
   if (consignmentId < 1 || !Number.isFinite(consignmentId)) {
     throw new AppError("Invalid consignment id", 400);
@@ -757,6 +806,15 @@ export async function patchOutboundConsignmentInvoiceNumber(
      WHERE id = $3`,
     [num, status, consignmentId]
   );
+
+  if (num) {
+    await logConsignmentActivityFromZap({
+      consignmentId,
+      operation: "Invoice number assigned",
+      remarks: `Invoice number set to ${num}`,
+      createdBy: updatedBy ?? null,
+    });
+  }
 }
 
 /** Mark consignment ready to dispatch (Zap-only; no eAutomate push). */
@@ -832,6 +890,14 @@ export async function markOutboundConsignmentRtd(opts: {
       consignmentId,
     ]
   );
+
+  const prevStatus = existing.consignment_status ?? "OPEN";
+  await logConsignmentActivityFromZap({
+    consignmentId,
+    operation: "Consignment status changed",
+    remarks: `Status ${prevStatus} → MARKED_RTD. Transporter: ${transporterName}. Docket: ${docketNumber}. Shipment: ${shipmentType}.`,
+    createdBy: markedBy,
+  });
 
   const updated = await getOutboundConsignmentById(consignmentId);
   if (!updated) throw new AppError("Consignment not found after update", 500);

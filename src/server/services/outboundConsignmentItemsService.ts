@@ -1,5 +1,6 @@
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { logConsignmentActivityFromZap } from "@/server/services/outboundPoLogsService";
 import type {
   ConsignmentLineDraft,
   ConsignmentSkuPacking,
@@ -1407,6 +1408,22 @@ export async function applyConsignmentPackingUpload(opts: {
   }
 
   await refreshOutboundConsignmentAggregates(consignmentId);
+
+  const aggR = await query(
+    `SELECT boxes_count, sku_count, total_quantity FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  const agg = aggR.rows[0] as
+    | { boxes_count?: number | null; sku_count?: number | null; total_quantity?: number | null }
+    | undefined;
+
+  await logConsignmentActivityFromZap({
+    consignmentId,
+    operation: mode === "replace" ? "Bin packing replaced" : "Bin packing appended",
+    remarks: `${inserted} line(s) across ${grouped.length} box(es). ${deleted > 0 ? `${deleted} previous line(s) removed. ` : ""}Boxes: ${agg?.boxes_count ?? 0}, SKUs: ${agg?.sku_count ?? 0}, Qty: ${agg?.total_quantity ?? 0}.`,
+    createdBy,
+  });
+
   return { inserted, deleted, binsAffected: grouped.length };
 }
 
@@ -1581,5 +1598,25 @@ export async function saveConsignmentLineItems(opts: {
 
   const inserted = await replaceConsignmentItems(consignmentId, mapped, poNumber);
   await refreshOutboundConsignmentAggregates(consignmentId);
+
+  const aggR = await query(
+    `SELECT boxes_count, sku_count, total_quantity FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  const agg = aggR.rows[0] as
+    | { boxes_count?: number | null; sku_count?: number | null; total_quantity?: number | null }
+    | undefined;
+  const boxCount = agg?.boxes_count != null ? Number(agg.boxes_count) : 0;
+  const skuCount = agg?.sku_count != null ? Number(agg.sku_count) : 0;
+  const totalQty = agg?.total_quantity != null ? Number(agg.total_quantity) : 0;
+  const distinctSkus = new Set(skus.map((s) => s.po_secondary_sku.trim()).filter(Boolean)).size;
+
+  await logConsignmentActivityFromZap({
+    consignmentId,
+    operation: "Consignment line items saved",
+    remarks: `${inserted} box line(s) saved for ${distinctSkus} SKU(s). Summary: ${boxCount} box(es), ${skuCount} SKU row(s), ${totalQty} total qty.`,
+    createdBy,
+  });
+
   return { inserted };
 }

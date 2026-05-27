@@ -1305,7 +1305,36 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 </CardHeader>
                 <CardContent className="space-y-6 p-4 sm:p-6">
 
-                  {/* ── Row 1: Identity — most critical fields first ── */}
+                  {/* ── PO details: location & dates ── */}
+                  <div className="grid gap-x-6 gap-y-4 rounded-lg border bg-muted/25 p-3 sm:grid-cols-3">
+                    <EditableRow
+                      label="Reference Location"
+                      canEdit={canMutate}
+                      onEdit={() =>
+                        openEdit("delivery_city", "Reference Location", po.delivery_city ?? "")
+                      }
+                    >
+                      {po.delivery_city ?? "—"}
+                    </EditableRow>
+                    <Field label="PO Release Date">{fmtDay(po.po_issue_date)}</Field>
+                    <EditableRow
+                      label="Expiry Date"
+                      canEdit={canMutate}
+                      onEdit={() =>
+                        openEdit(
+                          "expiry_date",
+                          "Expiry Date",
+                          po.expiry_date
+                            ? String(po.expiry_date).replace(" ", "T").slice(0, 10)
+                            : ""
+                        )
+                      }
+                    >
+                      {fmtDay(po.expiry_date)}
+                    </EditableRow>
+                  </div>
+
+                  {/* ── Identity & workflow ── */}
                   <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                     <Field label="WIP status">
                       <div className="flex items-center gap-2">
@@ -1349,31 +1378,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                       onEdit={() => openEdit("po_type", "PO Type", po.po_type ?? "")}
                     >
                       {po.po_type ?? "—"}
-                    </EditableRow>
-                    <Field label="PO Release Date">{fmtDay(po.po_issue_date)}</Field>
-                    <EditableRow
-                      label="Expiry Date"
-                      canEdit={canMutate}
-                      onEdit={() =>
-                        openEdit(
-                          "expiry_date",
-                          "Expiry Date",
-                          po.expiry_date
-                            ? String(po.expiry_date).replace(" ", "T").slice(0, 10)
-                            : ""
-                        )
-                      }
-                    >
-                      {fmtDay(po.expiry_date)}
-                    </EditableRow>
-                    <EditableRow
-                      label="Reference Location"
-                      canEdit={canMutate}
-                      onEdit={() =>
-                        openEdit("delivery_city", "Reference Location", po.delivery_city ?? "")
-                      }
-                    >
-                      {po.delivery_city ?? "—"}
                     </EditableRow>
                   </div>
 
@@ -1938,7 +1942,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       <CreateConsignmentDialog
         open={createConsignmentOpen}
         onOpenChange={setCreateConsignmentOpen}
-        poId={poId}
+        poId={po.id}
         poNumber={po.po_number}
         onCreated={() => {
           void load();

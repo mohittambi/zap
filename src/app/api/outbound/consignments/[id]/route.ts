@@ -86,7 +86,7 @@ export async function PATCH(request: Request, context: Ctx) {
     if (field === "invoice_number") {
       const raw = body.value;
       const value = typeof raw === "string" ? raw : null;
-      await patchOutboundConsignmentInvoiceNumber(id, value);
+      await patchOutboundConsignmentInvoiceNumber(id, value, user.email);
       return NextResponse.json({ ok: true });
     }
 

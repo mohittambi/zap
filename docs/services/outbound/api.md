@@ -13,6 +13,8 @@ Base path: `/api/outbound`
 | GET | `/outbound/consignments/[id]/logs` | PO log rows filtered by `consignment_id` |
 | POST | `/outbound/consignments/[id]/boxes` | Append packing lines (`outbound_consignment_items`) for a new box (requires `purchase_orders` write) |
 | GET | `/outbound/consignments/[id]/po-listings` | Enriched PO listings snapshot for tabular line items on consignment detail |
+| GET | `/outbound/consignments/[id]/po-reference-files` | PO reference documents (Zap + eAutomate originals) for consignment detail |
+| GET | `/outbound/consignments/[id]/logs` | Activity log entries for a consignment |
 | GET | `/outbound/consignments/[id]/line-items/drafts` | Draft or saved SKU packing groups for the editor (`{ skus, source, poNumber }`) |
 | GET | `/outbound/consignments/[id]/line-items/rows` | Flat saved box lines for post-RTD tab views (`{ rows: [...] }`) |
 | POST | `/outbound/consignments/[id]/line-items/save` | Validate and save all consignment line items (`{ skus: [...] }`) |

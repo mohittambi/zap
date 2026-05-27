@@ -215,3 +215,41 @@ export async function insertOutboundPoLogFromZap(opts: {
   );
   return logId;
 }
+
+/** Write a Zap-side activity log for a consignment (non-fatal if PO link is missing). */
+export async function logConsignmentActivityFromZap(opts: {
+  consignmentId: number;
+  operation: string;
+  remarks?: string | null;
+  createdBy?: string | null;
+}): Promise<void> {
+  try {
+    const cR = await query(
+      `SELECT c.po_number, o.id AS outbound_po_id
+         FROM outbound_consignments c
+         LEFT JOIN outbound_purchase_orders o
+           ON TRIM(COALESCE(o.po_number, '')) = TRIM(COALESCE(c.po_number, ''))
+        WHERE c.id = $1
+        LIMIT 1`,
+      [opts.consignmentId]
+    );
+    if (cR.rows.length === 0) return;
+    const row = cR.rows[0] as { po_number?: string | null; outbound_po_id?: unknown };
+    const outboundPoId =
+      row.outbound_po_id != null && Number.isFinite(Number(row.outbound_po_id))
+        ? Number(row.outbound_po_id)
+        : null;
+    if (!outboundPoId) return;
+
+    await insertOutboundPoLogFromZap({
+      outboundPoId,
+      poNumber: row.po_number != null ? String(row.po_number) : null,
+      consignmentId: opts.consignmentId,
+      operation: opts.operation,
+      remarks: opts.remarks,
+      createdBy: opts.createdBy,
+    });
+  } catch {
+    /* Activity logging must not fail the primary operation. */
+  }
+}
