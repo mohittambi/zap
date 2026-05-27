@@ -119,7 +119,7 @@ Used for individual product units. Each label includes:
 
 ### Download reports
 - **Pendency PDF** (`download_pendency_pdf`) — open lines with **PO SKU** (channel item code), **Company Code Primary** (warehouse `master_sku` e.g. `AAC500`, EAN, or mappings — not the same as PO SKU), **Warehouse Inventory** (Zap bin stock), **M.R.P**, and **Pending** quantity. Technical detail: [Pendency PDF](../../services/outbound/pendency-pdf.md).
-- **SKU Level Report** (`download_sku_report`) — CSV with commercial columns, Master SKU, and GST % for records / accounts.
+- **SKU Level Report** (`download_sku_report`) — CSV with commercial columns, **Master SKU** (product SKU via EAN/listings — not PO channel code), **Company Code Primary**, **Warehouse quantity** (Zap bins), and GST % for records / accounts. Same SKU enrichment as pendency PDF; see [outbound-journey.md](../../outbound-journey.md).
 - **Consignment packing list** — full manifest of a shipment
 
 ### Upload original PO files

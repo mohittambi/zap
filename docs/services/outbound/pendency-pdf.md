@@ -58,14 +58,16 @@ First non-empty value wins. **`po_secondary_sku` is never used** for this column
 
 Stock is **Zap bin stock only** (not eAutomate `listing.available_quantity`).
 
-Before querying `bins`, `loadPendencyLookups` batch-loads:
+Before querying `bins`, **`loadOutboundSkuLookups`** (via `loadPendencyLookups`) batch-loads:
 
-- `company_secondary_sku`, `company_ean_mappings` (PO SKU → `sku_code`), `listings`, then `SUM(bins.available_quantity)` grouped by `sku_id`.
+- `company_secondary_sku`, `company_ean_mappings` (PO SKU → `sku_code`), `listings`
+- Seeds **`listingSkuByKey`** from EAN rows so channel codes resolve to product SKU even when `listings` has no row for the PO code
+- Collects bin SKU ids from each line (including EAN `sku_code`), then `SUM(bins.available_quantity)` grouped by `sku_id`
 
 **SKU keys tried** (first match with a bin row wins):
 
 1. `inventory_sku_id` (line, listing, or `listings` DB)
-2. `master_sku` (line, listing, or `listings` DB)
+2. `master_sku` (line, listing, `listings` DB, or **`company_ean_mappings.sku_code`**)
 3. `po_secondary_sku`
 
 | Bin query result | PDF cell |
@@ -108,14 +110,16 @@ Built by `buildPendencyRowsFromListings` before `createOutboundPoPendencyPdf`:
 |---|------------------|-----------------------------------------------|
 | Format | PDF | CSV |
 | Focus | Pending qty + warehouse stock + MRP for open lines | Full commercial / GST columns for consignment or snapshot lines |
-| Company code column | Resolved `master_sku` / EAN (this doc) | Separate columns (`Master SKU`, GST %, etc.) — see [`outboundPurchaseOrdersService.ts`](../../../src/server/services/outboundPurchaseOrdersService.ts) report builders |
+| SKU enrichment | `loadOutboundSkuLookups` + `enrichOutboundReportRow` | Same helpers via `buildSkuReportCsvFromRows` |
+| Warehouse column | **Warehouse Inventory** (bins) | **`warehouse_quantity`** (bins) |
+| Company / master SKU | **Company Code Primary** (this doc) | **`master_sku`**, **`company_code_primary`**, **`zap_ean`** — see [`outboundPurchaseOrdersService.ts`](../../../src/server/services/outboundPurchaseOrdersService.ts) |
 
 ---
 
 ## Tests
 
 ```bash
-cd web && npx tsx --test tests/unit/outbound-po-pendency-pdf.test.ts
+cd web && npx tsx --test tests/unit/outbound-po-pendency-pdf.test.ts tests/unit/outbound-po-sku-report.test.ts tests/unit/ean-mappings.test.ts
 ```
 
 ---

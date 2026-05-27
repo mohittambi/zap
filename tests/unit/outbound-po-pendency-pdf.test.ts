@@ -228,6 +228,23 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(fields.warehouse_quantity, 42);
   });
 
+  it("resolvePendencyRowFields uses bin stock via EAN sku_code without listings row", () => {
+    const lookups = emptyLookups();
+    lookups.eanBySkuKey.set("10149918", {
+      sku_code: "AAC500",
+      channel_ean: "10149918",
+      universal_ean: "",
+      ean_type: "",
+    });
+    lookups.binStockBySkuId.set("AAC500", 55);
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149918" },
+      lookups
+    );
+    assert.equal(fields.warehouse_quantity, 55);
+    assert.equal(fields.company_code_primary, "AAC500");
+  });
+
   it("resolvePendencyRowFields uses bin stock via listing-resolved master_sku", () => {
     const lookups = emptyLookups();
     lookups.listingSkuByKey.set("10149864", {

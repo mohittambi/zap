@@ -11,13 +11,17 @@ import {
 import { buildPhase1BoxLabelsPdf } from "@/server/services/labelPdfService";
 import {
   acknowledgeOutboundPo,
+  buildSkuReportCsvFromRows,
   cancelOutboundPo,
+  consignmentItemsToSkuReportRows,
   extractListingsRowsFromSnapshot,
-  outboundPoListingsSnapshotToCsv,
   patchOutboundPurchaseOrderField,
-  type OutboundPoRow,
   type OutboundPoEditableField,
 } from "@/server/services/outboundPurchaseOrdersService";
+import {
+  enrichOutboundReportRow,
+  type OutboundSkuLookups,
+} from "@/server/services/eanMappingsService";
 import {
   buildPendencyRowsFromListings,
   createOutboundPoPendencyPdf,
@@ -51,60 +55,10 @@ function safeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
 }
 
-function csvEscapeCell(cell: string): string {
-  if (/[",\n\r]/.test(cell)) {
-    return `"${cell.replace(/"/g, '""')}"`;
-  }
-  return cell;
-}
-
-function csvCell(v: unknown): string {
-  if (v == null) return "";
-  return String(v);
-}
-
-const SKU_REPORT_COLS = [
-  "buyer_name",
-  "po_number",
-  "po_release_date",
-  "po_expiry_date",
-  "po_addition_date",
-  "po_type",
-  "delivery_location",
-  "po_secondary_sku",
-  "master_sku",
-  "inventory_sku_id",
-  "pack_combo_sku_id",
-  "sku_type",
-  "company_code_primary",
-  "company_code_secondary",
-  "title",
-  "mrp",
-  "rate_without_tax",
-  "tax_rate",
-  "hsn",
-  "size",
-  "color",
-  "ops_tag",
-  "warehouse_quantity",
-  "demand",
-  "packed",
-  "dispatched",
-  "pending",
-  "fill_rate_percent",
-] as const;
-
 function rawStr(raw: Record<string, unknown>, key: string): string {
   const v = raw[key];
   if (v == null) return "";
   return String(v);
-}
-
-function rawNum(raw: Record<string, unknown>, key: string): number | null {
-  const v = raw[key];
-  if (v == null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 function round2(n: number): number {
@@ -197,96 +151,24 @@ export function computeSkuReportTaxRatePct(input: {
 export function resolveSkuReportMasterSku(
   raw: Record<string, unknown>,
   listObj: Record<string, unknown>,
-  item: SkuReportItemRow
+  item: SkuReportItemRow,
+  lookups?: OutboundSkuLookups
 ): string {
+  const row: Record<string, unknown> = {
+    ...raw,
+    po_secondary_sku: item.po_secondary_sku ?? raw.po_secondary_sku,
+    listing: Object.keys(listObj).length ? listObj : raw.listing,
+  };
+  if (lookups) {
+    return enrichOutboundReportRow(row, lookups).master_sku;
+  }
   return (
     rawStr(raw, "master_sku") ||
     rawStr(listObj, "master_sku") ||
-    rawStr(raw, "sku_id") ||
-    rawStr(listObj, "sku_id") ||
-    rawStr(raw, "po_secondary_sku") ||
-    (item.po_secondary_sku ?? "") ||
+    rawStr(raw, "inventory_sku_id") ||
+    rawStr(listObj, "inventory_sku_id") ||
     ""
   );
-}
-
-/**
- * Build SKU report CSV from `outbound_consignment_items` rows (deduped by SKU).
- * PO-header fields (buyer_name, po_number, dates, type, delivery) come from the PO row.
- * Per-SKU fields come from the denormalized columns + the rich `raw` JSONB.
- */
-function skuReportFromConsignmentItems(
-  items: SkuReportItemRow[],
-  po: OutboundPoRow
-): string {
-  const header = SKU_REPORT_COLS.join(",");
-  if (items.length === 0) {
-    return `\ufeff${header}\n`;
-  }
-  const lines: string[] = [header];
-  for (const item of items) {
-    const raw = item.raw;
-    const listing = raw.listing;
-    const listObj =
-      listing && typeof listing === "object" && !Array.isArray(listing)
-        ? (listing as Record<string, unknown>)
-        : {};
-
-    const demand = rawNum(raw, "demand") ?? item.original_demand ?? 0;
-    const dispatched =
-      rawNum(raw, "dispatched_quantity") ?? item.dispatched_quantity ?? 0;
-    const packed = item.consignment_quantity ?? 0;
-    const pending = demand - (packed + dispatched);
-
-    const warehouseQty =
-      rawNum(listObj, "available_quantity") ??
-      (rawStr(listObj, "available_quantity") !== ""
-        ? Number(listObj.available_quantity) || null
-        : null);
-    const computedTaxRate = computeSkuReportTaxRatePct({
-      explicitTaxRate: raw.tax_rate,
-      explicitTaxRateFallback: listObj.tax_rate,
-      demand,
-      rateWithoutTax: raw.rate_without_tax,
-      totalAmount: raw.total_amount,
-      landingRate: raw.landing_rate,
-    });
-
-    const cells: string[] = [
-      csvEscapeCell(csvCell(po.company_name ?? rawStr(raw, "buyer_name"))),
-      csvEscapeCell(csvCell(po.po_number)),
-      csvEscapeCell(csvCell(po.po_issue_date)),
-      csvEscapeCell(csvCell(po.expiry_date)),
-      csvEscapeCell(csvCell(rawStr(raw, "created_at") || po.created_at)),
-      csvEscapeCell(csvCell(po.po_type ?? rawStr(raw, "po_type"))),
-      csvEscapeCell(csvCell(po.delivery_city)),
-      csvEscapeCell(csvCell(item.po_secondary_sku ?? rawStr(raw, "po_secondary_sku"))),
-      csvEscapeCell(csvCell(resolveSkuReportMasterSku(raw, listObj, item))),
-      csvEscapeCell(csvCell(rawStr(raw, "inventory_sku_id") || rawStr(listObj, "inventory_sku_id"))),
-      csvEscapeCell(csvCell(rawStr(raw, "pack_combo_sku_id") || rawStr(listObj, "pack_combo_sku_id"))),
-      csvEscapeCell(csvCell(rawStr(raw, "sku_type") || rawStr(listObj, "sku_type"))),
-      csvEscapeCell(csvCell(item.company_code_primary ?? rawStr(raw, "company_code_primary"))),
-      csvEscapeCell(csvCell(item.company_code_secondary ?? rawStr(raw, "company_code_secondary"))),
-      csvEscapeCell(csvCell(rawStr(raw, "title"))),
-      csvEscapeCell(csvCell(item.mrp ?? rawStr(raw, "mrp"))),
-      csvEscapeCell(csvCell(rawStr(raw, "rate_without_tax"))),
-      csvEscapeCell(csvCell(computedTaxRate ?? "")),
-      csvEscapeCell(csvCell(rawStr(raw, "hsn_code") || rawStr(raw, "hsn"))),
-      csvEscapeCell(csvCell(rawStr(raw, "size") || rawStr(listObj, "size"))),
-      csvEscapeCell(csvCell(rawStr(raw, "color") || rawStr(listObj, "color"))),
-      csvEscapeCell(csvCell(rawStr(raw, "ops_tag") || rawStr(listObj, "ops_tag"))),
-      csvEscapeCell(csvCell(warehouseQty)),
-      csvEscapeCell(csvCell(demand)),
-      csvEscapeCell(csvCell(packed)),
-      csvEscapeCell(csvCell(dispatched)),
-      csvEscapeCell(csvCell(pending)),
-      csvEscapeCell(
-        csvCell(item.overall_fill_rate ?? (rawStr(raw, "fill_rate_percent") || rawStr(raw, "fill_rate")))
-      ),
-    ];
-    lines.push(cells.join(","));
-  }
-  return `\ufeff${lines.join("\n")}`;
 }
 
 /**
@@ -379,21 +261,12 @@ export async function POST(request: Request, context: Ctx) {
     if (action === "download_sku_report") {
       const pn = po.po_number;
       const skuItems = await getSkuReportItemsByPoNumber(pn);
-      if (skuItems.length > 0) {
-        const csv = skuReportFromConsignmentItems(skuItems, po);
-        const fname = `sku-report-${safeFilename(pn)}.csv`;
-        return new NextResponse(csv, {
-          status: 200,
-          headers: {
-            "Content-Type": "text/csv; charset=utf-8",
-            "Content-Disposition": `attachment; filename="${fname}"`,
-          },
-        });
-      }
-      /** No inline eAutomate sync; fall back to the locally-cached listings_snapshot. */
-      const snapshotRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
-      if (snapshotRows.length > 0) {
-        const csv = outboundPoListingsSnapshotToCsv(po.listings_snapshot, po);
+      const reportRows =
+        skuItems.length > 0
+          ? consignmentItemsToSkuReportRows(skuItems)
+          : extractListingsRowsFromSnapshot(po.listings_snapshot);
+      if (reportRows.length > 0) {
+        const csv = await buildSkuReportCsvFromRows(reportRows, po);
         const fname = `sku-report-${safeFilename(pn)}.csv`;
         return new NextResponse(csv, {
           status: 200,

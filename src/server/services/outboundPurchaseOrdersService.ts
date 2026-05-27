@@ -2,7 +2,13 @@ import { resolveCompanyLogoFromAttributes } from "@/lib/company-brand-logo";
 import { pickListingImageFromRow } from "@/lib/listing-image-url";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { enrichRowsWithZapEan } from "@/server/services/eanMappingsService";
+import type { SkuReportItemRow } from "@/server/services/outboundConsignmentItemsService";
+import {
+  enrichOutboundReportRow,
+  enrichRowsWithZapEan,
+  loadOutboundSkuLookups,
+  type OutboundSkuLookups,
+} from "@/server/services/eanMappingsService";
 import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 
 /**
@@ -1047,16 +1053,152 @@ function readListingObject(row: Record<string, unknown>): Record<string, unknown
   return {};
 }
 
-export function resolveSnapshotReportMasterSku(row: Record<string, unknown>): string {
+export function resolveSnapshotReportMasterSku(
+  row: Record<string, unknown>,
+  lookups?: OutboundSkuLookups
+): string {
+  if (lookups) {
+    return enrichOutboundReportRow(row, lookups).master_sku;
+  }
   const listing = readListingObject(row);
   return csvCellValue(
     row.master_sku ??
       listing.master_sku ??
-      row.sku_id ??
-      listing.sku_id ??
-      row.po_secondary_sku ??
+      row.inventory_sku_id ??
+      listing.inventory_sku_id ??
       ""
   );
+}
+
+function numberFromRow(row: Record<string, unknown>, key: string): number | null {
+  return numberFromUnknown(row[key]);
+}
+
+export function skuReportFromEnrichedRows(
+  rows: Record<string, unknown>[],
+  po: OutboundPoRow,
+  lookups: OutboundSkuLookups
+): string {
+  const lines: string[] = [];
+
+  if (rows.length === 0) {
+    return `\ufeff${csvEscapeCell("message")}\n${csvEscapeCell(
+      "No line items in listings_snapshot. Sync this PO from eCraft (PO detail) or upload a received PO spreadsheet to populate listings."
+    )}`;
+  }
+
+  lines.push(SKU_REPORT_COLUMNS.map((h) => csvEscapeCell(h)).join(","));
+
+  for (const row of rows) {
+    const enriched = enrichOutboundReportRow(row, lookups);
+    const demand =
+      numberFromRow(row, "demand") ??
+      numberFromRow(row, "original_demand") ??
+      numberFromRow(row, "box_quantity") ??
+      0;
+    const packed = numberFromRow(row, "packed") ?? 0;
+    const dispatched = numberFromRow(row, "dispatched") ?? 0;
+    const explicitPending = numberFromRow(row, "pending");
+    const pending =
+      explicitPending != null ? explicitPending : demand - (packed + dispatched);
+    const taxPct = computeSnapshotReportTaxRatePct(row);
+    const fillRate = row.fill_rate_percent ?? row.fill_rate;
+    const listing = readListingObject(row);
+
+    const cells: Record<SkuReportColumn, string> = {
+      buyer_name: csvCellValue(po.company_name ?? row.buyer_name),
+      po_number: csvCellValue(po.po_number),
+      po_release_date: csvCellValue(po.po_issue_date),
+      po_expiry_date: csvCellValue(po.expiry_date),
+      po_addition_date: csvCellValue(row.po_addition_date ?? po.created_at),
+      po_type: csvCellValue(po.po_type ?? row.po_type),
+      delivery_location: csvCellValue(row.delivery_location ?? po.delivery_city),
+      po_secondary_sku: csvCellValue(row.po_secondary_sku),
+      master_sku: csvCellValue(enriched.master_sku),
+      inventory_sku_id: csvCellValue(enriched.inventory_sku_id),
+      pack_combo_sku_id: csvCellValue(row.pack_combo_sku_id),
+      sku_type: csvCellValue(row.sku_type ?? listing.sku_type),
+      company_code_primary: csvCellValue(enriched.company_code_primary),
+      company_code_secondary: csvCellValue(
+        enriched.company_code_secondary || row.company_code_secondary
+      ),
+      zap_ean: csvCellValue(enriched.zap_ean),
+      universal_ean: csvCellValue(enriched.universal_ean),
+      title: csvCellValue(row.title),
+      mrp: csvCellValue(row.mrp),
+      rate_without_tax: csvCellValue(row.rate_without_tax),
+      tax_rate: taxPct != null ? String(taxPct) : "",
+      hsn: csvCellValue(row.hsn_code ?? row.hsn),
+      size: csvCellValue(row.size ?? listing.size),
+      color: csvCellValue(row.color ?? listing.color),
+      ops_tag: csvCellValue(row.ops_tag ?? listing.ops_tag),
+      warehouse_quantity:
+        enriched.warehouse_quantity != null
+          ? String(enriched.warehouse_quantity)
+          : "",
+      demand: String(demand),
+      packed: String(packed),
+      dispatched: String(dispatched),
+      pending: String(pending),
+      fill_rate_percent: csvCellValue(fillRate),
+    };
+
+    lines.push(
+      SKU_REPORT_COLUMNS.map((h) => csvEscapeCell(cells[h])).join(",")
+    );
+  }
+
+  return `\ufeff${lines.join("\n")}`;
+}
+
+/** Map consignment DB rows to snapshot-shaped line items for SKU report enrichment. */
+export function consignmentItemsToSkuReportRows(
+  items: SkuReportItemRow[]
+): Record<string, unknown>[] {
+  return items.map((item) => {
+    const raw = item.raw ?? {};
+    const listing = raw.listing;
+    const listObj =
+      listing && typeof listing === "object" && !Array.isArray(listing)
+        ? (listing as Record<string, unknown>)
+        : {};
+    const demand =
+      numberFromUnknown(raw.demand) ??
+      item.original_demand ??
+      numberFromUnknown(raw.original_demand) ??
+      0;
+    const packed =
+      numberFromUnknown(raw.packed) ?? item.consignment_quantity ?? 0;
+    const dispatched =
+      numberFromUnknown(raw.dispatched) ??
+      numberFromUnknown(raw.dispatched_quantity) ??
+      item.dispatched_quantity ??
+      0;
+    return {
+      ...raw,
+      po_secondary_sku: item.po_secondary_sku ?? raw.po_secondary_sku,
+      company_code_primary: item.company_code_primary ?? raw.company_code_primary,
+      company_code_secondary:
+        item.company_code_secondary ?? raw.company_code_secondary,
+      mrp: item.mrp ?? raw.mrp,
+      demand,
+      original_demand: item.original_demand ?? raw.original_demand,
+      packed,
+      dispatched,
+      fill_rate_percent:
+        item.overall_fill_rate ?? raw.fill_rate_percent ?? raw.fill_rate,
+      listing: raw.listing ?? (Object.keys(listObj).length ? listObj : undefined),
+    };
+  });
+}
+
+export async function buildSkuReportCsvFromRows(
+  rows: Record<string, unknown>[],
+  po: OutboundPoRow
+): Promise<string> {
+  const lookups = await loadOutboundSkuLookups(rows, po.company_id);
+  const enriched = await enrichRowsWithZapEan(rows, po.company_id);
+  return skuReportFromEnrichedRows(enriched, po, lookups);
 }
 
 export function computeSnapshotReportTaxRatePct(row: Record<string, unknown>): number | null {

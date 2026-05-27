@@ -4,7 +4,10 @@ import { type SkuReportItemRow } from "../../src/server/services/outboundConsign
 import {
   computeSnapshotReportTaxRatePct,
   resolveSnapshotReportMasterSku,
+  skuReportFromEnrichedRows,
+  type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
+import type { OutboundSkuLookups } from "../../src/server/services/eanMappingsService";
 import {
   computeSkuReportTaxRatePct,
   resolveSkuReportMasterSku,
@@ -43,22 +46,49 @@ describe("SKU report fallback helpers", () => {
     assert.equal(got, "MASTER-LISTING");
   });
 
-  it("resolves master SKU from sku_id fallback", () => {
+  it("resolves master SKU from inventory_sku_id when no master_sku", () => {
     const got = resolveSkuReportMasterSku(
-      { sku_id: "SKU-ID-1" },
+      { inventory_sku_id: "INV-1" },
       {},
       makeItem()
     );
-    assert.equal(got, "SKU-ID-1");
+    assert.equal(got, "INV-1");
   });
 
-  it("resolves master SKU from po_secondary_sku as last fallback", () => {
+  it("does not use po_secondary_sku as master SKU without lookups", () => {
     const got = resolveSkuReportMasterSku(
       { po_secondary_sku: "PO-SKU-LAST" },
       {},
       makeItem("PO-SKU-ITEM")
     );
-    assert.equal(got, "PO-SKU-LAST");
+    assert.equal(got, "");
+  });
+
+  it("resolves master SKU from EAN lookups when provided", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map([
+        [
+          "10149918",
+          {
+            sku_code: "AAC500",
+            channel_ean: "10149918",
+            universal_ean: "8901234567890",
+            ean_type: "ean",
+          },
+        ],
+      ]),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+    };
+    const got = resolveSkuReportMasterSku(
+      { po_secondary_sku: "10149918" },
+      {},
+      makeItem("10149918"),
+      lookups
+    );
+    assert.equal(got, "AAC500");
   });
 
   it("uses explicit tax_rate when provided as percent string", () => {
@@ -123,16 +153,73 @@ describe("SKU report fallback helpers", () => {
 });
 
 describe("snapshot SKU report fallbacks", () => {
-  it("resolves master SKU from listing and sku_id fallbacks", () => {
+  it("resolves master SKU from listing and inventory_sku_id fallbacks", () => {
     assert.equal(
       resolveSnapshotReportMasterSku({ listing: { master_sku: "MASTER-L2" } }),
       "MASTER-L2"
     );
-    assert.equal(resolveSnapshotReportMasterSku({ sku_id: "SKU-ID-2" }), "SKU-ID-2");
+    assert.equal(resolveSnapshotReportMasterSku({ sku_id: "SKU-ID-2" }), "");
+    assert.equal(
+      resolveSnapshotReportMasterSku({ inventory_sku_id: "INV-2" }),
+      "INV-2"
+    );
     assert.equal(
       resolveSnapshotReportMasterSku({ po_secondary_sku: "PO-SKU-SNAPSHOT" }),
-      "PO-SKU-SNAPSHOT"
+      ""
     );
+  });
+
+  it("skuReportFromEnrichedRows uses EAN master_sku, company code, and bin warehouse qty", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map([
+        [
+          "10149918",
+          {
+            sku_code: "AAC500",
+            channel_ean: "10149918",
+            universal_ean: "8901234567890",
+            ean_type: "ean",
+          },
+        ],
+      ]),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map([["AAC500", 77]]),
+    };
+    const po = {
+      po_number: "PO-1",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Delhi",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const csv = skuReportFromEnrichedRows(
+      [
+        {
+          po_secondary_sku: "10149918",
+          demand: 10,
+          packed: 0,
+          dispatched: 0,
+        },
+      ],
+      po,
+      lookups
+    );
+    const lines = csv.replace(/^\ufeff/, "").split("\n");
+    assert.ok(lines[0].includes("zap_ean"));
+    const data = lines[1].split(",");
+    const header = lines[0].split(",");
+    const masterIdx = header.indexOf("master_sku");
+    const ccpIdx = header.indexOf("company_code_primary");
+    const whIdx = header.indexOf("warehouse_quantity");
+    assert.equal(data[masterIdx], "AAC500");
+    assert.equal(data[ccpIdx], "AAC500");
+    assert.equal(data[whIdx], "77");
+    assert.ok(lines[1].includes("10149918"));
   });
 
   it("computes snapshot tax_rate from commercial fields", () => {

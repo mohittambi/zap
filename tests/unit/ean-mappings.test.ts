@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  enrichOutboundReportRow,
   isValidEanValue,
   eanValueToString,
   mergeZapEanIntoRows,
   mappingSkuKeysFromRow,
   resolveZapEanDisplay,
+  seedListingSkuFromEanMappings,
   pivotMappingsToMatrixRows,
   parseMatrixSortColumn,
+  type OutboundSkuLookups,
   type ZapEanLookup,
 } from "../../src/server/services/eanMappingsService";
 
@@ -118,6 +121,52 @@ describe("eanMappingsService helpers", () => {
     assert.equal(out[0].master_sku, "AAC500");
     assert.equal(out[0].company_code_primary, "AAC500");
     assert.equal(out[0].zap_ean, "8901234567890");
+  });
+
+  it("seedListingSkuFromEanMappings maps channel keys to product sku_code", () => {
+    const eanBySkuKey = new Map<string, ZapEanLookup>([
+      [
+        "10149918",
+        {
+          sku_code: "AAC500",
+          channel_ean: "10149918",
+          universal_ean: "",
+          ean_type: "",
+        },
+      ],
+    ]);
+    const listingSkuByKey = new Map();
+    seedListingSkuFromEanMappings(eanBySkuKey, listingSkuByKey);
+    assert.equal(listingSkuByKey.get("10149918")?.master_sku, "AAC500");
+  });
+
+  it("enrichOutboundReportRow resolves product fields and warehouse from bins", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map([
+        [
+          "10149918",
+          {
+            sku_code: "AAC500",
+            channel_ean: "10149918",
+            universal_ean: "8901234567890",
+            ean_type: "ean",
+          },
+        ],
+      ]),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map([["AAC500", 42]]),
+    };
+    const enriched = enrichOutboundReportRow(
+      { po_secondary_sku: "10149918" },
+      lookups
+    );
+    assert.equal(enriched.master_sku, "AAC500");
+    assert.equal(enriched.company_code_primary, "AAC500");
+    assert.equal(enriched.warehouse_quantity, 42);
+    assert.equal(enriched.zap_ean, "10149918");
+    assert.equal(enriched.universal_ean, "8901234567890");
   });
 
   it("mergeZapEanIntoRows returns empty zap_ean when no mapping", () => {
