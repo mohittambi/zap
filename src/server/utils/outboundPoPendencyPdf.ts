@@ -83,8 +83,16 @@ export function resolvePendencyRowFields(
       ? lookups.companyCodeBySecondarySku.get(secondarySku) ?? ""
       : "";
   const fromDetails = companyCodeFromSnapshotDetails(row, lookups.companyId);
+  const listing = pickListing(row);
+  const fromMasterSku =
+    strTrim(row.master_sku) || strTrim(listing?.master_sku);
   const company_code_primary =
-    topLevelCode || fromDb || fromDetails || null;
+    topLevelCode ||
+    fromDb ||
+    fromDetails ||
+    fromMasterSku ||
+    secondarySku ||
+    null;
 
   let warehouse_quantity: number | null = null;
   for (const skuId of pendencySkuIdCandidates(row)) {

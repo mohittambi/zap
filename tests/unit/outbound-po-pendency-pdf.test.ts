@@ -54,6 +54,45 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(fields.company_code_primary, "CODE-DB");
   });
 
+  it("resolvePendencyRowFields falls back to master_sku when company code sources missing", () => {
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864", master_sku: "MASTER-ABC" },
+      emptyLookups()
+    );
+    assert.equal(fields.company_code_primary, "MASTER-ABC");
+  });
+
+  it("resolvePendencyRowFields falls back to listing.master_sku before po_secondary_sku", () => {
+    const fields = resolvePendencyRowFields(
+      {
+        po_secondary_sku: "10149864",
+        listing: { master_sku: "MASTER-LISTING" },
+      },
+      emptyLookups()
+    );
+    assert.equal(fields.company_code_primary, "MASTER-LISTING");
+  });
+
+  it("resolvePendencyRowFields falls back to po_secondary_sku when master sku missing", () => {
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      emptyLookups()
+    );
+    assert.equal(fields.company_code_primary, "10149864");
+  });
+
+  it("resolvePendencyRowFields prefers company code over sku fallbacks", () => {
+    const fields = resolvePendencyRowFields(
+      {
+        company_code_primary: "REAL-CODE",
+        master_sku: "MASTER-ABC",
+        po_secondary_sku: "10149864",
+      },
+      emptyLookups()
+    );
+    assert.equal(fields.company_code_primary, "REAL-CODE");
+  });
+
   it("resolvePendencyRowFields falls back to secondary_sku_company_details for PO company", () => {
     const fields = resolvePendencyRowFields(
       {
