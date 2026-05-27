@@ -247,7 +247,7 @@ export async function logConsignmentActivityFromZap(opts: {
       consignmentId: opts.consignmentId,
       operation: opts.operation,
       remarks: opts.remarks,
-      createdBy: opts.createdBy,
+      createdBy: opts.createdBy ?? null,
     });
   } catch {
     /* Activity logging must not fail the primary operation. */
