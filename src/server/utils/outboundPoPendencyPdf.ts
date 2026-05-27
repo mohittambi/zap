@@ -1,5 +1,11 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { query } from "@/server/db";
+import {
+  batchGetZapEanByCompany,
+  mappingSkuKeysFromRow,
+  resolvePendencyCompanyCodeFromEan,
+  type ZapEanLookup,
+} from "@/server/services/eanMappingsService";
 
 export type PendencyRow = {
   po_secondary_sku: string | null;
@@ -9,9 +15,16 @@ export type PendencyRow = {
   pending: number;
 };
 
+export type ListingSkuFields = {
+  master_sku: string;
+  inventory_sku_id: string;
+};
+
 export type PendencyLookups = {
   companyId: number | null;
   companyCodeBySecondarySku: Map<string, string>;
+  eanBySkuKey: Map<string, ZapEanLookup>;
+  listingSkuByKey: Map<string, ListingSkuFields>;
   binStockBySkuId: Map<string, number>;
 };
 
@@ -36,12 +49,69 @@ function pickListing(row: Record<string, unknown>): Record<string, unknown> | nu
   return null;
 }
 
-/** SKU ids to match against Zap bin stock, in priority order. */
-export function pendencySkuIdCandidates(row: Record<string, unknown>): string[] {
+/** Keys used to resolve listings / EAN / bin stock for a pendency line. */
+export function pendencyLookupKeys(row: Record<string, unknown>): string[] {
+  const keys = new Set<string>();
+  const add = (v: unknown) => {
+    const s = strTrim(v);
+    if (s) keys.add(s);
+  };
+  add(row.master_sku);
+  add(row.inventory_sku_id);
+  add(row.pack_combo_sku_id);
+  add(row.po_secondary_sku);
+  add(row.sku_id);
+  add(row.product_upc);
   const listing = pickListing(row);
+  if (listing) {
+    add(listing.sku_id);
+    add(listing.master_sku);
+    add(listing.inventory_sku_id);
+  }
+  for (const k of mappingSkuKeysFromRow(row)) {
+    if (k) keys.add(k);
+  }
+  return [...keys];
+}
+
+export function resolveListingSkuFields(
+  row: Record<string, unknown>,
+  listingSkuByKey: Map<string, ListingSkuFields>
+): ListingSkuFields {
+  for (const k of pendencyLookupKeys(row)) {
+    const hit = listingSkuByKey.get(k);
+    if (hit && (hit.master_sku || hit.inventory_sku_id)) return hit;
+  }
+  return { master_sku: "", inventory_sku_id: "" };
+}
+
+function resolveEanHit(
+  row: Record<string, unknown>,
+  eanBySkuKey: Map<string, ZapEanLookup>
+): ZapEanLookup | undefined {
+  for (const k of pendencyLookupKeys(row)) {
+    const hit = eanBySkuKey.get(k);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** SKU ids to match against Zap bin stock, in priority order. */
+export function pendencySkuIdCandidates(
+  row: Record<string, unknown>,
+  lookups?: Pick<PendencyLookups, "listingSkuByKey">
+): string[] {
+  const listing = pickListing(row);
+  const fromDb = lookups?.listingSkuByKey
+    ? resolveListingSkuFields(row, lookups.listingSkuByKey)
+    : { master_sku: "", inventory_sku_id: "" };
   const candidates = [
-    strTrim(row.inventory_sku_id) || strTrim(listing?.inventory_sku_id),
-    strTrim(row.master_sku) || strTrim(listing?.master_sku),
+    strTrim(row.inventory_sku_id) ||
+      strTrim(listing?.inventory_sku_id) ||
+      fromDb.inventory_sku_id,
+    strTrim(row.master_sku) ||
+      strTrim(listing?.master_sku) ||
+      fromDb.master_sku,
     strTrim(row.po_secondary_sku),
   ];
   const seen = new Set<string>();
@@ -76,26 +146,43 @@ export function resolvePendencyRowFields(
   row: Record<string, unknown>,
   lookups: PendencyLookups
 ): Pick<PendencyRow, "company_code_primary" | "warehouse_quantity"> {
-  const topLevelCode = strTrim(row.company_code_primary);
   const secondarySku = strTrim(row.po_secondary_sku);
+  const listing = pickListing(row);
+  const fromListings = resolveListingSkuFields(row, lookups.listingSkuByKey);
+
+  const rawTopLevel = strTrim(row.company_code_primary);
+  const topLevelCode =
+    rawTopLevel && rawTopLevel !== secondarySku ? rawTopLevel : "";
+
   const fromDb =
     secondarySku && lookups.companyCodeBySecondarySku.has(secondarySku)
       ? lookups.companyCodeBySecondarySku.get(secondarySku) ?? ""
       : "";
   const fromDetails = companyCodeFromSnapshotDetails(row, lookups.companyId);
-  const listing = pickListing(row);
-  const fromMasterSku =
-    strTrim(row.master_sku) || strTrim(listing?.master_sku);
+  const fromEan = resolvePendencyCompanyCodeFromEan(
+    secondarySku,
+    resolveEanHit(row, lookups.eanBySkuKey)
+  );
+  const inventorySkuId =
+    strTrim(row.inventory_sku_id) ||
+    strTrim(listing?.inventory_sku_id) ||
+    fromListings.inventory_sku_id;
+  const masterSku =
+    strTrim(row.master_sku) ||
+    strTrim(listing?.master_sku) ||
+    fromListings.master_sku;
+
   const company_code_primary =
     topLevelCode ||
     fromDb ||
     fromDetails ||
-    fromMasterSku ||
-    secondarySku ||
+    fromEan ||
+    masterSku ||
+    inventorySkuId ||
     null;
 
   let warehouse_quantity: number | null = null;
-  for (const skuId of pendencySkuIdCandidates(row)) {
+  for (const skuId of pendencySkuIdCandidates(row, lookups)) {
     if (lookups.binStockBySkuId.has(skuId)) {
       warehouse_quantity = lookups.binStockBySkuId.get(skuId) ?? 0;
       break;
@@ -115,11 +202,7 @@ export async function loadPendencyLookups(
       : null;
 
   const secondarySkus = [
-    ...new Set(
-      rows
-        .map((r) => strTrim(r.po_secondary_sku))
-        .filter(Boolean)
-    ),
+    ...new Set(rows.map((r) => strTrim(r.po_secondary_sku)).filter(Boolean)),
   ];
 
   const companyCodeBySecondarySku = new Map<string, string>();
@@ -141,8 +224,48 @@ export async function loadPendencyLookups(
     }
   }
 
+  const lookupKeys = [...new Set(rows.flatMap((r) => pendencyLookupKeys(r)))];
+
+  const listingSkuByKey = new Map<string, ListingSkuFields>();
+  if (lookupKeys.length > 0) {
+    const listR = await query(
+      `SELECT sku_id, master_sku, inventory_sku_id
+         FROM listings
+        WHERE sku_id = ANY($1::text[])
+           OR master_sku = ANY($1::text[])
+           OR inventory_sku_id = ANY($1::text[])`,
+      [lookupKeys]
+    );
+    for (const dbRow of listR.rows as {
+      sku_id: string | null;
+      master_sku: string | null;
+      inventory_sku_id: string | null;
+    }[]) {
+      const fields: ListingSkuFields = {
+        master_sku: strTrim(dbRow.master_sku),
+        inventory_sku_id: strTrim(dbRow.inventory_sku_id),
+      };
+      if (!fields.master_sku && !fields.inventory_sku_id) continue;
+      for (const id of [dbRow.sku_id, dbRow.master_sku, dbRow.inventory_sku_id]) {
+        const k = strTrim(id);
+        if (k) listingSkuByKey.set(k, fields);
+      }
+    }
+  }
+
+  const eanBySkuKey =
+    resolvedCompanyId != null && lookupKeys.length > 0
+      ? await batchGetZapEanByCompany({
+          company_id: resolvedCompanyId,
+          sku_codes: lookupKeys,
+        })
+      : new Map<string, ZapEanLookup>();
+
+  const partialLookups: Pick<PendencyLookups, "listingSkuByKey"> = {
+    listingSkuByKey,
+  };
   const skuIds = [
-    ...new Set(rows.flatMap((r) => pendencySkuIdCandidates(r))),
+    ...new Set(rows.flatMap((r) => pendencySkuIdCandidates(r, partialLookups))),
   ];
 
   const binStockBySkuId = new Map<string, number>();
@@ -164,6 +287,8 @@ export async function loadPendencyLookups(
   return {
     companyId: resolvedCompanyId,
     companyCodeBySecondarySku,
+    eanBySkuKey,
+    listingSkuByKey,
     binStockBySkuId,
   };
 }
@@ -175,6 +300,8 @@ export function buildPendencyRowsFromListings(
   const resolvedLookups: PendencyLookups = lookups ?? {
     companyId: null,
     companyCodeBySecondarySku: new Map(),
+    eanBySkuKey: new Map(),
+    listingSkuByKey: new Map(),
     binStockBySkuId: new Map(),
   };
 

@@ -11,6 +11,8 @@ function emptyLookups(companyId: number | null = null): PendencyLookups {
   return {
     companyId,
     companyCodeBySecondarySku: new Map(),
+    eanBySkuKey: new Map(),
+    listingSkuByKey: new Map(),
     binStockBySkuId: new Map(),
   };
 }
@@ -24,6 +26,19 @@ describe("outboundPoPendencyPdf", () => {
       listing: { master_sku: "LIST-MSKU" },
     });
     assert.deepEqual(ids, ["INV-1", "AAC500", "10149864"]);
+  });
+
+  it("pendencySkuIdCandidates uses listingSkuByKey before po_secondary_sku", () => {
+    const lookups = emptyLookups();
+    lookups.listingSkuByKey.set("10149864", {
+      master_sku: "AAC500",
+      inventory_sku_id: "",
+    });
+    const ids = pendencySkuIdCandidates(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.deepEqual(ids, ["AAC500", "10149864"]);
   });
 
   it("pendencySkuIdCandidates skips NA and listing duplicates", () => {
@@ -44,6 +59,22 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(fields.company_code_primary, "CODE-A");
   });
 
+  it("resolvePendencyRowFields ignores top-level company_code_primary when it equals po_secondary_sku", () => {
+    const lookups = emptyLookups();
+    lookups.listingSkuByKey.set("10149864", {
+      master_sku: "AAC500",
+      inventory_sku_id: "",
+    });
+    const fields = resolvePendencyRowFields(
+      {
+        company_code_primary: "10149864",
+        po_secondary_sku: "10149864",
+      },
+      lookups
+    );
+    assert.equal(fields.company_code_primary, "AAC500");
+  });
+
   it("resolvePendencyRowFields falls back to company_secondary_sku map", () => {
     const lookups = emptyLookups(30044);
     lookups.companyCodeBySecondarySku.set("SKU1", "CODE-DB");
@@ -56,36 +87,63 @@ describe("outboundPoPendencyPdf", () => {
 
   it("resolvePendencyRowFields falls back to master_sku when company code sources missing", () => {
     const fields = resolvePendencyRowFields(
-      { po_secondary_sku: "10149864", master_sku: "MASTER-ABC" },
+      { po_secondary_sku: "10149864", master_sku: "AAC500" },
       emptyLookups()
     );
-    assert.equal(fields.company_code_primary, "MASTER-ABC");
+    assert.equal(fields.company_code_primary, "AAC500");
   });
 
-  it("resolvePendencyRowFields falls back to listing.master_sku before po_secondary_sku", () => {
+  it("resolvePendencyRowFields falls back to listing.master_sku", () => {
     const fields = resolvePendencyRowFields(
       {
         po_secondary_sku: "10149864",
-        listing: { master_sku: "MASTER-LISTING" },
+        listing: { master_sku: "AAC500" },
       },
       emptyLookups()
     );
-    assert.equal(fields.company_code_primary, "MASTER-LISTING");
+    assert.equal(fields.company_code_primary, "AAC500");
   });
 
-  it("resolvePendencyRowFields falls back to po_secondary_sku when master sku missing", () => {
+  it("resolvePendencyRowFields resolves master_sku from listingSkuByKey", () => {
+    const lookups = emptyLookups();
+    lookups.listingSkuByKey.set("10149864", {
+      master_sku: "AAC500",
+      inventory_sku_id: "INV-AAC",
+    });
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.equal(fields.company_code_primary, "AAC500");
+  });
+
+  it("resolvePendencyRowFields does not fall back to po_secondary_sku", () => {
     const fields = resolvePendencyRowFields(
       { po_secondary_sku: "10149864" },
       emptyLookups()
     );
-    assert.equal(fields.company_code_primary, "10149864");
+    assert.equal(fields.company_code_primary, null);
+  });
+
+  it("resolvePendencyRowFields uses EAN channel code when it differs from po sku", () => {
+    const lookups = emptyLookups();
+    lookups.eanBySkuKey.set("10149864", {
+      channel_ean: "8901234567890",
+      universal_ean: "",
+      ean_type: "ean",
+    });
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.equal(fields.company_code_primary, "8901234567890");
   });
 
   it("resolvePendencyRowFields prefers company code over sku fallbacks", () => {
     const fields = resolvePendencyRowFields(
       {
         company_code_primary: "REAL-CODE",
-        master_sku: "MASTER-ABC",
+        master_sku: "AAC500",
         po_secondary_sku: "10149864",
       },
       emptyLookups()
@@ -120,6 +178,21 @@ describe("outboundPoPendencyPdf", () => {
       lookups
     );
     assert.equal(fields.warehouse_quantity, 42);
+  });
+
+  it("resolvePendencyRowFields uses bin stock via listing-resolved master_sku", () => {
+    const lookups = emptyLookups();
+    lookups.listingSkuByKey.set("10149864", {
+      master_sku: "AAC500",
+      inventory_sku_id: "",
+    });
+    lookups.binStockBySkuId.set("AAC500", 120);
+    const fields = resolvePendencyRowFields(
+      { po_secondary_sku: "10149864" },
+      lookups
+    );
+    assert.equal(fields.warehouse_quantity, 120);
+    assert.equal(fields.company_code_primary, "AAC500");
   });
 
   it("resolvePendencyRowFields accepts zero bin stock", () => {

@@ -55,6 +55,21 @@ export function resolveZapEanDisplay(
   return universal;
 }
 
+/** Company code for pendency PDF when row has no explicit marketplace code. */
+export function resolvePendencyCompanyCodeFromEan(
+  poSecondarySku: string,
+  hit: ZapEanLookup | undefined
+): string {
+  if (!hit) return "";
+  const po = poSecondarySku.trim();
+  const channel = hit.channel_ean.trim();
+  const universal = hit.universal_ean.trim();
+  if (hit.ean_type === "ean" && channel) return channel;
+  if (channel && channel !== po) return channel;
+  if (universal) return universal;
+  return "";
+}
+
 /** Normalize company name for fuzzy matching against `companies.name`. */
 export function normalizeCompanyName(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
