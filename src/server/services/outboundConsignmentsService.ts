@@ -10,6 +10,8 @@ import {
 } from "@/server/services/outboundConsignmentItemsService";
 import {
   refreshOutboundPoConsignmentCountAnalytics,
+  extractListingsRowsFromSnapshot,
+  computeSnapshotReportTaxRatePct,
   type OutboundPoRow,
 } from "@/server/services/outboundPurchaseOrdersService";
 import { ensureZapOutboundSequences } from "@/server/utils/ensureZapOutboundSequences";
@@ -904,7 +906,7 @@ export async function markOutboundConsignmentRtd(opts: {
   return updated;
 }
 
-/** Build an Excel workbook summarising a consignment and its SKU items. */
+/** Build an Excel workbook for a consignment invoice in flat row-per-SKU format. */
 export async function buildOutboundConsignmentInvoiceExcel(
   consignmentId: number
 ): Promise<{ buffer: Buffer; filename: string }> {
@@ -913,12 +915,17 @@ export async function buildOutboundConsignmentInvoiceExcel(
   }
 
   const consR = await query(
-    `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
-            consignment_status, invoice_number_status, invoice_number,
-            invoice_upload_status, boxes_count, sku_count, total_quantity,
-            transporter_name, vehicle_number, docket_number,
-            created_at, marked_rtd_at
-     FROM outbound_consignments WHERE id = $1`,
+    `SELECT c.id, c.company_id, c.company_name, c.location, c.sold_via,
+            c.po_number, c.po_type, c.consignment_status,
+            c.invoice_number, c.boxes_count, c.sku_count, c.total_quantity,
+            c.transporter_name, c.vehicle_number, c.docket_number,
+            c.created_at, c.marked_rtd_at, c.raw,
+            o.buyer_gstin, o.delivery_address, o.delivery_city,
+            o.listings_snapshot
+     FROM outbound_consignments c
+     LEFT JOIN outbound_purchase_orders o
+       ON TRIM(COALESCE(o.po_number, '')) = TRIM(COALESCE(c.po_number, ''))
+     WHERE c.id = $1`,
     [consignmentId]
   );
   if (consR.rows.length === 0) throw new AppError("Consignment not found", 404);
@@ -927,13 +934,7 @@ export async function buildOutboundConsignmentInvoiceExcel(
   const itemsR = await query(
     `SELECT po_secondary_sku,
             MAX(company_code_primary) AS company_code_primary,
-            MAX(company_code_secondary) AS company_code_secondary,
-            MAX(NULLIF(TRIM(raw->>'master_sku'), '')) AS master_sku,
-            SUM(COALESCE(box_quantity, 0))::integer AS box_quantity,
-            MAX(original_demand)::integer AS original_demand,
-            SUM(COALESCE(dispatched_quantity, 0))::integer AS dispatched_quantity,
-            SUM(COALESCE(consignment_quantity, 0))::integer AS consignment_quantity,
-            MAX(overall_fill_rate) AS overall_fill_rate
+            SUM(COALESCE(consignment_quantity, 0))::integer AS quantity
      FROM outbound_consignment_items
      WHERE consignment_id = $1
        AND po_secondary_sku IS NOT NULL
@@ -943,80 +944,133 @@ export async function buildOutboundConsignmentInvoiceExcel(
     [consignmentId]
   );
 
-  const wb = XLSX.utils.book_new();
+  const listingRows = extractListingsRowsFromSnapshot(c.listings_snapshot);
+  const listingBySku = new Map<string, Record<string, unknown>>();
+  for (const lr of listingRows) {
+    const sku = lr.po_secondary_sku != null ? String(lr.po_secondary_sku).trim() : "";
+    if (sku) listingBySku.set(sku, lr);
+  }
 
-  const toDate = (v: unknown) => {
+  const toDateStr = (v: unknown) => {
     if (v == null) return "";
     const d = new Date(v instanceof Date ? v : (v as string));
     return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN");
   };
+  const str = (v: unknown) => (v != null && v !== "" ? String(v) : "");
+  const num = (v: unknown): number => {
+    if (v == null) return 0;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const round2 = (n: number) => Math.round(n * 100) / 100;
 
-  const summary: unknown[][] = [
-    ["Consignment ID", c.id],
-    ["PO Number", c.po_number ?? ""],
-    ["Company", c.company_name ?? ""],
-    ["Location", c.location ?? ""],
-    ["Sold Via", c.sold_via ?? ""],
-    ["PO Type", c.po_type ?? ""],
-    ["Status", c.consignment_status ?? ""],
-    ["Invoice Number", c.invoice_number ?? ""],
-    ["Invoice Status", c.invoice_number_status ?? ""],
-    ["Invoice Upload", c.invoice_upload_status ?? ""],
-    ["Boxes", c.boxes_count ?? ""],
-    ["SKU Count", c.sku_count ?? ""],
-    ["Total Qty", c.total_quantity ?? ""],
-    ["Transporter", c.transporter_name ?? ""],
-    ["Vehicle No.", c.vehicle_number ?? ""],
-    ["Docket No.", c.docket_number ?? ""],
-    ["Created At", toDate(c.created_at)],
-    ["Marked RTD At", toDate(c.marked_rtd_at)],
+  const rawObj =
+    c.raw && typeof c.raw === "object" && !Array.isArray(c.raw)
+      ? (c.raw as Record<string, unknown>)
+      : {};
+  const shipmentMode = str(rawObj.shipment_type);
+
+  const invoiceDate = toDateStr(c.marked_rtd_at ?? c.created_at);
+  const invoiceNumber = str(c.invoice_number);
+  const poNumber = str(c.po_number);
+  const companyName = str(c.company_name);
+  const gstin = str(c.buyer_gstin);
+  const shippingAddress = str(c.delivery_address);
+  const totalBox = c.boxes_count ?? 0;
+  const transporterName = str(c.transporter_name);
+  const vehicleDocketNumber = str(c.docket_number);
+  const soldVia = str(c.sold_via);
+
+  const HEADERS = [
+    "invoice_date",
+    "invoice_number",
+    "po_number",
+    "company_code_primary",
+    "po_secondary_sku",
+    "title",
+    "quantity",
+    "item_price_excl_gst",
+    "state",
+    "tax_rate",
+    "igst",
+    "sgst_cgst",
+    "taxable_amount",
+    "net_sale",
+    "gstin",
+    "company_name",
+    "shipping_address",
+    "pin_code",
+    "iat",
+    "total_box",
+    "transporter_name",
+    "export_sales",
+    "shipment_mode",
+    "transporter_legal_id",
+    "vehicle_docket_number",
+    "vehicle_type",
+    "our_state_name",
+    "our_pin_code",
+    "distance",
+    "sold_via",
+    "invoice_id",
+    "hsn",
   ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
 
-  const companyId =
-    c.company_id != null ? Number(c.company_id) : null;
-  const mappingSkus = itemsR.rows
-    .map((r) => (r.master_sku != null ? String(r.master_sku).trim() : ""))
-    .filter(Boolean);
-  const zapLookup = await batchGetZapEanByCompany({
-    company_id: companyId,
-    sku_codes: mappingSkus,
-  });
+  const dataRows = itemsR.rows.map((item) => {
+    const sku = str(item.po_secondary_sku);
+    const listing = listingBySku.get(sku) ?? {};
+    const compCodePrimary = str(item.company_code_primary);
+    const title = str(listing.title);
+    const qty = num(item.quantity);
+    const priceExclGst = num(listing.rate_without_tax);
+    const taxPct = computeSnapshotReportTaxRatePct(listing);
+    const taxRate = taxPct != null ? taxPct : 0;
+    const taxableAmount = round2(qty * priceExclGst);
+    const taxAmount = round2(taxableAmount * taxRate / 100);
+    const netSale = round2(taxableAmount + taxAmount);
+    const hsn = str(listing.hsn_code ?? listing.hsn);
 
-  const itemHeaders = [
-    "SKU",
-    "Company Code (Primary)",
-    "Company Code (Secondary)",
-    "Zap EAN",
-    "Universal EAN",
-    "Box Qty",
-    "Original Demand",
-    "Dispatched Qty",
-    "Consignment Qty",
-    "Fill Rate",
-  ];
-  const itemRows = itemsR.rows.map((r) => {
-    const sku = r.po_secondary_sku != null ? String(r.po_secondary_sku) : "";
-    const masterSku = r.master_sku != null ? String(r.master_sku).trim() : "";
-    const zap = masterSku ? zapLookup.get(masterSku) : undefined;
-    const companyPrimary = r.company_code_primary != null ? String(r.company_code_primary) : "";
     return [
+      invoiceDate,
+      invoiceNumber,
+      poNumber,
+      compCodePrimary,
       sku,
-      companyPrimary,
-      r.company_code_secondary ?? "",
-      resolveZapEanDisplay(companyPrimary, zap),
-      zap?.universal_ean ?? "",
-      r.box_quantity ?? 0,
-      r.original_demand ?? "",
-      r.dispatched_quantity ?? 0,
-      r.consignment_quantity ?? 0,
-      r.overall_fill_rate == null ? "" : Number(r.overall_fill_rate),
+      title,
+      qty,
+      priceExclGst || "",
+      "",
+      taxRate || "",
+      taxAmount || "",
+      "",
+      taxableAmount || "",
+      netSale || "",
+      gstin,
+      companyName,
+      shippingAddress,
+      "",
+      "",
+      totalBox,
+      transporterName,
+      "",
+      shipmentMode,
+      "",
+      vehicleDocketNumber,
+      "",
+      "",
+      "",
+      "",
+      soldVia,
+      "",
+      hsn,
     ];
   });
+
+  const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([itemHeaders, ...itemRows]),
-    "Items"
+    XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows]),
+    "Invoice"
   );
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
