@@ -1692,6 +1692,95 @@ export default function InboundGrnDetailPage() {
   const dcUploadRef = React.useRef<HTMLInputElement>(null);
   const [dcUploading, setDcUploading] = React.useState(false);
 
+  // Assign DCN Number Sheet state
+  const [dcnAssignSheetOpen, setDcnAssignSheetOpen] = React.useState(false);
+  const [dcnSuggestedNumber, setDcnSuggestedNumber] = React.useState("");
+  const [dcnCustomNumber, setDcnCustomNumber] = React.useState("");
+  const [dcnUseCustom, setDcnUseCustom] = React.useState(false);
+  const [dcnAssigning, setDcnAssigning] = React.useState(false);
+  const [dcnLoadingSuggestion, setDcnLoadingSuggestion] = React.useState(false);
+
+  // Upload Debit/Credit Note Dialog state
+  const [dcnUploadDialogOpen, setDcnUploadDialogOpen] = React.useState(false);
+  const [dcnUploadFile, setDcnUploadFile] = React.useState<File | null>(null);
+  const [dcnUploadSaving, setDcnUploadSaving] = React.useState(false);
+  const dcnUploadInputRef = React.useRef<HTMLInputElement>(null);
+
+  async function openDcnAssignSheet() {
+    setDcnAssignSheetOpen(true);
+    setDcnLoadingSuggestion(true);
+    setDcnUseCustom(false);
+    setDcnCustomNumber("");
+    try {
+      const res = await apiFetch<{ suggested_number: string }>(
+        `/api/inbound/grns/${grnId}/debit-note?suggest_dcn=1`
+      );
+      setDcnSuggestedNumber(res.suggested_number ?? "");
+    } catch {
+      setDcnSuggestedNumber("");
+    } finally {
+      setDcnLoadingSuggestion(false);
+    }
+  }
+
+  async function handleDcnAssignSubmit() {
+    const numberToAssign = dcnUseCustom ? dcnCustomNumber.trim() : dcnSuggestedNumber.trim();
+    if (!numberToAssign) {
+      toast.error("Please enter a debit/credit note number");
+      return;
+    }
+    setDcnAssigning(true);
+    try {
+      await apiFetch(`/api/inbound/grns/${grnId}/debit-note`, {
+        method: "PATCH",
+        body: JSON.stringify({ dcn_number: numberToAssign }),
+      });
+      toast.success("Debit/Credit note number assigned");
+      setDcnAssignSheetOpen(false);
+      await reloadBundle();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to assign number");
+    } finally {
+      setDcnAssigning(false);
+    }
+  }
+
+  async function handleDcnUploadSubmit() {
+    if (!dcnUploadFile) {
+      toast.error("Please select a file");
+      return;
+    }
+    if (dcnUploadFile.size > 2 * 1024 * 1024) {
+      toast.error("File size must not exceed 2MB");
+      return;
+    }
+    setDcnUploadSaving(true);
+    try {
+      const targetNoteId = bundle?.debit_credit_notes?.[0]?.note_id ?? -1;
+      const fd = new FormData();
+      fd.set("file", dcnUploadFile);
+      fd.set("kind", "debit_note");
+      fd.set("noteId", String(targetNoteId));
+      const token = getStoredToken();
+      const headers = new Headers();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(
+        apiUrl(`/api/inbound/grns/${grnId}/upload-zap`),
+        { method: "POST", headers, body: fd }
+      );
+      const text = await res.text();
+      if (!res.ok) throw new Error(text.slice(0, 200));
+      toast.success("Debit/Credit note uploaded");
+      setDcnUploadDialogOpen(false);
+      setDcnUploadFile(null);
+      await reloadBundle();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setDcnUploadSaving(false);
+    }
+  }
+
   React.useEffect(() => {
     if (!grnId) {
       setLoading(false);
@@ -3801,6 +3890,29 @@ export default function InboundGrnDetailPage() {
                           </CardContent>
                         </Card>
                       ))}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!row?.grn_id}
+                        onClick={() => void openDcnAssignSheet()}
+                      >
+                        Assign Debit/Credit Note Number
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!row?.grn_id}
+                        onClick={() => {
+                          setDcnUploadFile(null);
+                          setDcnUploadDialogOpen(true);
+                        }}
+                      >
+                        Upload Debit/Credit Note
+                      </Button>
+                    </div>
+
                     <input
                       ref={dcUploadRef}
                       type="file"
@@ -3829,7 +3941,7 @@ export default function InboundGrnDetailPage() {
                             const text = await res.text();
                             if (!res.ok) throw new Error(text.slice(0, 200));
                             toast.success("File uploaded");
-                            globalThis.location.reload();
+                            await reloadBundle();
                           } catch (err) {
                             toast.error(
                               err instanceof Error ? err.message : "Upload failed"
@@ -3842,7 +3954,7 @@ export default function InboundGrnDetailPage() {
                     />
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       disabled={dcUploading || !row?.grn_id}
                       title="Upload a reverse debit or credit note file"
@@ -3854,10 +3966,21 @@ export default function InboundGrnDetailPage() {
                       <h4 className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">
                         Prepared downloadables
                       </h4>
-                      <p className="text-muted-foreground text-sm">
-                        Debit and credit note CSV exports are not stored here. Export from the
-                        source system if you need them.
-                      </p>
+                      {row?.grn_id ? (
+                        <a
+                          href={apiUrl(`/api/inbound/grns/${row.grn_id}/debit-note?dcn_csv=1`)}
+                          className="inline-flex items-center gap-2 text-sm text-primary font-medium underline-offset-4 hover:underline"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Download className="size-4" />
+                          Debit/Credit Note Data (csv)
+                        </a>
+                      ) : (
+                        <p className="text-muted-foreground text-sm">
+                          No downloadable CSV available yet.
+                        </p>
+                      )}
                     </div>
                     </>
                   )}
@@ -4683,6 +4806,135 @@ export default function InboundGrnDetailPage() {
           </Tabs>
         </>
       ) : null}
+
+      {/* Assign Debit/Credit Note Number Sheet */}
+      <Sheet open={dcnAssignSheetOpen} onOpenChange={setDcnAssignSheetOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-md">
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>Assign Debit/Credit Note Number</SheetTitle>
+            <SheetDescription>
+              Assign or override the debit/credit note number for this GRN.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 p-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Add Debit/Credit Note Number</label>
+              {dcnLoadingSuggestion ? (
+                <Skeleton className="h-9 w-full" />
+              ) : (
+                <Input
+                  value={dcnUseCustom ? dcnCustomNumber : dcnSuggestedNumber}
+                  onChange={(e) => {
+                    if (!dcnUseCustom) {
+                      setDcnSuggestedNumber(e.target.value);
+                    } else {
+                      setDcnCustomNumber(e.target.value);
+                    }
+                  }}
+                  placeholder="e.g. 2627/GST-26-27/182/PR/42"
+                  className="font-mono"
+                />
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="dcn-use-custom"
+                checked={dcnUseCustom}
+                onChange={(e) => setDcnUseCustom(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="dcn-use-custom" className="text-sm">
+                Use Other Debit/Credit note Number
+              </label>
+            </div>
+
+            {dcnUseCustom && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Add Other Debit/Credit Note Number</label>
+                <Input
+                  value={dcnCustomNumber}
+                  onChange={(e) => setDcnCustomNumber(e.target.value)}
+                  placeholder="Enter custom note number"
+                  className="font-mono"
+                />
+              </div>
+            )}
+
+            <Button
+              type="button"
+              className="w-full"
+              disabled={dcnAssigning || dcnLoadingSuggestion}
+              onClick={() => void handleDcnAssignSubmit()}
+            >
+              {dcnAssigning ? "Submitting…" : "Submit"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Upload Debit/Credit Note Dialog */}
+      <Dialog open={dcnUploadDialogOpen} onOpenChange={setDcnUploadDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Debit/Credit Note</DialogTitle>
+            <DialogDescription>
+              Maximum 1 file is allowed. File size should not exceed 2MB. Please ensure both e-invoice and e-way bill is present in the pdf.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => dcnUploadInputRef.current?.click()}
+              >
+                Choose File
+              </Button>
+              <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                {dcnUploadFile ? dcnUploadFile.name : "No file chosen"}
+              </span>
+              <input
+                ref={dcnUploadInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  e.target.value = "";
+                  if (file && file.size > 2 * 1024 * 1024) {
+                    toast.error("File size must not exceed 2MB");
+                    return;
+                  }
+                  setDcnUploadFile(file);
+                }}
+              />
+            </div>
+            {dcnUploadFile && (
+              <div className="text-sm">
+                <p className="font-medium">Selected Files:</p>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    {dcnUploadFile.name}
+                    <span className="text-emerald-600">✓</span>
+                  </li>
+                </ul>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              disabled={dcnUploadSaving || !dcnUploadFile}
+              onClick={() => void handleDcnUploadSubmit()}
+            >
+              {dcnUploadSaving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

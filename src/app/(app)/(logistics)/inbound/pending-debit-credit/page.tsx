@@ -158,6 +158,7 @@ type PendingRowProps = Readonly<{
   decidingNoteId: number | null;
   onUpload: (noteId: number, grnId: number) => void;
   onDecision: (noteId: number, grnId: number, status: "APPROVED" | "REJECTED") => void;
+  onAssign: (grnId: number) => void;
 }>;
 
 function PendingDebitCreditTableRow({
@@ -167,6 +168,7 @@ function PendingDebitCreditTableRow({
   decidingNoteId,
   onUpload,
   onDecision,
+  onAssign,
 }: PendingRowProps) {
   const noteTerminal = isTerminalNoteStatus(row.credit_debit_note_status);
   const uploadDone = isUploadedStatus(row.credit_debit_note_upload_status);
@@ -287,8 +289,19 @@ function PendingDebitCreditTableRow({
       <TableCell className="whitespace-nowrap text-xs">
         {formatDisplayDateTime(row.updated_at)}
       </TableCell>
-      <TableCell className="min-w-[250px]">
+      <TableCell className="min-w-[300px]">
         <div className="flex flex-wrap gap-2">
+          {row.credit_debit_note_number_assignment_status?.toUpperCase() !== "ASSIGNED" ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={uploadBusy || actionBusy}
+              onClick={() => onAssign(row.grn_id)}
+            >
+              Assign #
+            </Button>
+          ) : null}
           {uploadNeeded ? (
             <Button
               type="button"
@@ -321,7 +334,7 @@ function PendingDebitCreditTableRow({
               </Button>
             </>
           ) : null}
-          {showNoActions ? (
+          {showNoActions && row.credit_debit_note_number_assignment_status?.toUpperCase() === "ASSIGNED" ? (
             <span className="text-muted-foreground text-xs">No actions available</span>
           ) : null}
         </div>
@@ -345,6 +358,15 @@ export default function InboundPendingDebitCreditPage() {
   const uploadRef = React.useRef<HTMLInputElement | null>(null);
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] = React.useState(false);
+
+  // Assign DCN Number Sheet state
+  const [dcnAssignSheetOpen, setDcnAssignSheetOpen] = React.useState(false);
+  const [dcnAssignGrnId, setDcnAssignGrnId] = React.useState<number | null>(null);
+  const [dcnSuggestedNumber, setDcnSuggestedNumber] = React.useState("");
+  const [dcnCustomNumber, setDcnCustomNumber] = React.useState("");
+  const [dcnUseCustom, setDcnUseCustom] = React.useState(false);
+  const [dcnAssigning, setDcnAssigning] = React.useState(false);
+  const [dcnLoadingSuggestion, setDcnLoadingSuggestion] = React.useState(false);
 
   const perPage = 100;
 
@@ -432,6 +454,50 @@ export default function InboundPendingDebitCreditPage() {
     },
     [load]
   );
+
+  const handleAssign = React.useCallback(
+    async (grnId: number) => {
+      setDcnAssignGrnId(grnId);
+      setDcnAssignSheetOpen(true);
+      setDcnUseCustom(false);
+      setDcnCustomNumber("");
+      setDcnLoadingSuggestion(true);
+      try {
+        const res = await apiFetch<{ suggested_number: string }>(
+          `/api/inbound/grns/${grnId}/debit-note?suggest_dcn=1`
+        );
+        setDcnSuggestedNumber(res.suggested_number ?? "");
+      } catch {
+        setDcnSuggestedNumber("");
+      } finally {
+        setDcnLoadingSuggestion(false);
+      }
+    },
+    []
+  );
+
+  async function handleDcnAssignSubmit() {
+    if (!dcnAssignGrnId) return;
+    const numberToAssign = dcnUseCustom ? dcnCustomNumber.trim() : dcnSuggestedNumber.trim();
+    if (!numberToAssign) {
+      toast.error("Please enter a debit/credit note number");
+      return;
+    }
+    setDcnAssigning(true);
+    try {
+      await apiFetch(`/api/inbound/grns/${dcnAssignGrnId}/debit-note`, {
+        method: "PATCH",
+        body: JSON.stringify({ dcn_number: numberToAssign }),
+      });
+      toast.success("Debit/Credit note number assigned");
+      setDcnAssignSheetOpen(false);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to assign number");
+    } finally {
+      setDcnAssigning(false);
+    }
+  }
 
   const totalPages =
     data && data.total > 0 ? Math.ceil(data.total / data.per_page_count) : 1;
@@ -600,6 +666,7 @@ export default function InboundPendingDebitCreditPage() {
                         decidingNoteId={decidingNoteId}
                         onUpload={handleUpload}
                         onDecision={handleDecision}
+                        onAssign={handleAssign}
                       />
                     ))}
                   </TableBody>
@@ -636,6 +703,75 @@ export default function InboundPendingDebitCreditPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {/* Assign Debit/Credit Note Number Sheet */}
+      <Sheet open={dcnAssignSheetOpen} onOpenChange={setDcnAssignSheetOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-md">
+          <SheetHeader className="border-b bg-muted/20 px-4 py-4 text-left">
+            <SheetTitle>Assign Debit/Credit Note Number</SheetTitle>
+            <SheetDescription>
+              Assign or override the debit/credit note number for GRN {dcnAssignGrnId}.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 p-4">
+            <div className="space-y-2">
+              <Label htmlFor="dcn-number-input">Add Debit/Credit Note Number</Label>
+              {dcnLoadingSuggestion ? (
+                <Skeleton className="h-9 w-full" />
+              ) : (
+                <Input
+                  id="dcn-number-input"
+                  value={dcnUseCustom ? dcnCustomNumber : dcnSuggestedNumber}
+                  onChange={(e) => {
+                    if (!dcnUseCustom) {
+                      setDcnSuggestedNumber(e.target.value);
+                    } else {
+                      setDcnCustomNumber(e.target.value);
+                    }
+                  }}
+                  placeholder="e.g. 2627/GST-26-27/182/PR/42"
+                  className="font-mono"
+                />
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="dcn-use-custom-pending"
+                checked={dcnUseCustom}
+                onChange={(e) => setDcnUseCustom(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300"
+              />
+              <label htmlFor="dcn-use-custom-pending" className="text-sm">
+                Use Other Debit/Credit note Number
+              </label>
+            </div>
+
+            {dcnUseCustom && (
+              <div className="space-y-2">
+                <Label htmlFor="dcn-custom-number-input">Add Other Debit/Credit Note Number</Label>
+                <Input
+                  id="dcn-custom-number-input"
+                  value={dcnCustomNumber}
+                  onChange={(e) => setDcnCustomNumber(e.target.value)}
+                  placeholder="Enter custom note number"
+                  className="font-mono"
+                />
+              </div>
+            )}
+
+            <Button
+              type="button"
+              className="w-full"
+              disabled={dcnAssigning || dcnLoadingSuggestion}
+              onClick={() => void handleDcnAssignSubmit()}
+            >
+              {dcnAssigning ? "Submitting…" : "Submit"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

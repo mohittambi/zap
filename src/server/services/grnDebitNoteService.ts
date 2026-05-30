@@ -751,6 +751,124 @@ export async function markDebitNoteExported(
   return fetchNoteById(toNum(current.rows[0].id));
 }
 
+/**
+ * Generate a suggested DCN number in the eAutomate format:
+ * {FY_SHORT}/{vendor_invoice_number}/PR/{sequential}
+ * e.g. "2627/GST-26-27/182/PR/42"
+ */
+export async function generateSuggestedDcnNumber(
+  grnIdRaw: unknown
+): Promise<{ suggested_number: string; grn_id: number; note_id: number }> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  const grnRes = await query(
+    `SELECT g.grn_id, g.vendor_invoice_number, g.po_id
+     FROM inbound_grns g WHERE g.grn_id = $1`,
+    [grnId]
+  );
+  if (grnRes.rows.length === 0) throw new AppError(`GRN ${grnId} not found`, 404);
+  const grn = grnRes.rows[0];
+
+  const noteRes = await query(
+    `SELECT note_id FROM inbound_grn_debit_credit_notes
+     WHERE grn_id = $1
+     ORDER BY updated_at DESC NULLS LAST, note_id DESC LIMIT 1`,
+    [grnId]
+  );
+  if (noteRes.rows.length === 0) {
+    throw new AppError(`No debit/credit note row found for GRN ${grnId}`, 404);
+  }
+  const noteId = Number(noteRes.rows[0].note_id);
+
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const fyStart = month >= 4 ? year : year - 1;
+  const fyShort = `${String(fyStart).slice(2)}${String(fyStart + 1).slice(2)}`;
+
+  const seqRes = await query(
+    `SELECT COUNT(*)::int AS cnt FROM inbound_grn_debit_credit_notes
+     WHERE credit_debit_note_number IS NOT NULL AND credit_debit_note_number != ''`,
+    []
+  );
+  const seq = (Number(seqRes.rows[0]?.cnt) || 0) + 1;
+
+  const vendorInv = String(grn.vendor_invoice_number ?? "").trim() || String(grnId);
+  const suggested = `${fyShort}/${vendorInv}/PR/${seq}`;
+
+  return { suggested_number: suggested, grn_id: grnId, note_id: noteId };
+}
+
+/**
+ * Build eAutomate-format Debit/Credit Note Data CSV.
+ * Columns: credit_debit_note_number, grn_id, po_id, vendor_id, vendor_name,
+ *          sku_id, rejected_quantity, price_excl_gst, tax_rate, credit_debit_note_type
+ */
+export async function buildDebitCreditNoteDataCsv(
+  grnIdRaw: unknown
+): Promise<{ csv: string; filename: string }> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId)) throw new AppError("Invalid grn_id", 400);
+
+  const grnRes = await query(
+    `SELECT g.grn_id, g.po_id, g.vendor_id, g.vendor_name
+     FROM inbound_grns g WHERE g.grn_id = $1`,
+    [grnId]
+  );
+  if (grnRes.rows.length === 0) throw new AppError(`GRN ${grnId} not found`, 404);
+  const grn = grnRes.rows[0];
+
+  const noteRes = await query(
+    `SELECT n.credit_debit_note_number, n.credit_debit_note_type
+     FROM inbound_grn_debit_credit_notes n
+     WHERE n.grn_id = $1
+     ORDER BY n.note_id ASC LIMIT 1`,
+    [grnId]
+  );
+  const dcnNumber = noteRes.rows[0]?.credit_debit_note_number ?? "";
+  const noteType = noteRes.rows[0]?.credit_debit_note_type ?? "DAMAGES_DEBIT_NOTE";
+
+  const itemRes = await query(
+    `SELECT line_index, sku_id, raw FROM inbound_grn_items WHERE grn_id = $1 ORDER BY line_index`,
+    [grnId]
+  );
+
+  const lines: string[] = [
+    csvRow([
+      "credit_debit_note_number", "grn_id", "po_id", "vendor_id",
+      "vendor_name", "sku_id", "rejected_quantity", "price_excl_gst",
+      "tax_rate", "credit_debit_note_type",
+    ]),
+  ];
+
+  for (const item of itemRes.rows) {
+    const raw: Record<string, unknown> = (item.raw as Record<string, unknown>) ?? {};
+    const rejectedQty = pickNum(raw, REJECTED_QTY_KEYS);
+    if (rejectedQty <= 0) continue;
+    const vendorPrice = pickNum(raw, RECEIVED_PRICE_KEYS) || pickNum(raw, AUDIT_PRICE_KEYS);
+    const taxRate = pickNum(raw, ["tax_rate", "taxRate", "gst_rate", "gstRate", "tax_percentage"]);
+    lines.push(
+      csvRow([
+        dcnNumber,
+        grnId,
+        grn.po_id ?? "",
+        grn.vendor_id ?? "",
+        grn.vendor_name ?? "",
+        item.sku_id ?? pickStr(raw, SKU_KEYS) ?? "",
+        rejectedQty,
+        vendorPrice,
+        taxRate || 5,
+        noteType,
+      ])
+    );
+  }
+
+  const typeSlug = String(noteType).toLowerCase().includes("damage") ? "damages" : "shortages";
+  const filename = `${grnId}_${typeSlug}_debit_note_data.csv`;
+  return { csv: lines.join("\r\n"), filename };
+}
+
 export async function assignDcnNumberForGrn(
   grnIdRaw: unknown,
   dcnNumber: string,

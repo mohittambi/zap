@@ -19,7 +19,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { CircleHelp } from "lucide-react";
+import { CircleHelp, Download } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
   Table,
@@ -254,6 +254,59 @@ export default function InboundPendingInvoiceCollectionPage() {
     void load();
   }
 
+  function downloadBulkInvoiceCsv() {
+    if (!data || selectedIds.length === 0) return;
+    const selectedRows = data.content.filter((r) => selectedIds.includes(r.grn_id));
+    if (selectedRows.length === 0) return;
+
+    const headers = [
+      "grn_id", "po_number", "grn_status", "grn_audit_status",
+      "invoice_collection_status", "grn_sku_count", "grn_invoice_quantity",
+      "grn_accepted_quantity", "grn_rejected_quantity", "grn_shortage_quantity",
+      "vendor_invoice_number", "vendor_id", "vendor_name",
+      "grn_audited_by", "invoice_collection_by", "grn_opened_by", "grn_opened_at",
+    ];
+
+    function csvEscape(v: unknown): string {
+      const s = v == null ? "" : String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n")
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    }
+
+    const rows = selectedRows.map((r) => [
+      r.grn_id,
+      r.po_id,
+      r.grn_status ?? "",
+      r.grn_audit_status ?? "",
+      r.grn_invoice_collection_status ?? "",
+      r.grn_sku_count,
+      r.grn_invoice_quantity,
+      r.grn_accepted_quantity,
+      r.grn_rejected_quantity,
+      r.grn_shortage_quantity,
+      r.vendor_invoice_number ?? "",
+      r.vendor_id,
+      r.vendor_name ?? "",
+      r.grn_audit_by ?? "",
+      r.grn_invoice_collection_by ?? "",
+      r.created_by ?? "",
+      r.created_at ?? "",
+    ].map(csvEscape).join(","));
+
+    const csv = [headers.join(","), ...rows].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bulk_invoice_data.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Downloaded ${selectedRows.length} invoice(s) as CSV`);
+  }
+
   const totalPages =
     data && data.total > 0
       ? Math.ceil(data.total / data.per_page_count)
@@ -376,19 +429,35 @@ export default function InboundPendingInvoiceCollectionPage() {
                     </span>
                   ) : null}
                 </p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={selectedIds.length === 0 || bulkMarking || loading}
-                  title="Set invoice collection to Collected for all selected GRNs"
-                  className={cn(
-                    selectedIds.length === 0 && "opacity-50"
-                  )}
-                  onClick={() => void markBulkReceived()}
-                >
-                  {bulkMarking ? "Updating…" : "Mark as received in bulk"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedIds.length === 0 || loading}
+                    className={cn(
+                      "gap-1.5",
+                      selectedIds.length === 0 && "opacity-50"
+                    )}
+                    onClick={downloadBulkInvoiceCsv}
+                  >
+                    <Download className="size-3.5" />
+                    Download Selected
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectedIds.length === 0 || bulkMarking || loading}
+                    title="Set invoice collection to Collected for all selected GRNs"
+                    className={cn(
+                      selectedIds.length === 0 && "opacity-50"
+                    )}
+                    onClick={() => void markBulkReceived()}
+                  >
+                    {bulkMarking ? "Updating…" : "Mark as received in bulk"}
+                  </Button>
+                </div>
               </div>
               <p className="text-muted-foreground border-b bg-muted/30 px-4 py-2 text-xs">
                 Use the toolbar above for{" "}

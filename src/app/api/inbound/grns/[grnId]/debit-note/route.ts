@@ -16,6 +16,8 @@ import {
   assignDnNumber,
   closeDnDemand,
   assignDcnNumberForGrn,
+  generateSuggestedDcnNumber,
+  buildDebitCreditNoteDataCsv,
 } from "@/server/services/grnDebitNoteService";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
@@ -94,6 +96,22 @@ export async function GET(request: Request, ctx: RouteContext) {
     if (url.searchParams.get("preview") === "1") {
       const lines = await getAuditPreview(grnId);
       return NextResponse.json({ lines });
+    }
+
+    if (url.searchParams.get("suggest_dcn") === "1") {
+      const suggestion = await generateSuggestedDcnNumber(grnId);
+      return NextResponse.json(suggestion);
+    }
+
+    if (url.searchParams.get("dcn_csv") === "1") {
+      const { csv, filename } = await buildDebitCreditNoteDataCsv(grnId);
+      return new Response(csv, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
     }
 
     const note = await getDebitNoteForGrn(grnId);
