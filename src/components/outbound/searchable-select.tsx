@@ -25,6 +25,7 @@ export function SearchableSelect({
   emptyText = "No matches",
   variant = "solid",
   size = "default",
+  disabled = false,
   className,
 }: {
   value: string | null;
@@ -36,6 +37,7 @@ export function SearchableSelect({
   emptyText?: string;
   variant?: "solid" | "soft";
   size?: "default" | "sm";
+  disabled?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -76,6 +78,10 @@ export function SearchableSelect({
       window.removeEventListener("scroll", onScrollOrResize, true);
     };
   }, [open, updatePanelPosition]);
+
+  React.useEffect(() => {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -176,6 +182,7 @@ export function SearchableSelect({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled}
         className={cn(
           "flex w-full items-center justify-between gap-1 rounded-md text-left font-medium shadow-sm",
           size === "sm"
@@ -184,15 +191,21 @@ export function SearchableSelect({
           variant === "soft"
             ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
             : "bg-primary text-primary-foreground hover:bg-primary/90",
-          open && "ring-ring ring-2 ring-offset-2 ring-offset-background"
+          open && !disabled && "ring-ring ring-2 ring-offset-2 ring-offset-background",
+          disabled && "pointer-events-none cursor-not-allowed opacity-50"
         )}
         onClick={() => {
+          if (disabled) return;
           setOpen((prev) => !prev);
         }}
-        onKeyDown={(e) => openSelectDropdownOnArrowKey(e, setOpen, open)}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          openSelectDropdownOnArrowKey(e, setOpen, open);
+        }}
         onBlur={() => onBlur?.()}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-disabled={disabled}
       >
         <span className="flex min-w-0 items-center gap-2 truncate">
           {selected && (selected.imageUrl != null || selected.imageName) ? (
