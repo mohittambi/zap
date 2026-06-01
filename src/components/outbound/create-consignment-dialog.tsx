@@ -55,8 +55,8 @@ export function CreateConsignmentDialog({
         <DialogHeader>
           <DialogTitle>Create New Consignment</DialogTitle>
           <DialogDescription>
-            Create an empty consignment for PO {poNumber}. You will enter bin packing lines on the
-            consignment detail page (CSV upload or form).
+            Create an empty consignment for PO {poNumber}. Enter packing per SKU on the consignment
+            detail page (use Close box when starting a new physical box).
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

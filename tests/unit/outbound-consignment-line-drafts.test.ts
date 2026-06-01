@@ -7,12 +7,17 @@ import {
   extractConsignmentSkuPackingFromListings,
   validateConsignmentSkuPackingClient,
   flattenSkuPackingToLineRows,
+  getMaxBoxNumber,
+  countDistinctBoxNumbers,
+  countDistinctBoxNumbersForSku,
+  formatSkuBoxBreakdown,
+  hasPackedLinesOnBox,
   groupLineRowsToSkuPacking,
   skusToBulkFormRows,
   parseConsignmentLineCsv,
   parseConsignmentLineCsvToSkus,
   sumPackedQty,
-  validateConsignmentSkuPackingClient,
+  upsertSkuBoxLine,
   type ConsignmentSkuPacking,
 } from "../../src/lib/outbound-consignment-line-drafts.ts";
 import {
@@ -144,13 +149,188 @@ describe("extractConsignmentLineDraftsFromListings", () => {
   });
 });
 
-describe("bulk form helpers", () => {
-  it("skusToBulkFormRows returns one row per PO SKU", () => {
+describe("box count and breakdown helpers", () => {
+  it("countDistinctBoxNumbers counts physical boxes with qty > 0", () => {
     const template = extractConsignmentSkuPackingFromListings(LISTINGS);
-    const rows = skusToBulkFormRows(template);
+    const skus: ConsignmentSkuPacking[] = [
+      {
+        ...template[0]!,
+        boxes: [
+          { box_number: 1, box_quantity: 5, box_name: "Small Carton" },
+          { box_number: 3, box_quantity: 10, box_name: "Large" },
+        ],
+      },
+      {
+        ...template[1]!,
+        boxes: [{ box_number: 1, box_quantity: 2, box_name: "Small Carton" }],
+      },
+    ];
+    assert.equal(countDistinctBoxNumbers(skus), 2);
+    assert.equal(countDistinctBoxNumbersForSku(skus[0]!), 2);
+    assert.equal(
+      formatSkuBoxBreakdown(skus[0]!),
+      "1:5 Small Carton, 3:10 Large"
+    );
+  });
+
+  it("ignores zero-qty lines in box counts", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const sku: ConsignmentSkuPacking = {
+      ...template[0]!,
+      boxes: [
+        { box_number: 1, box_quantity: 0, box_name: "Small Carton" },
+        { box_number: 2, box_quantity: 3, box_name: "Small Carton" },
+      ],
+    };
+    assert.equal(countDistinctBoxNumbers([sku]), 1);
+    assert.equal(countDistinctBoxNumbersForSku(sku), 1);
+    assert.equal(formatSkuBoxBreakdown(sku), "2:3 Small Carton");
+  });
+});
+
+describe("consignment-wide box helpers", () => {
+  it("getMaxBoxNumber returns highest box across SKUs", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const skus: ConsignmentSkuPacking[] = [
+      {
+        ...template[0]!,
+        boxes: [{ box_number: 1, box_quantity: 10, box_name: "Small Carton" }],
+      },
+      {
+        ...template[1]!,
+        boxes: [{ box_number: 3, box_quantity: 5, box_name: "Small Carton" }],
+      },
+    ];
+    assert.equal(getMaxBoxNumber(skus), 3);
+    assert.equal(getMaxBoxNumber([]), 0);
+  });
+
+  it("upsertSkuBoxLine merges qty for same box number and name", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const sku = template[0]!;
+    const once = upsertSkuBoxLine(sku, {
+      box_number: 1,
+      box_name: "Small Carton",
+      box_quantity: 10,
+    });
+    assert.equal(once.boxes.length, 1);
+    assert.equal(once.boxes[0]?.box_quantity, 10);
+
+    const twice = upsertSkuBoxLine(once, {
+      box_number: 1,
+      box_name: "Small Carton",
+      box_quantity: 15,
+    });
+    assert.equal(twice.boxes.length, 1);
+    assert.equal(twice.boxes[0]?.box_quantity, 15);
+  });
+
+  it("two SKUs on box 1 flatten to one distinct box number", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const skus: ConsignmentSkuPacking[] = [
+      upsertSkuBoxLine(template[0]!, {
+        box_number: 1,
+        box_name: "Small Carton",
+        box_quantity: 10,
+      }),
+      upsertSkuBoxLine(template[1]!, {
+        box_number: 1,
+        box_name: "Small Carton",
+        box_quantity: 20,
+      }),
+    ];
+    assert.equal(getMaxBoxNumber(skus), 1);
+    const flat = flattenSkuPackingToLineRows(skus);
+    assert.equal(flat.length, 2);
+    assert.equal(flat[0]?.box_number, 1);
+    assert.equal(flat[1]?.box_number, 1);
+    const distinct = new Set(flat.map((r) => r.box_number));
+    assert.equal(distinct.size, 1);
+  });
+
+  it("hasPackedLinesOnBox detects lines on a box number", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const packed = upsertSkuBoxLine(template[0]!, {
+      box_number: 2,
+      box_name: "Small Carton",
+      box_quantity: 5,
+    });
+    assert.equal(hasPackedLinesOnBox([packed], 2), true);
+    assert.equal(hasPackedLinesOnBox([packed], 1), false);
+  });
+
+  it("applyBulkFormRowsToSkus uses activeBoxNumber for first row per SKU", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const { skus, errors } = applyBulkFormRowsToSkus(
+      [
+        {
+          id: "1",
+          po_secondary_sku: "10153349",
+          company_code_primary: "BAH501",
+          box_number: "",
+          box_name: "Small Carton",
+          box_quantity: "10",
+          removable: false,
+        },
+        {
+          id: "2",
+          po_secondary_sku: "10149918",
+          company_code_primary: "AAC500",
+          box_number: "",
+          box_name: "Small Carton",
+          box_quantity: "5",
+          removable: false,
+        },
+      ],
+      template,
+      { activeBoxNumber: 1 }
+    );
+    assert.equal(errors.length, 0);
+    assert.equal(skus[0]?.boxes[0]?.box_number, 1);
+    assert.equal(skus[1]?.boxes[0]?.box_number, 1);
+    assert.equal(getMaxBoxNumber(skus), 1);
+  });
+});
+
+describe("bulk form helpers", () => {
+  it("skusToBulkFormRows returns one row per PO SKU with default box number", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const rows = skusToBulkFormRows(template, { defaultBoxNumber: 4 });
     assert.equal(rows.length, 2);
     assert.equal(rows[0]?.po_secondary_sku, "10153349");
+    assert.equal(rows[0]?.box_number, "4");
     assert.equal(rows[1]?.po_secondary_sku, "10149918");
+  });
+
+  it("applyBulkFormRowsToSkus uses explicit box_number from bulk rows", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const { skus, errors } = applyBulkFormRowsToSkus(
+      [
+        {
+          id: "1",
+          po_secondary_sku: "10153349",
+          company_code_primary: "BAH501",
+          box_number: "1",
+          box_name: "Small Carton",
+          box_quantity: "5",
+          removable: false,
+        },
+        {
+          id: "2",
+          po_secondary_sku: "10153349",
+          company_code_primary: "BAH501",
+          box_number: "3",
+          box_name: "Small Carton",
+          box_quantity: "10",
+          removable: true,
+        },
+      ],
+      template
+    );
+    assert.equal(errors.length, 0);
+    assert.equal(skus[0]?.boxes.length, 2);
+    assert.equal(skus[0]?.boxes[0]?.box_number, 1);
+    assert.equal(skus[0]?.boxes[1]?.box_number, 3);
   });
 
   it("applyBulkFormRowsToSkus groups multiple box lines per SKU", () => {
@@ -161,6 +341,7 @@ describe("bulk form helpers", () => {
           id: "1",
           po_secondary_sku: "10149918",
           company_code_primary: "AAC500",
+          box_number: "",
           box_name: "Small Carton",
           box_quantity: "10",
           removable: false,
@@ -169,6 +350,7 @@ describe("bulk form helpers", () => {
           id: "2",
           po_secondary_sku: "10149918",
           company_code_primary: "AAC500",
+          box_number: "",
           box_name: "Small Carton",
           box_quantity: "10",
           removable: true,
@@ -177,6 +359,7 @@ describe("bulk form helpers", () => {
           id: "3",
           po_secondary_sku: "10153349",
           company_code_primary: "BAH501",
+          box_number: "",
           box_name: "Small Carton",
           box_quantity: "50",
           removable: false,
@@ -197,6 +380,7 @@ describe("bulk form helpers", () => {
         id: "1",
         po_secondary_sku: "10149918",
         company_code_primary: "AAC500",
+        box_number: "1",
         box_name: "Small Carton",
         box_quantity: "15",
         removable: false,
@@ -205,6 +389,7 @@ describe("bulk form helpers", () => {
         id: "2",
         po_secondary_sku: "10149918",
         company_code_primary: "AAC500",
+        box_number: "2",
         box_name: "Small Carton",
         box_quantity: "10",
         removable: true,

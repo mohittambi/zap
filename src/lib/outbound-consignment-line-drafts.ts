@@ -162,6 +162,143 @@ export function extractConsignmentSkuPackingFromListings(
   return out;
 }
 
+/** Distinct physical box numbers with packed qty > 0 (matches server boxes_count). */
+export function countDistinctBoxNumbers(skus: ConsignmentSkuPacking[]): number {
+  const set = new Set<number>();
+  for (const sku of skus) {
+    for (const box of sku.boxes) {
+      const n = Math.trunc(box.box_number);
+      if (Number.isFinite(n) && n >= 1 && box.box_quantity > 0) {
+        set.add(n);
+      }
+    }
+  }
+  return set.size;
+}
+
+/** Distinct physical boxes one SKU spans (packed qty > 0 only). */
+export function countDistinctBoxNumbersForSku(sku: ConsignmentSkuPacking): number {
+  const set = new Set<number>();
+  for (const box of sku.boxes) {
+    const n = Math.trunc(box.box_number);
+    if (Number.isFinite(n) && n >= 1 && box.box_quantity > 0) {
+      set.add(n);
+    }
+  }
+  return set.size;
+}
+
+/** Compact packing summary for table tooltips, e.g. "1:5 MASTER_BOX_3, 3:12 SMALL_CARTON". */
+export function formatSkuBoxBreakdown(sku: ConsignmentSkuPacking): string {
+  const parts = [...sku.boxes]
+    .filter((b) => b.box_quantity > 0 && Math.trunc(b.box_number) >= 1)
+    .sort((a, b) => a.box_number - b.box_number || a.box_name.localeCompare(b.box_name))
+    .map((b) => {
+      const type = b.box_name.trim() || "—";
+      return `${Math.trunc(b.box_number)}:${Math.trunc(b.box_quantity)} ${type}`;
+    });
+  return parts.join(", ");
+}
+
+/** Sorted physical box numbers in use (qty > 0) across consignment, plus optional extras. */
+export function collectConsignmentBoxNumbers(
+  skus: ConsignmentSkuPacking[],
+  extra: number[] = []
+): number[] {
+  const set = new Set<number>();
+  for (const sku of skus) {
+    for (const box of sku.boxes) {
+      const n = Math.trunc(box.box_number);
+      if (Number.isFinite(n) && n >= 1 && box.box_quantity > 0) {
+        set.add(n);
+      }
+    }
+  }
+  for (const n of extra) {
+    const t = Math.trunc(n);
+    if (t >= 1) set.add(t);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+/** Highest box_number across all SKU box lines (0 if none). */
+export function getMaxBoxNumber(skus: ConsignmentSkuPacking[]): number {
+  let max = 0;
+  for (const sku of skus) {
+    for (const box of sku.boxes) {
+      const n = Math.trunc(box.box_number);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return max;
+}
+
+/** Box name from any line on the given consignment-wide box number. */
+export function getBoxNameForNumber(
+  skus: ConsignmentSkuPacking[],
+  boxNumber: number
+): string {
+  for (const sku of skus) {
+    for (const box of sku.boxes) {
+      if (Math.trunc(box.box_number) === boxNumber && box.box_name.trim()) {
+        return box.box_name.trim();
+      }
+    }
+  }
+  return "";
+}
+
+/** True if any SKU has a positive qty line on this box number. */
+export function hasPackedLinesOnBox(skus: ConsignmentSkuPacking[], boxNumber: number): boolean {
+  const n = Math.trunc(boxNumber);
+  for (const sku of skus) {
+    for (const box of sku.boxes) {
+      if (
+        Math.trunc(box.box_number) === n &&
+        Number.isFinite(box.box_quantity) &&
+        box.box_quantity > 0
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function boxLineKey(boxNumber: number, boxName: string): string {
+  return `${Math.trunc(boxNumber)}::${boxName.trim().toLowerCase()}`;
+}
+
+/** Merge or append a box line; preserves consignment-wide box_number. */
+export function upsertSkuBoxLine(
+  sku: ConsignmentSkuPacking,
+  line: { box_number: number; box_name: string; box_quantity: number }
+): ConsignmentSkuPacking {
+  const boxNumber = Math.trunc(line.box_number);
+  const boxName = line.box_name.trim();
+  const boxQuantity = Math.trunc(line.box_quantity);
+  const key = boxLineKey(boxNumber, boxName);
+  const boxes = [...sku.boxes];
+  const idx = boxes.findIndex((b) => boxLineKey(b.box_number, b.box_name) === key);
+  if (idx >= 0) {
+    boxes[idx] = { box_number: boxNumber, box_name: boxName, box_quantity: boxQuantity };
+  } else {
+    boxes.push({ box_number: boxNumber, box_name: boxName, box_quantity: boxQuantity });
+  }
+  boxes.sort((a, b) => a.box_number - b.box_number || a.box_name.localeCompare(b.box_name));
+  return { ...sku, boxes };
+}
+
+/** Sort each SKU’s box lines by box_number (no renumbering). */
+export function normalizeSkuBoxNumbers(skus: ConsignmentSkuPacking[]): ConsignmentSkuPacking[] {
+  return skus.map((sku) => ({
+    ...sku,
+    boxes: [...sku.boxes].sort(
+      (a, b) => a.box_number - b.box_number || a.box_name.localeCompare(b.box_name)
+    ),
+  }));
+}
+
 /** @deprecated Use extractConsignmentSkuPackingFromListings + flattenSkuPackingToLineRows */
 export function extractConsignmentLineDraftsFromListings(
   listings: unknown
@@ -169,11 +306,12 @@ export function extractConsignmentLineDraftsFromListings(
   return flattenSkuPackingToLineRows(extractConsignmentSkuPackingFromListings(listings));
 }
 
-/** One box line in the bulk packing form (PO SKU fixed; box name + qty editable). */
+/** One box line in the bulk packing form (PO SKU fixed; box #, type, qty editable). */
 export type ConsignmentBulkSkuRow = {
   id: string;
   po_secondary_sku: string;
   company_code_primary: string;
+  box_number: string;
   box_name: string;
   box_quantity: string;
   /** False for the required base row per SKU; true for rows added via Add box. */
@@ -187,11 +325,18 @@ function bulkRowId(poSecondarySku: string, boxIndex: number): string {
   return `${poSecondarySku}::${boxIndex}`;
 }
 
-export function skusToBulkFormRows(skus: ConsignmentSkuPacking[]): ConsignmentBulkSkuRow[] {
+export function skusToBulkFormRows(
+  skus: ConsignmentSkuPacking[],
+  opts?: { defaultBoxNumber?: number }
+): ConsignmentBulkSkuRow[] {
+  const defaultBox = Math.max(1, opts?.defaultBoxNumber ?? 1);
   const out: ConsignmentBulkSkuRow[] = [];
   for (const s of skus) {
     const filled = s.boxes.filter(
-      (b) => b.box_name.trim() || (Number.isFinite(b.box_quantity) && b.box_quantity > 0)
+      (b) =>
+        b.box_name.trim() ||
+        (Number.isFinite(b.box_quantity) && b.box_quantity > 0) ||
+        (Number.isFinite(b.box_number) && b.box_number >= 1)
     );
     if (filled.length > 0) {
       filled.forEach((b, i) => {
@@ -199,6 +344,10 @@ export function skusToBulkFormRows(skus: ConsignmentSkuPacking[]): ConsignmentBu
           id: bulkRowId(s.po_secondary_sku, i),
           po_secondary_sku: s.po_secondary_sku,
           company_code_primary: s.company_code_primary,
+          box_number:
+            Number.isFinite(b.box_number) && b.box_number >= 1
+              ? String(Math.trunc(b.box_number))
+              : String(defaultBox),
           box_name: b.box_name,
           box_quantity: b.box_quantity > 0 ? String(b.box_quantity) : "",
           removable: i > 0,
@@ -210,17 +359,24 @@ export function skusToBulkFormRows(skus: ConsignmentSkuPacking[]): ConsignmentBu
       id: bulkRowId(s.po_secondary_sku, 0),
       po_secondary_sku: s.po_secondary_sku,
       company_code_primary: s.company_code_primary,
+      box_number: String(defaultBox),
       box_name: "",
-      box_quantity: s.pending_quantity > 0 ? String(s.pending_quantity) : "",
+      box_quantity: "",
       removable: false,
     });
   }
   return out;
 }
 
+export type ApplyBulkFormOptions = {
+  /** Consignment-wide box for each SKU’s first bulk row in this apply. */
+  activeBoxNumber?: number;
+};
+
 export function applyBulkFormRowsToSkus(
   rows: ConsignmentBulkSkuRow[],
-  templateSkus: ConsignmentSkuPacking[]
+  templateSkus: ConsignmentSkuPacking[],
+  opts?: ApplyBulkFormOptions
 ): { skus: ConsignmentSkuPacking[]; errors: string[] } {
   const errors: string[] = [];
   const rowsBySku = new Map<string, ConsignmentBulkSkuRow[]>();
@@ -233,6 +389,12 @@ export function applyBulkFormRowsToSkus(
     rowsBySku.set(sku, list);
   }
 
+  const baseBox =
+    opts?.activeBoxNumber != null && opts.activeBoxNumber >= 1
+      ? Math.trunc(opts.activeBoxNumber)
+      : Math.max(1, getMaxBoxNumber(templateSkus) || 1);
+  let globalMax = Math.max(getMaxBoxNumber(templateSkus), baseBox);
+
   const next = templateSkus.map((tmpl) => {
     const skuRows = rowsBySku.get(tmpl.po_secondary_sku) ?? [];
     const label = `${tmpl.po_secondary_sku}${tmpl.company_code_primary ? ` / ${tmpl.company_code_primary}` : ""}`;
@@ -244,15 +406,31 @@ export function applyBulkFormRowsToSkus(
       if (!bin && (!Number.isFinite(qty) || qty < 1)) return;
 
       if (!bin) {
-        errors.push(`${label} (box ${boxIdx + 1}): box name is required`);
+        errors.push(`${label} (box ${boxIdx + 1}): box type is required`);
         return;
       }
       if (!Number.isFinite(qty) || qty < 1) {
         errors.push(`${label} (box ${boxIdx + 1}): quantity must be at least 1`);
         return;
       }
+
+      const explicitBox = row.box_number.trim();
+      let boxNumber: number;
+      if (explicitBox) {
+        boxNumber = Math.trunc(Number(explicitBox));
+        if (!Number.isFinite(boxNumber) || boxNumber < 1) {
+          errors.push(`${label} (box ${boxIdx + 1}): box number must be at least 1`);
+          return;
+        }
+      } else if (boxIdx === 0) {
+        boxNumber = baseBox;
+      } else {
+        boxNumber = ++globalMax;
+      }
+      globalMax = Math.max(globalMax, boxNumber);
+
       boxes.push({
-        box_number: boxes.length + 1,
+        box_number: boxNumber,
         box_quantity: qty,
         box_name: bin,
       });
@@ -262,7 +440,7 @@ export function applyBulkFormRowsToSkus(
   });
 
   if (!next.some((s) => s.boxes.length > 0) && errors.length === 0) {
-    errors.push("Enter at least one box line with box name and quantity");
+    errors.push("Enter at least one box line with box type and quantity");
   }
 
   return { skus: next, errors };

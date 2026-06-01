@@ -5,6 +5,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   applyBulkFormRowsToSkus,
+  getMaxBoxNumber,
   skusToBulkFormRows,
   validateConsignmentSkuPackingClient,
   type ConsignmentBulkSkuRow,
@@ -24,6 +25,8 @@ import { Input } from "@/components/ui/input";
 
 export function ConsignmentLineItemsBulkForm({
   skus,
+  activeBoxNumber,
+  hasOpenBox = true,
   validBins,
   validBinSet,
   disabled = false,
@@ -32,6 +35,8 @@ export function ConsignmentLineItemsBulkForm({
   saving = false,
 }: Readonly<{
   skus: ConsignmentSkuPacking[];
+  activeBoxNumber: number;
+  hasOpenBox?: boolean;
   validBins: { key: string; label: string }[];
   validBinSet: Set<string>;
   disabled?: boolean;
@@ -50,10 +55,19 @@ export function ConsignmentLineItemsBulkForm({
 
   React.useEffect(() => {
     if (open) {
-      setRows(skusToBulkFormRows(skus));
+      setRows(skusToBulkFormRows(skus, { defaultBoxNumber: activeBoxNumber }));
       nextRowId.current = skus.length * 10;
     }
-  }, [open, skus]);
+  }, [open, skus, activeBoxNumber]);
+
+  function nextBulkBoxNumber(): number {
+    let max = Math.max(getMaxBoxNumber(skus), activeBoxNumber);
+    for (const r of rows) {
+      const n = Math.trunc(Number(r.box_number));
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max + 1;
+  }
 
   function newRowId(): string {
     nextRowId.current += 1;
@@ -63,7 +77,9 @@ export function ConsignmentLineItemsBulkForm({
   function validateAndCommit(
     onSuccess: (next: ConsignmentSkuPacking[]) => void
   ): boolean {
-    const { skus: parsed, errors: parseErrors } = applyBulkFormRowsToSkus(rows, skus);
+    const { skus: parsed, errors: parseErrors } = applyBulkFormRowsToSkus(rows, skus, {
+      activeBoxNumber,
+    });
     if (parseErrors.length > 0) {
       toast.error(parseErrors[0]);
       return false;
@@ -127,6 +143,7 @@ export function ConsignmentLineItemsBulkForm({
       id: newRowId(),
       po_secondary_sku: anchor.po_secondary_sku,
       company_code_primary: anchor.company_code_primary,
+      box_number: String(nextBulkBoxNumber()),
       box_name: "",
       box_quantity: "",
       removable: true,
@@ -158,7 +175,13 @@ export function ConsignmentLineItemsBulkForm({
         variant="outline"
         size="sm"
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          if (!hasOpenBox) {
+            toast.error("Click Add box before using the bulk form");
+            return;
+          }
+          setOpen(true);
+        }}
       >
         Bulk form
       </Button>
@@ -168,8 +191,9 @@ export function ConsignmentLineItemsBulkForm({
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle className="text-base">Bulk packing form</DialogTitle>
             <DialogDescription className="text-sm">
-              Add multiple box lines per SKU. PO Secondary SKU and company code are fixed;
-              packed total per SKU cannot exceed pending quantity.
+              Set physical box #, box type, and qty per line. Empty box # defaults to open box #
+              {activeBoxNumber} on the first line per SKU. Packed total per SKU cannot exceed pending
+              quantity.
             </DialogDescription>
           </DialogHeader>
 
@@ -180,7 +204,10 @@ export function ConsignmentLineItemsBulkForm({
                   <tr className="bg-muted/60 border-b">
                     <th className="px-2 py-2 font-semibold whitespace-nowrap">PO Secondary SKU</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap">Company Code Primary</th>
-                    <th className="w-36 px-2 py-2 font-semibold whitespace-nowrap">Box name</th>
+                    <th className="w-20 px-2 py-2 font-semibold whitespace-nowrap text-right">
+                      Box #
+                    </th>
+                    <th className="w-36 px-2 py-2 font-semibold whitespace-nowrap">Box type</th>
                     <th className="w-24 px-2 py-2 font-semibold whitespace-nowrap text-right">Qty</th>
                     <th className="w-32 px-2 py-2 font-semibold whitespace-nowrap">Actions</th>
                   </tr>
@@ -196,13 +223,22 @@ export function ConsignmentLineItemsBulkForm({
                         <td className="px-2 py-1.5 font-mono align-top">
                           {showSku ? row.company_code_primary || "—" : ""}
                         </td>
+                        <td className="px-2 py-1 text-right align-top">
+                          <Input
+                            value={row.box_number}
+                            onChange={(e) => updateRow(idx, { box_number: e.target.value })}
+                            placeholder={String(activeBoxNumber)}
+                            className="ml-auto h-8 w-16 font-mono text-xs tabular-nums"
+                            disabled={disabled}
+                          />
+                        </td>
                         <td className="px-2 py-1 align-top">
                           <SearchableSelect
                             value={row.box_name || null}
                             onChange={(key) => updateRow(idx, { box_name: key ?? "" })}
                             options={binOptions}
-                            placeholder="Box name"
-                            emptyText="No valid box names"
+                            placeholder="Box type"
+                            emptyText="No valid box types"
                             variant="soft"
                             size="sm"
                             className="max-w-[9rem]"

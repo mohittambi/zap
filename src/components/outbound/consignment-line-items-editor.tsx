@@ -6,6 +6,12 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import {
   buildConsignmentLineSampleCsv,
+  countDistinctBoxNumbers,
+  countDistinctBoxNumbersForSku,
+  formatSkuBoxBreakdown,
+  getBoxNameForNumber,
+  getMaxBoxNumber,
+  hasPackedLinesOnBox,
   parseConsignmentLineCsvToSkus,
   sumPackedQty,
   validateConsignmentSkuPackingClient,
@@ -13,6 +19,7 @@ import {
 } from "@/lib/outbound-consignment-line-drafts";
 import { cn } from "@/lib/utils";
 import { fetchOutboundValidBins } from "@/lib/outbound-valid-bins";
+import { ConsignmentCurrentBoxBar } from "@/components/outbound/consignment-current-box-bar";
 import { ConsignmentLineItemsBulkForm } from "@/components/outbound/consignment-line-items-bulk-form";
 import { ConsignmentSkuPackingModal } from "@/components/outbound/consignment-sku-packing-modal";
 import { Button } from "@/components/ui/button";
@@ -43,11 +50,15 @@ export function ConsignmentLineItemsEditor({
   const [source, setSource] = React.useState<"saved" | "draft">("draft");
   const [validBins, setValidBins] = React.useState<{ key: string; label: string }[]>([]);
   const [packingSkuIdx, setPackingSkuIdx] = React.useState<number | null>(null);
+  const [activeBoxNumber, setActiveBoxNumber] = React.useState<number | null>(null);
+  const [activeBoxName, setActiveBoxName] = React.useState("");
 
   const validBinSet = React.useMemo(
     () => new Set(validBins.map((b) => b.label.trim().toLowerCase())),
     [validBins]
   );
+
+  const boxesUsed = React.useMemo(() => countDistinctBoxNumbers(skus), [skus]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -61,6 +72,9 @@ export function ConsignmentLineItemsEditor({
       setSkus(drafts.skus);
       setSource(drafts.source);
       setValidBins(bins.map((b) => ({ key: b.name, label: b.name })));
+      const maxBox = getMaxBoxNumber(drafts.skus);
+      setActiveBoxNumber(null);
+      setActiveBoxName(maxBox > 0 ? getBoxNameForNumber(drafts.skus, maxBox) : "");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load line items");
       setSkus([]);
@@ -107,6 +121,9 @@ export function ConsignmentLineItemsEditor({
       return;
     }
     setSkus(parsed.skus);
+    const maxBox = getMaxBoxNumber(parsed.skus);
+    setActiveBoxNumber(null);
+    setActiveBoxName(maxBox > 0 ? getBoxNameForNumber(parsed.skus, maxBox) : "");
     const rowCount = parsed.skus.reduce((n, s) => n + s.boxes.length, 0);
     toast.success(`Loaded packing for ${parsed.skus.length} SKU(s) (${rowCount} box line(s))`);
     if (fileRef.current) fileRef.current.value = "";
@@ -146,6 +163,57 @@ export function ConsignmentLineItemsEditor({
   }
 
   const packingSku = packingSkuIdx != null ? skus[packingSkuIdx] ?? null : null;
+
+  const hasOpenBox = activeBoxNumber != null;
+
+  const canCloseBox =
+    hasOpenBox &&
+    activeBoxName.trim().length > 0 &&
+    hasPackedLinesOnBox(skus, activeBoxNumber);
+
+  const canAddBox = !hasOpenBox;
+
+  function addBox() {
+    if (activeBoxNumber != null) {
+      toast.error("Close the current box before adding a new one");
+      return;
+    }
+    const nextNumber = Math.max(1, getMaxBoxNumber(skus) + 1);
+    setActiveBoxNumber(nextNumber);
+    toast.success(`Box #${nextNumber} is open — select box type and enter packing`);
+  }
+
+  function closeBox() {
+    if (activeBoxNumber == null) return;
+
+    const closedNumber = activeBoxNumber;
+
+    if (!hasPackedLinesOnBox(skus, closedNumber)) {
+      setActiveBoxNumber(null);
+      toast.info(`Box #${closedNumber} cleared (nothing was packed)`);
+      return;
+    }
+
+    if (!activeBoxName.trim()) {
+      toast.error("Select a box type before closing the box");
+      return;
+    }
+
+    setActiveBoxNumber(null);
+    toast.success(`Box #${closedNumber} closed — click Add box when ready for the next physical bin`);
+  }
+
+  function openPacking(idx: number) {
+    if (activeBoxNumber == null) {
+      toast.error("Click Add box before entering packing");
+      return;
+    }
+    if (!activeBoxName.trim()) {
+      toast.error("Select a box type on the packing bar before entering packing");
+      return;
+    }
+    setPackingSkuIdx(idx);
+  }
 
   return (
     <>
@@ -200,6 +268,8 @@ export function ConsignmentLineItemsEditor({
             {!readOnly && !loading && skus.length > 0 ? (
               <ConsignmentLineItemsBulkForm
                 skus={skus}
+                activeBoxNumber={activeBoxNumber ?? Math.max(1, getMaxBoxNumber(skus) + 1)}
+                hasOpenBox={hasOpenBox}
                 validBins={validBins}
                 validBinSet={validBinSet}
                 disabled={busy}
@@ -218,6 +288,21 @@ export function ConsignmentLineItemsEditor({
               Save lines
             </Button>
           </div>
+
+          {!readOnly && !loading && skus.length > 0 ? (
+            <ConsignmentCurrentBoxBar
+              activeBoxNumber={activeBoxNumber}
+              activeBoxName={activeBoxName}
+              boxesUsed={boxesUsed}
+              validBins={validBins}
+              disabled={busy}
+              canCloseBox={canCloseBox}
+              canAddBox={canAddBox}
+              onBoxNameChange={setActiveBoxName}
+              onAddBox={addBox}
+              onCloseBox={closeBox}
+            />
+          ) : null}
 
           {loading ? (
             <p className="text-muted-foreground flex items-center gap-2 text-sm">
@@ -240,7 +325,8 @@ export function ConsignmentLineItemsEditor({
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">reserved</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">pending</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">packed qty</th>
-                    <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">boxes</th>
+                    <th className="px-2 py-2 font-semibold whitespace-nowrap text-right"># boxes</th>
+                    <th className="px-2 py-2 font-semibold whitespace-nowrap">packing detail</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap">action</th>
                   </tr>
                 </thead>
@@ -254,7 +340,15 @@ export function ConsignmentLineItemsEditor({
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.reserved_quantity}</td>
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.pending_quantity}</td>
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sumPackedQty(sku)}</td>
-                      <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.boxes.length}</td>
+                      <td className="px-2 py-2 text-right font-mono tabular-nums">
+                        {countDistinctBoxNumbersForSku(sku)}
+                      </td>
+                      <td
+                        className="text-muted-foreground max-w-[12rem] truncate px-2 py-2 font-mono text-[11px]"
+                        title={formatSkuBoxBreakdown(sku) || undefined}
+                      >
+                        {formatSkuBoxBreakdown(sku) || "—"}
+                      </td>
                       <td className="px-2 py-2">
                         {readOnly ? (
                           <span className="text-muted-foreground text-xs">Locked</span>
@@ -264,7 +358,7 @@ export function ConsignmentLineItemsEditor({
                             variant="outline"
                             size="sm"
                             className="h-7 text-xs"
-                            onClick={() => setPackingSkuIdx(idx)}
+                            onClick={() => openPacking(idx)}
                           >
                             Enter packing
                           </Button>
@@ -285,6 +379,9 @@ export function ConsignmentLineItemsEditor({
           if (!open) setPackingSkuIdx(null);
         }}
         sku={packingSku}
+        allSkus={skus}
+        activeBoxNumber={activeBoxNumber ?? 1}
+        activeBoxName={activeBoxName}
         validBins={validBins}
         validBinSet={validBinSet}
         onSave={(updated) => {
