@@ -42,6 +42,42 @@ function str(v, maxLen) {
   return maxLen ? s.slice(0, maxLen) : s;
 }
 
+/** Map DB DATE / timestamptz to ISO date string YYYY-MM-DD for API responses. */
+function formatOriginalInvoiceDateForApi(v) {
+  if (v == null || v === "") return null;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    return v.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Validate PATCH value for original_invoice_date; returns YYYY-MM-DD or null. */
+function parseOriginalInvoiceDateForPatch(v) {
+  if (v == null || v === "") return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) throw new AppError("original_invoice_date must be YYYY-MM-DD", 400);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== mo - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    throw new AppError("original_invoice_date is not a valid calendar date", 400);
+  }
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 /** eautomate-shaped list row for inbound GRN table UI */
 function rowToListItem(r) {
   const vendorId = Number(r.vendor_id);
@@ -66,6 +102,7 @@ function rowToListItem(r) {
       ? new Date(r.inventory_receipt_at).toISOString().replace(/\.\d{3}Z$/, ".000000Z")
       : null,
     vendor_invoice_number: r.vendor_invoice_number ?? null,
+    original_invoice_date: formatOriginalInvoiceDateForApi(r.original_invoice_date),
     box_count_invoice: Number(r.box_count_invoice ?? 0),
     actual_box_count_recieved: Number(r.actual_box_count_received ?? 0),
     grn_sku_count: Number(r.grn_sku_count ?? 0),
@@ -95,7 +132,7 @@ const listSelect = `
          g.grn_invoice_collection_status, g.grn_invoice_collection_by,
          g.accounts_status, g.accounts_by, g.accounts_at,
          g.inventory_receipt_status, g.inventory_receipt_by, g.inventory_receipt_at,
-         g.vendor_invoice_number, g.box_count_invoice, g.actual_box_count_received,
+         g.vendor_invoice_number, g.original_invoice_date, g.box_count_invoice, g.actual_box_count_received,
          g.grn_sku_count, g.grn_invoice_quantity, g.grn_accepted_quantity,
          g.grn_rejected_quantity, g.grn_shortage_quantity,
          g.po_sku_count, g.po_total_quantity,
@@ -354,7 +391,22 @@ export async function updateGrnStatus(grnIdRaw, fields, actorEmail) {
     );
   }
 
-  const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by"];
+  if ("original_invoice_date" in fields) {
+    fields.original_invoice_date = parseOriginalInvoiceDateForPatch(
+      fields.original_invoice_date
+    );
+  }
+
+  const allowed = [
+    "grn_audit_status",
+    "grn_audit_by",
+    "grn_invoice_collection_status",
+    "grn_invoice_collection_by",
+    "grn_status",
+    "accounts_status",
+    "accounts_by",
+    "original_invoice_date",
+  ];
   const auditDone =
     String(fields.grn_audit_status ?? "").trim().toUpperCase() === "CLOSED";
   const hasAuditBy = "grn_audit_by" in fields;

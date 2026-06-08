@@ -187,3 +187,144 @@ describe("Consignment invoice download", () => {
     skip("no consignment with uploaded invoice found");
   });
 });
+
+// ── Invoice type patch ────────────────────────────────────────────────────────
+
+describe("Consignment invoice type patch", () => {
+  it("PATCH invoice_type without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments/1`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field: "invoice_type", value: "Tax Invoice" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+
+  it("PATCH invoice_type on non-existent consignment returns 404", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/999999999", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field: "invoice_type", value: "Tax Invoice" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 404);
+  });
+
+  it("PATCH unknown field returns 400", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/1", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field: "unknown_field", value: "x" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.ok(r.status === 400 || r.status === 404, `expected 400 or 404, got ${r.status}`);
+  });
+
+  it("PATCH invoice_type on existing consignment returns 200", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/outbound/consignments?page=1&count=1");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+    if (consignments.length === 0) return skip("no consignments in database");
+
+    const id = consignments[0].id;
+    const r = await api(`/api/outbound/consignments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ field: "invoice_type", value: "Tax Invoice" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 200);
+
+    const getR = await api(`/api/outbound/consignments/${id}`);
+    if (getR.status === 200) {
+      const row = await getR.json();
+      assert.strictEqual(row.invoice_type, "Tax Invoice");
+    }
+  });
+});
+
+// ── Bulk invoice excel ────────────────────────────────────────────────────────
+
+describe("Consignment bulk invoice excel", () => {
+  it("POST /bulk-invoice-excel without auth returns 401", async () => {
+    const r = await fetch(`${BASE}/api/outbound/consignments/bulk-invoice-excel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [1] }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 401);
+  });
+
+  it("POST /bulk-invoice-excel with empty ids returns 400", async () => {
+    if (!token) return skip("login failed");
+    const r = await api("/api/outbound/consignments/bulk-invoice-excel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: [] }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 400);
+  });
+
+  it("POST /bulk-invoice-excel without invoice number returns 400", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/outbound/consignments?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+
+    for (const c of consignments) {
+      if (!(c.invoice_number ?? "").trim()) {
+        const r = await api("/api/outbound/consignments/bulk-invoice-excel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [c.id] }),
+        });
+        if (r.status === 503) return skip("server unreachable");
+        assert.strictEqual(r.status, 400);
+        const body = await r.json();
+        assert.ok(
+          (body.error ?? "").includes("invoice number"),
+          "error should mention invoice number"
+        );
+        return;
+      }
+    }
+    skip("no consignment without invoice number found");
+  });
+
+  it("POST /bulk-invoice-excel with assigned invoice number returns 200 xlsx", async () => {
+    if (!token) return skip("login failed");
+    const listR = await api("/api/outbound/consignments?page=1&count=20");
+    if (listR.status !== 200) return skip("cannot list consignments");
+    const list = await listR.json();
+    const consignments = list.content ?? list ?? [];
+
+    for (const c of consignments) {
+      if ((c.invoice_number ?? "").trim()) {
+        const r = await api("/api/outbound/consignments/bulk-invoice-excel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [c.id] }),
+        });
+        if (r.status === 503) return skip("server unreachable");
+        assert.strictEqual(r.status, 200);
+        const ct = r.headers.get("content-type") ?? "";
+        assert.ok(
+          ct.includes("spreadsheetml") || ct.includes("octet-stream"),
+          `expected xlsx content-type, got ${ct}`
+        );
+        const buf = await r.arrayBuffer();
+        assert.ok(buf.byteLength > 0, "xlsx body should not be empty");
+        return;
+      }
+    }
+    skip("no consignment with invoice number found");
+  });
+});

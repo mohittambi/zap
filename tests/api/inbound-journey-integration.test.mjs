@@ -215,6 +215,57 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     );
   });
 
+  it("pending-accounts list rows include original_invoice_date field", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(`/api/inbound/pending-accounts/grns?page=1&count=50`);
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    const row = (j.content || []).find(
+      (item) => item.grn_id === INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS
+    );
+    if (!row) {
+      skip("fixture GRN not in pending-accounts queue");
+      return;
+    }
+    assert.ok("original_invoice_date" in row, "list row should expose original_invoice_date");
+  });
+
+  it("PATCH original_invoice_date on fixture pending-accounts GRN succeeds", async () => {
+    if (!(await requireFixture())) return;
+    const gid = INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS;
+    const patchR = await api(`/api/inbound/grns/${gid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ original_invoice_date: "2025-10-09" }),
+    });
+    if (patchR.status === 503) return skip("server unreachable");
+    assert.strictEqual(patchR.status, 200);
+
+    const getR = await api(`/api/inbound/grns/${gid}`);
+    assert.strictEqual(getR.status, 200);
+    const row = await getR.json();
+    assert.strictEqual(row.original_invoice_date, "2025-10-09");
+
+    const listR = await api(`/api/inbound/pending-accounts/grns?page=1&count=50`);
+    assert.strictEqual(listR.status, 200);
+    const list = await listR.json();
+    const listed = (list.content || []).find((item) => item.grn_id === gid);
+    if (listed) {
+      assert.strictEqual(listed.original_invoice_date, "2025-10-09");
+    }
+  });
+
+  it("PATCH invalid original_invoice_date returns 400", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ original_invoice_date: "not-a-date" }),
+    });
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 400);
+  });
+
   it("pending-debit-credit notes list includes fixture note_id", async () => {
     if (!(await requireFixture())) return;
     const r = await api(

@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download } from "lucide-react";
+import { toast } from "sonner";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -27,6 +28,7 @@ type Row = {
   consignment_status: string | null;
   invoice_number_status: string | null;
   invoice_number: string | null;
+  invoice_type: string | null;
   invoice_upload_status: string | null;
   boxes_count: number | null;
   sku_count: number | null;
@@ -65,6 +67,7 @@ const SORTABLE: { key: string; label: string; align?: "right" }[] = [
   { key: "created_at", label: "Consignment Created At" },
   { key: "marked_rtd_at", label: "Consignment Marked RTD At" },
   { key: "marked_rtd_by", label: "Marked RTD By" },
+  { key: "invoice_type", label: "Invoice Type" },
 ];
 
 function fmtDateTime(d: string | null | undefined): string {
@@ -156,6 +159,8 @@ export function OutboundConsignmentsTable({
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Paginated | null>(null);
+  const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const [downloadingBulk, setDownloadingBulk] = React.useState(false);
 
   const onSort = React.useCallback(
     (k: string) => {
@@ -206,6 +211,81 @@ export function OutboundConsignmentsTable({
   }, [load]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.per_page_count)) : 1;
+  const rows = data?.content ?? [];
+  const pageIds = rows.map((r) => r.id);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const someSelected = pageIds.some((id) => selected.has(id));
+  const selectedRows = rows.filter((r) => selected.has(r.id));
+  const selectedWithInvoice = selectedRows.filter(
+    (r) => (r.invoice_number ?? "").trim().length > 0
+  );
+  const selectedMissingInvoice = selectedRows.filter(
+    (r) => !(r.invoice_number ?? "").trim()
+  );
+  const canBulkDownload =
+    selectedWithInvoice.length > 0 && selectedMissingInvoice.length === 0;
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected((prev) => {
+        const s = new Set(prev);
+        pageIds.forEach((id) => s.delete(id));
+        return s;
+      });
+    } else {
+      setSelected((prev) => {
+        const s = new Set(prev);
+        pageIds.forEach((id) => s.add(id));
+        return s;
+      });
+    }
+  }
+
+  function toggleRow(id: number) {
+    setSelected((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
+  }
+
+  async function handleBulkDownloadInvoiceData() {
+    if (selectedRows.length === 0) return;
+    if (selectedMissingInvoice.length > 0) {
+      toast.error(
+        `Assign invoice number first for consignment id(s): ${selectedMissingInvoice.map((r) => r.id).join(", ")}`
+      );
+      return;
+    }
+    setDownloadingBulk(true);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      const res = await fetch(apiUrl("/api/outbound/consignments/bulk-invoice-excel"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ids: selectedWithInvoice.map((r) => r.id) }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bulk-invoice-data-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded invoice data for ${selectedWithInvoice.length} consignment(s)`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingBulk(false);
+    }
+  }
 
   return (
     <Card className="border-primary/10 shadow-sm">
@@ -241,6 +321,38 @@ export function OutboundConsignmentsTable({
             </Button>
           </div>
         </div>
+        {invoicePending && someSelected ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground text-sm">
+              {selected.size} selected
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!canBulkDownload || downloadingBulk || loading}
+              title={
+                selectedMissingInvoice.length > 0
+                  ? "All selected rows must have an invoice number assigned"
+                  : undefined
+              }
+              onClick={() => void handleBulkDownloadInvoiceData()}
+            >
+              <Download className="size-3.5" />
+              {downloadingBulk ? "Downloading…" : "Download invoice data"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground text-xs"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="p-0">
         {err && (
@@ -257,6 +369,7 @@ export function OutboundConsignmentsTable({
           <div className="max-w-full overflow-x-auto">
             <table className="w-max min-w-full border-collapse text-left text-xs">
               <colgroup>
+                {invoicePending ? <col className="w-[1%]" /> : null}
                 <col className="w-[1%]" />
                 {SORTABLE.map((c) => (
                   <col
@@ -267,6 +380,17 @@ export function OutboundConsignmentsTable({
               </colgroup>
               <thead>
                 <tr className="bg-muted/50 border-b">
+                  {invoicePending ? (
+                    <th className="align-top whitespace-nowrap px-2 py-2">
+                      <input
+                        type="checkbox"
+                        className="accent-primary cursor-pointer"
+                        aria-label="Select all on page"
+                        checked={allSelected}
+                        onChange={toggleAll}
+                      />
+                    </th>
+                  ) : null}
                   <th className="align-top whitespace-nowrap px-2 py-2">
                     <SortHeader
                       label="Consignment ID"
@@ -297,8 +421,25 @@ export function OutboundConsignmentsTable({
                 </tr>
               </thead>
               <tbody>
-                {(data?.content ?? []).map((row) => (
-                  <tr key={row.id} className="border-b hover:bg-muted/30">
+                {rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={cn(
+                      "border-b hover:bg-muted/30",
+                      invoicePending && selected.has(row.id) && "bg-primary/5"
+                    )}
+                  >
+                    {invoicePending ? (
+                      <td className="align-top whitespace-nowrap px-2 py-2">
+                        <input
+                          type="checkbox"
+                          className="accent-primary cursor-pointer"
+                          aria-label={`Select consignment ${row.id}`}
+                          checked={selected.has(row.id)}
+                          onChange={() => toggleRow(row.id)}
+                        />
+                      </td>
+                    ) : null}
                     <td className="align-top whitespace-nowrap px-2 py-2">
                       <Link
                         href={`/outbound/consignments/${row.id}`}
@@ -364,6 +505,7 @@ export function OutboundConsignmentsTable({
                     <td className="text-muted-foreground align-top px-2 py-2">
                       {row.marked_rtd_by ?? "—"}
                     </td>
+                    <td className="align-top px-2 py-2">{row.invoice_type ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -84,6 +84,7 @@ type GrnHeader = {
   inventory_receipt_by: string | null;
   inventory_receipt_at: string | null;
   vendor_invoice_number: string | null;
+  original_invoice_date: string | null;
   box_count_invoice: number;
   actual_box_count_recieved: number;
   grn_sku_count: number;
@@ -2225,6 +2226,8 @@ export default function InboundGrnDetailPage() {
 
   // Accounts + Inventory receipt tab state
   const [accountsSubmitting, setAccountsSubmitting] = React.useState(false);
+  const [originalInvoiceDateInput, setOriginalInvoiceDateInput] = React.useState("");
+  const [savingOriginalInvoiceDate, setSavingOriginalInvoiceDate] = React.useState(false);
   const [receiptItems, setReceiptItems] = React.useState<ReceiptLineItem[]>([]);
   const [receiptSubmitting, setReceiptSubmitting] = React.useState(false);
   const [receiptDone, setReceiptDone] = React.useState<{ sku_id: string; bin_id: string; new_quantity: number }[] | null>(null);
@@ -2357,6 +2360,23 @@ export default function InboundGrnDetailPage() {
       })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Action failed"))
       .finally(() => setAccountsSubmitting(false));
+  }
+
+  function handleSaveOriginalInvoiceDate() {
+    if (!row) return;
+    const value = originalInvoiceDateInput.trim();
+    setSavingOriginalInvoiceDate(true);
+    apiFetch<GrnHeader>(`/api/inbound/grns/${row.grn_id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ original_invoice_date: value || null }),
+    })
+      .then(async () => {
+        toast.success(value ? "Original invoice date saved" : "Original invoice date cleared");
+        setOriginalInvoiceDateInput("");
+        await reloadBundle();
+      })
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Save failed"))
+      .finally(() => setSavingOriginalInvoiceDate(false));
   }
 
   function handleReceiveInventory(grnId: number) {
@@ -4472,6 +4492,57 @@ export default function InboundGrnDetailPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 pt-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2">
+                    <span className="text-muted-foreground text-xs font-medium">
+                      Original invoice date
+                    </span>
+                    {row?.original_invoice_date && originalInvoiceDateInput === "" ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{row.original_invoice_date}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-xs"
+                          disabled={savingOriginalInvoiceDate}
+                          onClick={() =>
+                            setOriginalInvoiceDateInput(row.original_invoice_date ?? "")
+                          }
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="date"
+                          value={originalInvoiceDateInput}
+                          onChange={(e) => setOriginalInvoiceDateInput(e.target.value)}
+                          className="h-8 w-40 text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          disabled={savingOriginalInvoiceDate}
+                          onClick={handleSaveOriginalInvoiceDate}
+                        >
+                          {savingOriginalInvoiceDate ? "Saving…" : "Save"}
+                        </Button>
+                        {row?.original_invoice_date ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-xs"
+                            disabled={savingOriginalInvoiceDate}
+                            onClick={() => setOriginalInvoiceDateInput("")}
+                          >
+                            Cancel
+                          </Button>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+
                   <dl className="grid gap-3 sm:grid-cols-3">
                     <div className="space-y-0.5">
                       <dt className="text-muted-foreground text-xs">Status</dt>

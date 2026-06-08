@@ -25,6 +25,15 @@ export function formatInboundListDateTime(iso: string | null): string {
   return listDateTimeFormatter.format(d);
 }
 
+/** Format YYYY-MM-DD (or ISO datetime) as date-only for inbound queue tables. */
+export function formatInboundListDate(isoDate: string | null): string {
+  if (!isoDate) return "—";
+  const dateOnly = isoDate.trim().slice(0, 10);
+  const d = new Date(`${dateOnly}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return expiryDayFormatter.format(d);
+}
+
 export function statusToneClass(value: string | null): string {
   if (!value) return "";
   const up = value.trim().toUpperCase();

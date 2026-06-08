@@ -34,6 +34,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import {
   buildPendingGrnsListQuery,
+  formatInboundListDate,
   formatInboundListDateTime as formatDisplayDateTime,
   inboundPaginatedTotalPages,
   statusToneClass,
@@ -51,6 +52,7 @@ type GrnRow = {
   accounts_status: string | null;
   accounts_by: string | null;
   vendor_invoice_number: string | null;
+  original_invoice_date: string | null;
   box_count_invoice: number;
   actual_box_count_recieved: number;
   grn_sku_count: number;
@@ -301,6 +303,10 @@ export default function InboundPendingAccountsPage() {
                         label="Vendor invoice number"
                         className="min-w-[120px]"
                       />
+                      <FilterableHead
+                        label="Original Invoice Date"
+                        className="min-w-[120px]"
+                      />
                       <FilterableHead label="Vendor Id" />
                       <FilterableHead
                         label="Vendor name"
@@ -369,6 +375,9 @@ export default function InboundPendingAccountsPage() {
                         </TableCell>
                         <TableCell className="max-w-[140px] truncate text-xs">
                           {row.vendor_invoice_number ?? "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {formatInboundListDate(row.original_invoice_date)}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           <Link

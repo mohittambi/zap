@@ -5,6 +5,7 @@ import { AppError, handleApiError } from "@/server/errors";
 import {
   getOutboundConsignmentById,
   patchOutboundConsignmentInvoiceNumber,
+  patchOutboundConsignmentInvoiceType,
 } from "@/server/services/outboundConsignmentsService";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -28,7 +29,7 @@ type Ctx = { params: Promise<{ id: string }> };
  *       403: { description: Forbidden }
  *       404: { description: Consignment not found }
  *   patch:
- *     summary: Patch consignment field (invoice_number)
+ *     summary: Patch consignment field (invoice_number, invoice_type)
  *     description: Requires purchase_orders:write.
  *     tags: [Outbound]
  *     parameters:
@@ -44,7 +45,7 @@ type Ctx = { params: Promise<{ id: string }> };
  *             type: object
  *             required: [field]
  *             properties:
- *               field: { type: string, enum: [invoice_number] }
+ *               field: { type: string, enum: [invoice_number, invoice_type] }
  *               value: { type: string, nullable: true }
  *     responses:
  *       200: { description: OK }
@@ -90,7 +91,14 @@ export async function PATCH(request: Request, context: Ctx) {
       return NextResponse.json({ ok: true });
     }
 
-    throw new AppError("field must be 'invoice_number'", 400);
+    if (field === "invoice_type") {
+      const raw = body.value;
+      const value = typeof raw === "string" ? raw : null;
+      await patchOutboundConsignmentInvoiceType(id, value, user.email);
+      return NextResponse.json({ ok: true });
+    }
+
+    throw new AppError("field must be 'invoice_number' or 'invoice_type'", 400);
   } catch (err) {
     return handleApiError(err);
   }

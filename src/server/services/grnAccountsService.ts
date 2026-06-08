@@ -9,7 +9,7 @@ const listSelect = `
          g.grn_invoice_collection_status, g.grn_invoice_collection_by,
          g.accounts_status, g.accounts_by, g.accounts_at,
          g.inventory_receipt_status, g.inventory_receipt_by, g.inventory_receipt_at,
-         g.vendor_invoice_number, g.box_count_invoice, g.actual_box_count_received,
+         g.vendor_invoice_number, g.original_invoice_date, g.box_count_invoice, g.actual_box_count_received,
          g.grn_sku_count, g.grn_invoice_quantity, g.grn_accepted_quantity,
          g.grn_rejected_quantity, g.grn_shortage_quantity,
          g.po_sku_count, g.po_total_quantity,
@@ -40,6 +40,12 @@ function rowToItem(r: Record<string, unknown>) {
     inventory_receipt_by: r.inventory_receipt_by ?? null,
     inventory_receipt_at: r.inventory_receipt_at ?? null,
     vendor_invoice_number: r.vendor_invoice_number ?? null,
+    original_invoice_date:
+      r.original_invoice_date == null || r.original_invoice_date === ""
+        ? null
+        : r.original_invoice_date instanceof Date
+          ? r.original_invoice_date.toISOString().slice(0, 10)
+          : String(r.original_invoice_date).trim().slice(0, 10) || null,
     box_count_invoice: Number(r.box_count_invoice ?? 0),
     actual_box_count_received: Number(r.actual_box_count_received ?? 0),
     grn_sku_count: Number(r.grn_sku_count ?? 0),

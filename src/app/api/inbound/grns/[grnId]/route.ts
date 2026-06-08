@@ -45,6 +45,7 @@ type RouteContext = { params: Promise<{ grnId: string }> };
  *               grn_status: { type: string }
  *               accounts_status: { type: string }
  *               accounts_by: { type: string }
+ *               original_invoice_date: { type: string, nullable: true, description: "YYYY-MM-DD or null to clear" }
  *     responses:
  *       200: { description: OK }
  *       400: { description: No valid fields to update }
@@ -70,12 +71,16 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { grnId } = await context.params;
     const body = (await request.json()) as Record<string, unknown>;
 
-    const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by"] as const;
+    const allowed = ["grn_audit_status", "grn_audit_by", "grn_invoice_collection_status", "grn_invoice_collection_by", "grn_status", "accounts_status", "accounts_by", "original_invoice_date"] as const;
     const fields: Record<string, string | null> = {};
     for (const key of allowed) {
       if (key in body) {
         const val = body[key];
-        fields[key] = typeof val === "string" ? val.trim() || null : null;
+        if (key === "original_invoice_date") {
+          fields[key] = val == null ? null : typeof val === "string" ? val.trim() || null : null;
+        } else {
+          fields[key] = typeof val === "string" ? val.trim() || null : null;
+        }
       }
     }
     if (Object.keys(fields).length === 0) {

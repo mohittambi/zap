@@ -90,6 +90,8 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [uploadingInvoice, setUploadingInvoice] = React.useState(false);
   const [invoiceNumInput, setInvoiceNumInput] = React.useState("");
   const [savingInvoiceNum, setSavingInvoiceNum] = React.useState(false);
+  const [invoiceTypeInput, setInvoiceTypeInput] = React.useState("");
+  const [savingInvoiceType, setSavingInvoiceType] = React.useState(false);
   const [downloadingExcel, setDownloadingExcel] = React.useState(false);
   const [rtdDialogOpen, setRtdDialogOpen] = React.useState(false);
   const { hasPermission } = useAuth();
@@ -145,6 +147,27 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSavingInvoiceNum(false);
+    }
+  }
+
+  async function handleSaveInvoiceType() {
+    const value = invoiceTypeInput.trim();
+    setSavingInvoiceType(true);
+    try {
+      await apiFetch(`/api/outbound/consignments/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ field: "invoice_type", value: value || null }),
+      });
+      toast.success(value ? "Invoice type saved" : "Invoice type cleared");
+      setInvoiceTypeInput("");
+      const updated = await apiFetch<OutboundConsignmentRow>(
+        `/api/outbound/consignments/${encodeURIComponent(id)}`
+      );
+      setRow(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setSavingInvoiceType(false);
     }
   }
 
@@ -404,11 +427,15 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
             active={tab === "documents"}
             invoiceNumInput={invoiceNumInput}
             savingInvoiceNum={savingInvoiceNum}
+            invoiceTypeInput={invoiceTypeInput}
+            savingInvoiceType={savingInvoiceType}
             uploadingInvoice={uploadingInvoice}
             downloadingExcel={downloadingExcel}
             invoiceFileRef={invoiceFileRef}
             onInvoiceNumChange={setInvoiceNumInput}
             onSaveInvoiceNumber={() => void handleSaveInvoiceNumber()}
+            onInvoiceTypeChange={setInvoiceTypeInput}
+            onSaveInvoiceType={() => void handleSaveInvoiceType()}
             onUploadInvoice={handleUploadInvoice}
             onDownloadInvoice={() => void handleDownloadInvoice()}
             onDownloadExcel={() => void handleDownloadExcel()}

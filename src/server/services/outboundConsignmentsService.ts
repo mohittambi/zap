@@ -45,6 +45,8 @@ export type OutboundConsignmentRow = {
   consignment_status: string | null;
   invoice_number_status: string | null;
   invoice_number: string | null;
+  /** Manual invoice type set in Zap (Accounts on consignment detail). */
+  invoice_type: string | null;
   invoice_upload_status: string | null;
   invoice_file_path: string | null;
   invoice_file_name: string | null;
@@ -83,6 +85,7 @@ const SORT_COLUMNS = new Set([
   "marked_rtd_by",
   "sold_via",
   "po_type",
+  "invoice_type",
 ]);
 
 function pickFirst(
@@ -548,6 +551,7 @@ function rowToApi(r: Record<string, unknown>): OutboundConsignmentRow {
     consignment_status: r.consignment_status as string | null,
     invoice_number_status: r.invoice_number_status as string | null,
     invoice_number: r.invoice_number as string | null,
+    invoice_type: r.invoice_type as string | null,
     invoice_upload_status: r.invoice_upload_status as string | null,
     invoice_file_path: r.invoice_file_path as string | null,
     invoice_file_name: r.invoice_file_name as string | null,
@@ -578,7 +582,8 @@ export async function getOutboundConsignmentById(
   if (!Number.isFinite(id) || id < 1) return null;
   const r = await query(
     `SELECT c.id, c.company_id, c.company_name, c.location, c.sold_via, c.po_number, c.po_type,
-            c.consignment_status, c.invoice_number_status, c.invoice_number, c.invoice_upload_status,
+            c.consignment_status, c.invoice_number_status, c.invoice_number, c.invoice_type,
+            c.invoice_upload_status,
             c.invoice_file_path, c.invoice_file_name, c.invoice_uploaded_at, c.invoice_uploaded_by,
             c.boxes_count, c.sku_count, c.total_quantity, c.transporter_name, c.vehicle_number,
             c.docket_number, c.created_at, c.marked_rtd_at, c.marked_rtd_by, c.raw, c.synced_at,
@@ -661,7 +666,8 @@ export async function listOutboundConsignments(opts: {
 
   const listR = await query(
     `SELECT id, company_id, company_name, location, sold_via, po_number, po_type,
-            consignment_status, invoice_number_status, invoice_number, invoice_upload_status,
+            consignment_status, invoice_number_status, invoice_number, invoice_type,
+            invoice_upload_status,
             invoice_file_path, invoice_file_name, invoice_uploaded_at, invoice_uploaded_by,
             boxes_count, sku_count, total_quantity, transporter_name, vehicle_number, docket_number,
             created_at, marked_rtd_at, marked_rtd_by, raw, synced_at
@@ -819,6 +825,37 @@ export async function patchOutboundConsignmentInvoiceNumber(
   }
 }
 
+/** Manually set (or clear) invoice type on a consignment. */
+export async function patchOutboundConsignmentInvoiceType(
+  consignmentId: number,
+  invoiceType: string | null,
+  updatedBy?: string | null
+): Promise<void> {
+  if (consignmentId < 1 || !Number.isFinite(consignmentId)) {
+    throw new AppError("Invalid consignment id", 400);
+  }
+  const existing = await query(
+    `SELECT id FROM outbound_consignments WHERE id = $1`,
+    [consignmentId]
+  );
+  if (existing.rows.length === 0) throw new AppError("Consignment not found", 404);
+
+  const value =
+    invoiceType == null ? null : String(invoiceType).trim().slice(0, 80) || null;
+
+  await query(
+    `UPDATE outbound_consignments SET invoice_type = $1 WHERE id = $2`,
+    [value, consignmentId]
+  );
+
+  await logConsignmentActivityFromZap({
+    consignmentId,
+    operation: value ? "Invoice type set" : "Invoice type cleared",
+    remarks: value ? `Invoice type set to ${value}` : "Invoice type cleared",
+    createdBy: updatedBy ?? null,
+  });
+}
+
 /** Mark consignment ready to dispatch (Zap-only; no eAutomate push). */
 export async function markOutboundConsignmentRtd(opts: {
   consignmentId: number;
@@ -906,14 +943,67 @@ export async function markOutboundConsignmentRtd(opts: {
   return updated;
 }
 
-/** Build an Excel workbook for a consignment invoice in flat row-per-SKU format. */
-export async function buildOutboundConsignmentInvoiceExcel(
-  consignmentId: number
-): Promise<{ buffer: Buffer; filename: string }> {
-  if (!Number.isFinite(consignmentId) || consignmentId < 1) {
-    throw new AppError("Invalid consignment id", 400);
-  }
+const INVOICE_EXCEL_HEADERS = [
+  "invoice_date",
+  "invoice_number",
+  "po_number",
+  "company_code_primary",
+  "po_secondary_sku",
+  "title",
+  "quantity",
+  "item_price_excl_gst",
+  "state",
+  "tax_rate",
+  "igst",
+  "sgst_cgst",
+  "taxable_amount",
+  "net_sale",
+  "gstin",
+  "company_name",
+  "shipping_address",
+  "pin_code",
+  "iat",
+  "total_box",
+  "transporter_name",
+  "export_sales",
+  "shipment_mode",
+  "transporter_legal_id",
+  "vehicle_docket_number",
+  "vehicle_type",
+  "our_state_name",
+  "our_pin_code",
+  "distance",
+  "sold_via",
+  "invoice_id",
+  "hsn",
+] as const;
 
+const BULK_INVOICE_EXCEL_MAX_IDS = 50;
+
+function invoiceExcelStr(v: unknown): string {
+  return v != null && v !== "" ? String(v) : "";
+}
+
+function invoiceExcelNum(v: unknown): number {
+  if (v == null) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function invoiceExcelRound2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function invoiceExcelToDateStr(v: unknown): string {
+  if (v == null) return "";
+  const d = new Date(v instanceof Date ? v : (v as string));
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN");
+}
+
+/** Build flat SKU data rows for one consignment invoice Excel export. */
+async function buildInvoiceExcelDataRowsForConsignment(
+  consignmentId: number
+): Promise<(string | number)[][]> {
   const consR = await query(
     `SELECT c.id, c.company_id, c.company_name, c.location, c.sold_via,
             c.po_number, c.po_type, c.consignment_status,
@@ -951,84 +1041,36 @@ export async function buildOutboundConsignmentInvoiceExcel(
     if (sku) listingBySku.set(sku, lr);
   }
 
-  const toDateStr = (v: unknown) => {
-    if (v == null) return "";
-    const d = new Date(v instanceof Date ? v : (v as string));
-    return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-IN");
-  };
-  const str = (v: unknown) => (v != null && v !== "" ? String(v) : "");
-  const num = (v: unknown): number => {
-    if (v == null) return 0;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-
   const rawObj =
     c.raw && typeof c.raw === "object" && !Array.isArray(c.raw)
       ? (c.raw as Record<string, unknown>)
       : {};
-  const shipmentMode = str(rawObj.shipment_type);
+  const shipmentMode = invoiceExcelStr(rawObj.shipment_type);
 
-  const invoiceDate = toDateStr(c.marked_rtd_at ?? c.created_at);
-  const invoiceNumber = str(c.invoice_number);
-  const poNumber = str(c.po_number);
-  const companyName = str(c.company_name);
-  const gstin = str(c.buyer_gstin);
-  const shippingAddress = str(c.delivery_address);
+  const invoiceDate = invoiceExcelToDateStr(c.marked_rtd_at ?? c.created_at);
+  const invoiceNumber = invoiceExcelStr(c.invoice_number);
+  const poNumber = invoiceExcelStr(c.po_number);
+  const companyName = invoiceExcelStr(c.company_name);
+  const gstin = invoiceExcelStr(c.buyer_gstin);
+  const shippingAddress = invoiceExcelStr(c.delivery_address);
   const totalBox = c.boxes_count ?? 0;
-  const transporterName = str(c.transporter_name);
-  const vehicleDocketNumber = str(c.docket_number);
-  const soldVia = str(c.sold_via);
+  const transporterName = invoiceExcelStr(c.transporter_name);
+  const vehicleDocketNumber = invoiceExcelStr(c.docket_number);
+  const soldVia = invoiceExcelStr(c.sold_via);
 
-  const HEADERS = [
-    "invoice_date",
-    "invoice_number",
-    "po_number",
-    "company_code_primary",
-    "po_secondary_sku",
-    "title",
-    "quantity",
-    "item_price_excl_gst",
-    "state",
-    "tax_rate",
-    "igst",
-    "sgst_cgst",
-    "taxable_amount",
-    "net_sale",
-    "gstin",
-    "company_name",
-    "shipping_address",
-    "pin_code",
-    "iat",
-    "total_box",
-    "transporter_name",
-    "export_sales",
-    "shipment_mode",
-    "transporter_legal_id",
-    "vehicle_docket_number",
-    "vehicle_type",
-    "our_state_name",
-    "our_pin_code",
-    "distance",
-    "sold_via",
-    "invoice_id",
-    "hsn",
-  ];
-
-  const dataRows = itemsR.rows.map((item) => {
-    const sku = str(item.po_secondary_sku);
+  return itemsR.rows.map((item) => {
+    const sku = invoiceExcelStr(item.po_secondary_sku);
     const listing = listingBySku.get(sku) ?? {};
-    const compCodePrimary = str(item.company_code_primary);
-    const title = str(listing.title);
-    const qty = num(item.quantity);
-    const priceExclGst = num(listing.rate_without_tax);
+    const compCodePrimary = invoiceExcelStr(item.company_code_primary);
+    const title = invoiceExcelStr(listing.title);
+    const qty = invoiceExcelNum(item.quantity);
+    const priceExclGst = invoiceExcelNum(listing.rate_without_tax);
     const taxPct = computeSnapshotReportTaxRatePct(listing);
     const taxRate = taxPct != null ? taxPct : 0;
-    const taxableAmount = round2(qty * priceExclGst);
-    const taxAmount = round2(taxableAmount * taxRate / 100);
-    const netSale = round2(taxableAmount + taxAmount);
-    const hsn = str(listing.hsn_code ?? listing.hsn);
+    const taxableAmount = invoiceExcelRound2(qty * priceExclGst);
+    const taxAmount = invoiceExcelRound2(taxableAmount * taxRate / 100);
+    const netSale = invoiceExcelRound2(taxableAmount + taxAmount);
+    const hsn = invoiceExcelStr(listing.hsn_code ?? listing.hsn);
 
     return [
       invoiceDate,
@@ -1065,16 +1107,83 @@ export async function buildOutboundConsignmentInvoiceExcel(
       hsn,
     ];
   });
+}
 
+function buildInvoiceExcelWorkbook(dataRows: (string | number)[][]): Buffer {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows]),
+    XLSX.utils.aoa_to_sheet([[...INVOICE_EXCEL_HEADERS], ...dataRows]),
     "Invoice"
   );
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
 
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  return { buffer: buf, filename: `Consignment-${consignmentId}-invoice.xlsx` };
+/** Build an Excel workbook for a consignment invoice in flat row-per-SKU format. */
+export async function buildOutboundConsignmentInvoiceExcel(
+  consignmentId: number
+): Promise<{ buffer: Buffer; filename: string }> {
+  if (!Number.isFinite(consignmentId) || consignmentId < 1) {
+    throw new AppError("Invalid consignment id", 400);
+  }
+  const dataRows = await buildInvoiceExcelDataRowsForConsignment(consignmentId);
+  return {
+    buffer: buildInvoiceExcelWorkbook(dataRows),
+    filename: `Consignment-${consignmentId}-invoice.xlsx`,
+  };
+}
+
+/** Build one merged Excel workbook for multiple consignments (requires invoice numbers). */
+export async function buildBulkOutboundConsignmentInvoiceExcel(
+  ids: number[]
+): Promise<{ buffer: Buffer; filename: string }> {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError("ids must be a non-empty array", 400);
+  }
+  if (ids.length > BULK_INVOICE_EXCEL_MAX_IDS) {
+    throw new AppError(`At most ${BULK_INVOICE_EXCEL_MAX_IDS} consignments per download`, 400);
+  }
+
+  const uniqueIds = [...new Set(ids.map((id) => Math.trunc(id)))];
+  const invalid = uniqueIds.filter((id) => !Number.isFinite(id) || id < 1);
+  if (invalid.length > 0) {
+    throw new AppError(`Invalid consignment id(s): ${invalid.join(", ")}`, 400);
+  }
+
+  const checkR = await query(
+    `SELECT id, invoice_number
+     FROM outbound_consignments
+     WHERE id = ANY($1::bigint[])`,
+    [uniqueIds]
+  );
+  const byId = new Map(
+    checkR.rows.map((r) => [Number(r.id), String(r.invoice_number ?? "").trim()])
+  );
+
+  const missing = uniqueIds.filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    throw new AppError(`Consignment(s) not found: ${missing.join(", ")}`, 404);
+  }
+
+  const noInvoice = uniqueIds.filter((id) => !byId.get(id));
+  if (noInvoice.length > 0) {
+    throw new AppError(
+      `Assign invoice number before download. Missing for consignment id(s): ${noInvoice.join(", ")}`,
+      400
+    );
+  }
+
+  const allDataRows: (string | number)[][] = [];
+  for (const id of uniqueIds) {
+    const rows = await buildInvoiceExcelDataRowsForConsignment(id);
+    allDataRows.push(...rows);
+  }
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  return {
+    buffer: buildInvoiceExcelWorkbook(allDataRows),
+    filename: `bulk-invoice-data-${dateStr}.xlsx`,
+  };
 }
 
 /** Create a consignment row in Zap (no eAutomate call). */

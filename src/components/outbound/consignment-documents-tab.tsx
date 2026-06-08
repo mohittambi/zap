@@ -55,11 +55,15 @@ export function ConsignmentDocumentsTab({
   active,
   invoiceNumInput,
   savingInvoiceNum,
+  invoiceTypeInput,
+  savingInvoiceType,
   uploadingInvoice,
   downloadingExcel,
   invoiceFileRef,
   onInvoiceNumChange,
   onSaveInvoiceNumber,
+  onInvoiceTypeChange,
+  onSaveInvoiceType,
   onUploadInvoice,
   onDownloadInvoice,
   onDownloadExcel,
@@ -69,11 +73,15 @@ export function ConsignmentDocumentsTab({
   active: boolean;
   invoiceNumInput: string;
   savingInvoiceNum: boolean;
+  invoiceTypeInput: string;
+  savingInvoiceType: boolean;
   uploadingInvoice: boolean;
   downloadingExcel: boolean;
   invoiceFileRef: React.RefObject<HTMLInputElement | null>;
   onInvoiceNumChange: (v: string) => void;
   onSaveInvoiceNumber: () => void;
+  onInvoiceTypeChange: (v: string) => void;
+  onSaveInvoiceType: () => void;
   onUploadInvoice: () => void;
   onDownloadInvoice: () => void;
   onDownloadExcel: () => void;
@@ -170,6 +178,53 @@ export function ConsignmentDocumentsTab({
                 >
                   {savingInvoiceNum ? "Saving…" : "Save"}
                 </Button>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 py-3">
+            <span className="text-muted-foreground text-xs font-medium">Invoice type</span>
+            {row.invoice_type && invoiceTypeInput === "" ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{row.invoice_type}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  disabled={savingInvoiceType}
+                  onClick={() => onInvoiceTypeChange(row.invoice_type ?? "")}
+                >
+                  Edit
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={invoiceTypeInput}
+                  onChange={(e) => onInvoiceTypeChange(e.target.value)}
+                  placeholder="Enter invoice type"
+                  maxLength={80}
+                  className="h-8 w-44 text-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={savingInvoiceType}
+                  onClick={onSaveInvoiceType}
+                >
+                  {savingInvoiceType ? "Saving…" : "Save"}
+                </Button>
+                {row.invoice_type ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs"
+                    disabled={savingInvoiceType}
+                    onClick={() => onInvoiceTypeChange("")}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
               </div>
             )}
           </div>
