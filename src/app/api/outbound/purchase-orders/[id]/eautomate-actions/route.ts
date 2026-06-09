@@ -11,7 +11,7 @@ import {
 import { buildPhase1BoxLabelsPdf } from "@/server/services/labelPdfService";
 import {
   acknowledgeOutboundPo,
-  buildSkuReportCsvFromRows,
+  buildSkuReportXlsxFromRows,
   cancelOutboundPo,
   consignmentItemsToSkuReportRows,
   extractListingsRowsFromSnapshot,
@@ -266,13 +266,17 @@ export async function POST(request: Request, context: Ctx) {
           ? consignmentItemsToSkuReportRows(skuItems)
           : extractListingsRowsFromSnapshot(po.listings_snapshot);
       if (reportRows.length > 0) {
-        const csv = await buildSkuReportCsvFromRows(reportRows, po);
-        const fname = `sku-report-${safeFilename(pn)}.csv`;
-        return new NextResponse(csv, {
+        const { buffer, filename } = await buildSkuReportXlsxFromRows(
+          reportRows,
+          po
+        );
+        return new Response(new Uint8Array(buffer), {
           status: 200,
           headers: {
-            "Content-Type": "text/csv; charset=utf-8",
-            "Content-Disposition": `attachment; filename="${fname}"`,
+            "Content-Type":
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+            "Cache-Control": "no-store",
           },
         });
       }

@@ -735,7 +735,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         const pn = (data?.po?.po_number ?? "po").replace(/[/\\?%*:|"<>]/g, "_");
         a.download =
           action === "download_sku_report"
-            ? `sku-report-${pn}.csv`
+            ? `sku-report-${pn}.xlsx`
             : `pendency-${pn}.pdf`;
         a.click();
         URL.revokeObjectURL(url);

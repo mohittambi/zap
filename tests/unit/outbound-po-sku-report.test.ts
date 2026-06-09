@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import * as XLSX from "xlsx";
 import { type SkuReportItemRow } from "../../src/server/services/outboundConsignmentItemsService";
 import {
+  buildSkuReportXlsxBuffer,
   computeSnapshotReportTaxRatePct,
   resolveSnapshotReportMasterSku,
-  skuReportFromEnrichedRows,
   type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
 import type { OutboundSkuLookups } from "../../src/server/services/eanMappingsService";
@@ -169,7 +170,7 @@ describe("snapshot SKU report fallbacks", () => {
     );
   });
 
-  it("skuReportFromEnrichedRows uses EAN master_sku, company code, and bin warehouse qty", () => {
+  it("buildSkuReportXlsxBuffer uses EAN master_sku, company code, and bin warehouse qty", () => {
     const lookups: OutboundSkuLookups = {
       companyId: 30044,
       companyCodeBySecondarySku: new Map(),
@@ -197,7 +198,7 @@ describe("snapshot SKU report fallbacks", () => {
       delivery_city: "Delhi",
       company_id: 30044,
     } as OutboundPoRow;
-    const csv = skuReportFromEnrichedRows(
+    const buffer = buildSkuReportXlsxBuffer(
       [
         {
           po_secondary_sku: "10149918",
@@ -209,17 +210,68 @@ describe("snapshot SKU report fallbacks", () => {
       po,
       lookups
     );
-    const lines = csv.replace(/^\ufeff/, "").split("\n");
-    assert.ok(lines[0].includes("zap_ean"));
-    const data = lines[1].split(",");
-    const header = lines[0].split(",");
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const sheet = wb.Sheets["SKU Report"];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+    const header = aoa[0];
+    const data = aoa[1];
     const masterIdx = header.indexOf("master_sku");
     const ccpIdx = header.indexOf("company_code_primary");
     const whIdx = header.indexOf("warehouse_quantity");
+    const zapIdx = header.indexOf("zap_ean");
     assert.equal(data[masterIdx], "AAC500");
     assert.equal(data[ccpIdx], "AAC500");
     assert.equal(data[whIdx], "77");
-    assert.ok(lines[1].includes("10149918"));
+    assert.equal(data[zapIdx], "10149918");
+  });
+
+  it("buildSkuReportXlsxBuffer keeps title with inch marks and commas in correct columns", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map(),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+    };
+    const po = {
+      po_number: "43886110040004",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Delhi",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const title = 'Showpiece (7", Black)(Box)';
+    const buffer = buildSkuReportXlsxBuffer(
+      [
+        {
+          title,
+          mrp: "250",
+          rate_without_tax: "211.86",
+          tax_rate: "18",
+          demand: 1,
+          packed: 0,
+          dispatched: 0,
+        },
+      ],
+      po,
+      lookups
+    );
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const sheet = wb.Sheets["SKU Report"];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+    const header = aoa[0];
+    const data = aoa[1];
+    const titleIdx = header.indexOf("title");
+    const mrpIdx = header.indexOf("mrp");
+    const rateIdx = header.indexOf("rate_without_tax");
+    const taxIdx = header.indexOf("tax_rate");
+    assert.equal(data[titleIdx], title);
+    assert.equal(data[mrpIdx], "250");
+    assert.equal(data[rateIdx], "211.86");
+    assert.equal(data[taxIdx], "18");
   });
 
   it("computes snapshot tax_rate from commercial fields", () => {
