@@ -295,7 +295,7 @@ describe("consignment-wide box helpers", () => {
     assert.equal(hasPackedLinesOnBox([packed], 1), false);
   });
 
-  it("applyBulkFormRowsToSkus uses activeBoxNumber for first row per SKU", () => {
+  it("applyBulkFormRowsToSkus uses activeBoxNumber when open box is shared across SKUs", () => {
     const template = extractConsignmentSkuPackingFromListings(LISTINGS);
     const { skus, errors } = applyBulkFormRowsToSkus(
       [
@@ -319,23 +319,55 @@ describe("consignment-wide box helpers", () => {
         },
       ],
       template,
-      { activeBoxNumber: 1 }
+      { activeBoxNumber: 1, assignSequentialWhenEmpty: false }
     );
     assert.equal(errors.length, 0);
     assert.equal(skus[0]?.boxes[0]?.box_number, 1);
     assert.equal(skus[1]?.boxes[0]?.box_number, 1);
     assert.equal(getMaxBoxNumber(skus), 1);
   });
+
+  it("applyBulkFormRowsToSkus assigns sequential box numbers when not sharing an open box", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS);
+    const { skus, errors } = applyBulkFormRowsToSkus(
+      [
+        {
+          id: "1",
+          po_secondary_sku: "10153349",
+          company_code_primary: "BAH501",
+          box_number: "",
+          box_name: "MASTER_BOX_3",
+          box_quantity: "10",
+          removable: false,
+        },
+        {
+          id: "2",
+          po_secondary_sku: "10149918",
+          company_code_primary: "AAC500",
+          box_number: "",
+          box_name: "MASTER_BOX_3",
+          box_quantity: "5",
+          removable: false,
+        },
+      ],
+      template,
+      { assignSequentialWhenEmpty: true }
+    );
+    assert.equal(errors.length, 0);
+    assert.equal(skus[0]?.boxes[0]?.box_number, 1);
+    assert.equal(skus[1]?.boxes[0]?.box_number, 2);
+  });
 });
 
 describe("bulk form helpers", () => {
-  it("skusToBulkFormRows returns one row per PO SKU with default box number", () => {
+  it("skusToBulkFormRows returns one row per PO SKU with sequential default box numbers", () => {
     const template = extractConsignmentSkuPackingFromListings(LISTINGS);
     const rows = skusToBulkFormRows(template, { defaultBoxNumber: 4 });
     assert.equal(rows.length, 2);
     assert.equal(rows[0]?.po_secondary_sku, "10153349");
     assert.equal(rows[0]?.box_number, "4");
     assert.equal(rows[1]?.po_secondary_sku, "10149918");
+    assert.equal(rows[1]?.box_number, "5");
   });
 
   it("applyBulkFormRowsToSkus uses explicit box_number from bulk rows", () => {
@@ -549,6 +581,16 @@ describe("parseConsignmentLineCsv", () => {
     assert.equal(rows[0]?.company_code_primary, "BAH501");
     assert.equal(rows[0]?.box_quantity, 10);
     assert.equal(rows[0]?.box_name, "Small Carton");
+  });
+
+  it("accepts Excel-style truncated header aliases", () => {
+    const csv =
+      "po_secondary_sku,company_code_primary,demand_quantity,dispatched_quantity,reserved_quantity,pending_q,box_num,box_quan,box_name\n" +
+      "10153349,BAH501,50,0,0,50,3,50,MASTER_BOX_3\n";
+    const { rows, errors } = parseConsignmentLineCsv(csv);
+    assert.equal(errors.length, 0, errors.join("; "));
+    assert.equal(rows[0]?.box_number, 3);
+    assert.equal(rows[0]?.box_quantity, 50);
   });
 });
 

@@ -78,7 +78,8 @@ export function ConsignmentLineItemsBulkForm({
     onSuccess: (next: ConsignmentSkuPacking[]) => void
   ): boolean {
     const { skus: parsed, errors: parseErrors } = applyBulkFormRowsToSkus(rows, skus, {
-      activeBoxNumber,
+      activeBoxNumber: hasOpenBox ? activeBoxNumber : undefined,
+      assignSequentialWhenEmpty: !hasOpenBox,
     });
     if (parseErrors.length > 0) {
       toast.error(parseErrors[0]);
@@ -178,13 +179,7 @@ export function ConsignmentLineItemsBulkForm({
         variant="outline"
         size="sm"
         disabled={disabled}
-        onClick={() => {
-          if (!hasOpenBox) {
-            toast.error("Click Add box before using the bulk form");
-            return;
-          }
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
       >
         Bulk form
       </Button>
@@ -194,9 +189,9 @@ export function ConsignmentLineItemsBulkForm({
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle className="text-base">Bulk packing form</DialogTitle>
             <DialogDescription className="text-sm">
-              Same columns as Upload CSV: box_number, box_quantity, box_name. Empty box # defaults
-              to open box #{activeBoxNumber} on the first line per SKU. Packed total per SKU cannot
-              exceed pending quantity.
+              Same columns as Upload CSV: box_number, box_quantity, box_name. Box # is pre-filled
+              1, 2, 3… per SKU when empty. With an open physical box, empty box # uses that box for
+              multi-SKU packing. Packed total per SKU cannot exceed pending quantity.
             </DialogDescription>
           </DialogHeader>
 

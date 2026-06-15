@@ -356,6 +356,7 @@ export function skusToBulkFormRows(
 ): ConsignmentBulkSkuRow[] {
   const defaultBox = Math.max(1, opts?.defaultBoxNumber ?? 1);
   const out: ConsignmentBulkSkuRow[] = [];
+  let emptySkuIdx = 0;
   for (const s of skus) {
     const filled = s.boxes.filter(
       (b) =>
@@ -384,18 +385,21 @@ export function skusToBulkFormRows(
       id: bulkRowId(s.po_secondary_sku, 0),
       po_secondary_sku: s.po_secondary_sku,
       company_code_primary: s.company_code_primary,
-      box_number: String(defaultBox),
+      box_number: String(defaultBox + emptySkuIdx),
       box_name: "",
       box_quantity: "",
       removable: false,
     });
+    emptySkuIdx += 1;
   }
   return out;
 }
 
 export type ApplyBulkFormOptions = {
-  /** Consignment-wide box for each SKU’s first bulk row in this apply. */
+  /** Consignment-wide box for each SKU’s first bulk row when sharing one open physical box. */
   activeBoxNumber?: number;
+  /** One SKU per row with empty box # → assign 1, 2, 3… (typical CSV-style packing). */
+  assignSequentialWhenEmpty?: boolean;
 };
 
 export function applyBulkFormRowsToSkus(
@@ -419,6 +423,9 @@ export function applyBulkFormRowsToSkus(
       ? Math.trunc(opts.activeBoxNumber)
       : Math.max(1, getMaxBoxNumber(templateSkus) || 1);
   let globalMax = Math.max(getMaxBoxNumber(templateSkus), baseBox);
+  const assignSequential = opts?.assignSequentialWhenEmpty === true;
+  let sequentialNext =
+    getMaxBoxNumber(templateSkus) > 0 ? getMaxBoxNumber(templateSkus) + 1 : 1;
 
   const next = templateSkus.map((tmpl) => {
     const skuRows = rowsBySku.get(tmpl.po_secondary_sku) ?? [];
@@ -448,7 +455,11 @@ export function applyBulkFormRowsToSkus(
           return;
         }
       } else if (boxIdx === 0) {
-        boxNumber = baseBox;
+        if (assignSequential && skuRows.length === 1) {
+          boxNumber = sequentialNext++;
+        } else {
+          boxNumber = baseBox;
+        }
       } else {
         boxNumber = ++globalMax;
       }
@@ -734,6 +745,61 @@ function splitCsvLine(line: string): string[] {
   return out;
 }
 
+function normalizeConsignmentLineHeader(raw: string): (typeof CONSIGNMENT_LINE_CSV_HEADERS)[number] | null {
+  const norm = raw.trim().toLowerCase().replace(/[\s_.-]+/g, "");
+  const aliases: Record<string, (typeof CONSIGNMENT_LINE_CSV_HEADERS)[number]> = {
+    posecondarysku: "po_secondary_sku",
+    secondarysku: "po_secondary_sku",
+    itemcode: "po_secondary_sku",
+    companycodeprimary: "company_code_primary",
+    primarycompanycode: "company_code_primary",
+    demandquantity: "demand_quantity",
+    demand: "demand_quantity",
+    dispatchedquantity: "dispatched_quantity",
+    dispatched: "dispatched_quantity",
+    reservedquantity: "reserved_quantity",
+    reserved: "reserved_quantity",
+    pendingquantity: "pending_quantity",
+    pendingq: "pending_quantity",
+    pending: "pending_quantity",
+    boxnumber: "box_number",
+    boxnum: "box_number",
+    boxno: "box_number",
+    boxquantity: "box_quantity",
+    boxquan: "box_quantity",
+    boxqty: "box_quantity",
+    boxname: "box_name",
+    boxtype: "box_name",
+  };
+  if (aliases[norm]) return aliases[norm];
+  const exact = CONSIGNMENT_LINE_CSV_HEADERS.find((h) => h === raw.trim().toLowerCase());
+  return exact ?? null;
+}
+
+function parseConsignmentLineHeaderMap(
+  headerCells: string[]
+): { fieldIndex: Map<string, number>; errors: string[] } {
+  const errors: string[] = [];
+  const fieldIndex = new Map<string, number>();
+  headerCells.forEach((cell, i) => {
+    const canonical = normalizeConsignmentLineHeader(cell);
+    if (!canonical) return;
+    if (!fieldIndex.has(canonical)) fieldIndex.set(canonical, i);
+  });
+  for (const h of CONSIGNMENT_LINE_CSV_HEADERS) {
+    if (!fieldIndex.has(h)) {
+      errors.push(`Missing required column: ${h}`);
+    }
+  }
+  return { fieldIndex, errors };
+}
+
+function cellAt(cells: string[], fieldIndex: Map<string, number>, field: string): string {
+  const idx = fieldIndex.get(field);
+  if (idx == null) return "";
+  return cells[idx] ?? "";
+}
+
 export function parseConsignmentLineCsv(text: string): {
   rows: ConsignmentLineDraft[];
   errors: string[];
@@ -747,18 +813,11 @@ export function parseConsignmentLineCsv(text: string): {
   const delim = lines[0].includes("\t") ? "\t" : ",";
   const headerCells =
     delim === "\t"
-      ? lines[0].split("\t").map((h) => h.trim().toLowerCase())
-      : splitCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+      ? lines[0].split("\t").map((h) => h.trim())
+      : splitCsvLine(lines[0]).map((h) => h.trim());
 
-  const expected = CONSIGNMENT_LINE_CSV_HEADERS.map((h) => h.toLowerCase());
-  for (let i = 0; i < expected.length; i++) {
-    if (headerCells[i] !== expected[i]) {
-      errors.push(
-        `Header mismatch at column ${i + 1}: expected "${expected[i]}", got "${headerCells[i] ?? ""}"`
-      );
-    }
-  }
-  if (errors.length > 0) return { rows: [], errors };
+  const { fieldIndex, errors: headerErrors } = parseConsignmentLineHeaderMap(headerCells);
+  if (headerErrors.length > 0) return { rows: [], errors: headerErrors };
 
   const rows: ConsignmentLineDraft[] = [];
   for (let li = 1; li < lines.length; li++) {
@@ -768,15 +827,15 @@ export function parseConsignmentLineCsv(text: string): {
         : splitCsvLine(lines[li]);
     if (cells.every((c) => !c)) continue;
     rows.push({
-      po_secondary_sku: cells[0] ?? "",
-      company_code_primary: cells[1] ?? "",
-      demand_quantity: num(cells[2]),
-      dispatched_quantity: num(cells[3]),
-      reserved_quantity: num(cells[4]),
-      pending_quantity: num(cells[5]),
-      box_number: Math.trunc(num(cells[6])),
-      box_quantity: Math.trunc(num(cells[7])),
-      box_name: cells[8] ?? "",
+      po_secondary_sku: cellAt(cells, fieldIndex, "po_secondary_sku"),
+      company_code_primary: cellAt(cells, fieldIndex, "company_code_primary"),
+      demand_quantity: num(cellAt(cells, fieldIndex, "demand_quantity")),
+      dispatched_quantity: num(cellAt(cells, fieldIndex, "dispatched_quantity")),
+      reserved_quantity: num(cellAt(cells, fieldIndex, "reserved_quantity")),
+      pending_quantity: num(cellAt(cells, fieldIndex, "pending_quantity")),
+      box_number: Math.trunc(num(cellAt(cells, fieldIndex, "box_number"))),
+      box_quantity: Math.trunc(num(cellAt(cells, fieldIndex, "box_quantity"))),
+      box_name: cellAt(cells, fieldIndex, "box_name"),
     });
   }
 
