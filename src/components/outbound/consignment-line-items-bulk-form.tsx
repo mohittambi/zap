@@ -41,7 +41,7 @@ export function ConsignmentLineItemsBulkForm({
   validBinSet: Set<string>;
   disabled?: boolean;
   onApply: (skus: ConsignmentSkuPacking[]) => void;
-  onSave: () => void | Promise<void>;
+  onSave: (skus: ConsignmentSkuPacking[]) => void | Promise<void>;
   saving?: boolean;
 }>) {
   const [open, setOpen] = React.useState(false);
@@ -113,14 +113,17 @@ export function ConsignmentLineItemsBulkForm({
   }
 
   async function saveFromBulk() {
+    let parsedSkus: ConsignmentSkuPacking[] | null = null;
     if (
       !validateAndCommit((next) => {
+        parsedSkus = next;
         onApply(next);
       })
     ) {
       return;
     }
-    await onSave();
+    if (!parsedSkus) return;
+    await onSave(parsedSkus);
     setOpen(false);
   }
 
@@ -191,9 +194,9 @@ export function ConsignmentLineItemsBulkForm({
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle className="text-base">Bulk packing form</DialogTitle>
             <DialogDescription className="text-sm">
-              Set physical box #, box type, and qty per line. Empty box # defaults to open box #
-              {activeBoxNumber} on the first line per SKU. Packed total per SKU cannot exceed pending
-              quantity.
+              Same columns as Upload CSV: box_number, box_quantity, box_name. Empty box # defaults
+              to open box #{activeBoxNumber} on the first line per SKU. Packed total per SKU cannot
+              exceed pending quantity.
             </DialogDescription>
           </DialogHeader>
 
@@ -207,8 +210,10 @@ export function ConsignmentLineItemsBulkForm({
                     <th className="w-20 px-2 py-2 font-semibold whitespace-nowrap text-right">
                       Box #
                     </th>
-                    <th className="w-36 px-2 py-2 font-semibold whitespace-nowrap">Box type</th>
-                    <th className="w-24 px-2 py-2 font-semibold whitespace-nowrap text-right">Qty</th>
+                    <th className="w-36 px-2 py-2 font-semibold whitespace-nowrap">box name</th>
+                    <th className="w-24 px-2 py-2 font-semibold whitespace-nowrap text-right">
+                      box quantity
+                    </th>
                     <th className="w-32 px-2 py-2 font-semibold whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
@@ -237,7 +242,7 @@ export function ConsignmentLineItemsBulkForm({
                             value={row.box_name || null}
                             onChange={(key) => updateRow(idx, { box_name: key ?? "" })}
                             options={binOptions}
-                            placeholder="Box type"
+                            placeholder="box name"
                             emptyText="No valid box types"
                             variant="soft"
                             size="sm"
@@ -248,7 +253,7 @@ export function ConsignmentLineItemsBulkForm({
                           <Input
                             value={row.box_quantity}
                             onChange={(e) => updateRow(idx, { box_quantity: e.target.value })}
-                            placeholder="Qty"
+                            placeholder="box quantity"
                             className="ml-auto h-8 w-20 font-mono text-xs tabular-nums"
                             disabled={disabled}
                           />

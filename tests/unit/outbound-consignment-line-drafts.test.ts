@@ -11,6 +11,9 @@ import {
   countDistinctBoxNumbers,
   countDistinctBoxNumbersForSku,
   formatSkuBoxBreakdown,
+  formatSkuBoxNames,
+  formatSkuBoxNumbers,
+  formatSkuBoxQuantities,
   hasPackedLinesOnBox,
   groupLineRowsToSkuPacking,
   skusToBulkFormRows,
@@ -185,6 +188,39 @@ describe("box count and breakdown helpers", () => {
     assert.equal(countDistinctBoxNumbers([sku]), 1);
     assert.equal(countDistinctBoxNumbersForSku(sku), 1);
     assert.equal(formatSkuBoxBreakdown(sku), "2:3 Small Carton");
+  });
+
+  it("formatSkuBoxNumbers/Quantities/Names for one box per SKU (client pattern)", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const sku: ConsignmentSkuPacking = {
+      ...template[0]!,
+      boxes: [{ box_number: 3, box_quantity: 18, box_name: "MASTER_BOX_3" }],
+    };
+    assert.equal(formatSkuBoxNumbers(sku), "3");
+    assert.equal(formatSkuBoxQuantities(sku), "18");
+    assert.equal(formatSkuBoxNames(sku), "MASTER_BOX_3");
+  });
+
+  it("formatSkuBoxNumbers/Quantities/Names for multi-box SKU", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const sku: ConsignmentSkuPacking = {
+      ...template[0]!,
+      boxes: [
+        { box_number: 1, box_quantity: 10, box_name: "MASTER_BOX_3" },
+        { box_number: 3, box_quantity: 15, box_name: "MASTER_BOX_3" },
+      ],
+    };
+    assert.equal(formatSkuBoxNumbers(sku), "1, 3");
+    assert.equal(formatSkuBoxQuantities(sku), "10, 15");
+    assert.equal(formatSkuBoxNames(sku), "MASTER_BOX_3, MASTER_BOX_3");
+  });
+
+  it("formatSkuBoxNumbers/Quantities/Names return empty for no packed boxes", () => {
+    const template = extractConsignmentSkuPackingFromListings(LISTINGS).slice(0, 1);
+    const sku: ConsignmentSkuPacking = { ...template[0]!, boxes: [] };
+    assert.equal(formatSkuBoxNumbers(sku), "");
+    assert.equal(formatSkuBoxQuantities(sku), "");
+    assert.equal(formatSkuBoxNames(sku), "");
   });
 });
 

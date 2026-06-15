@@ -84,6 +84,21 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 - **`GET /api/outbound/consignments/[id]/line-items/drafts`** — `{ skus, source, poNumber }`; **`POST …/line-items/save`** — body `{ skus: [...] }`, validate and replace all lines, refresh consignment aggregates.
 - Legacy bin CSV upload remains available via **`POST /api/outbound/consignments/[id]/packing-upload/*`** and **`POST …/boxes`** if needed.
 
+#### Packing table vs CSV
+
+The consignment line-items table mirrors the packing CSV columns (G–I):
+
+| CSV column | Table column | Meaning |
+|------------|--------------|---------|
+| `box_number` | **Box #** | Physical bin number across the consignment |
+| `box_quantity` | **box quantity** | Qty packed into that bin for this SKU |
+| `box_name` | **box name** | Box type (e.g. `MASTER_BOX_3`) |
+| — | **Physical boxes used** (top bar) | Distinct `box_number` count for the whole consignment |
+| — | **SKUs with packing** (top bar) | SKUs with at least one packed box line |
+| — | **Boxes (SKU)** | Only shown when a SKU spans 2+ physical bins |
+
+**Typical client workflow (one SKU per box):** CSV `box_number` runs 1, 2, 3… N; table **Box #** matches; **Boxes (SKU)** column is hidden. Use **Apply to table** in the bulk form before saving, or **Save lines** from the main toolbar after upload.
+
 ---
 
 ## VII. Mark as RTD (Ready to Dispatch)

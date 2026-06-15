@@ -155,7 +155,7 @@ export function faviconUrlForDomain(domain: string): string {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
 }
 
-function domainForCompanyName(companyName: string): string | null {
+export function domainForCompanyName(companyName: string): string | null {
   const n = companyName.toLowerCase();
   for (const [needle, domain] of DOMAIN_NEEDLES) {
     if (n.includes(needle)) return domain;
@@ -163,8 +163,17 @@ function domainForCompanyName(companyName: string): string | null {
   return null;
 }
 
+/** Google favicon URL for a known marketplace name (staff-app parity). */
+export function faviconUrlForCompanyName(companyName: string): string | null {
+  const key = matchBrandKey(companyName);
+  if (key) return faviconUrlForDomain(BRAND_DOMAINS[key]);
+  const domain = domainForCompanyName(companyName);
+  if (domain) return faviconUrlForDomain(domain);
+  return null;
+}
+
 /**
- * Resolved logo URL for `<img src>` — DB attribute, bundled asset path, or remote favicon.
+ * Resolved logo URL for `<img src>` — DB attribute, remote favicon, then bundled asset path.
  */
 export function resolveCompanyLogoUrl(
   companyName?: string | null,
@@ -176,11 +185,11 @@ export function resolveCompanyLogoUrl(
   const name = companyName?.trim();
   if (!name) return null;
 
+  const favicon = faviconUrlForCompanyName(name);
+  if (favicon) return favicon;
+
   const key = matchBrandKey(name);
   if (key) return localBrandLogoPath(key);
-
-  const domain = domainForCompanyName(name);
-  if (domain) return faviconUrlForDomain(domain);
 
   return null;
 }

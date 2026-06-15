@@ -188,16 +188,41 @@ export function countDistinctBoxNumbersForSku(sku: ConsignmentSkuPacking): numbe
   return set.size;
 }
 
+function packedBoxLinesForSku(sku: ConsignmentSkuPacking): ConsignmentBoxLine[] {
+  return [...sku.boxes]
+    .filter((b) => b.box_quantity > 0 && Math.trunc(b.box_number) >= 1)
+    .sort((a, b) => a.box_number - b.box_number || a.box_name.localeCompare(b.box_name));
+}
+
 /** Compact packing summary for table tooltips, e.g. "1:5 MASTER_BOX_3, 3:12 SMALL_CARTON". */
 export function formatSkuBoxBreakdown(sku: ConsignmentSkuPacking): string {
-  const parts = [...sku.boxes]
-    .filter((b) => b.box_quantity > 0 && Math.trunc(b.box_number) >= 1)
-    .sort((a, b) => a.box_number - b.box_number || a.box_name.localeCompare(b.box_name))
+  return packedBoxLinesForSku(sku)
     .map((b) => {
       const type = b.box_name.trim() || "—";
       return `${Math.trunc(b.box_number)}:${Math.trunc(b.box_quantity)} ${type}`;
-    });
-  return parts.join(", ");
+    })
+    .join(", ");
+}
+
+/** Physical box number(s) for display, e.g. "3" or "1, 3". */
+export function formatSkuBoxNumbers(sku: ConsignmentSkuPacking): string {
+  const lines = packedBoxLinesForSku(sku);
+  if (lines.length === 0) return "";
+  return lines.map((b) => String(Math.trunc(b.box_number))).join(", ");
+}
+
+/** Box quantity per line for display, e.g. "18" or "10, 15". */
+export function formatSkuBoxQuantities(sku: ConsignmentSkuPacking): string {
+  const lines = packedBoxLinesForSku(sku);
+  if (lines.length === 0) return "";
+  return lines.map((b) => String(Math.trunc(b.box_quantity))).join(", ");
+}
+
+/** Box type name(s) for display, e.g. "MASTER_BOX_3". */
+export function formatSkuBoxNames(sku: ConsignmentSkuPacking): string {
+  const lines = packedBoxLinesForSku(sku);
+  if (lines.length === 0) return "";
+  return lines.map((b) => b.box_name.trim() || "—").join(", ");
 }
 
 /** Sorted physical box numbers in use (qty > 0) across consignment, plus optional extras. */

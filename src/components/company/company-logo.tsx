@@ -7,6 +7,7 @@ import {
   companyInitials,
   companyLogoSeed,
   COMPANY_LOGO_PALETTE,
+  faviconUrlForCompanyName,
   faviconUrlForDomain,
   resolveCompanyLogoUrl,
 } from "@/lib/company-brand-logo";
@@ -72,6 +73,29 @@ export function CompanyLogo({
 
   const isRemote = src.startsWith("http://") || src.startsWith("https://");
 
+  const handleImageError = () => {
+    if (isRemote) {
+      const domainMatch = src.match(/domain=([^&]+)/);
+      const domain = domainMatch?.[1]
+        ? decodeURIComponent(domainMatch[1])
+        : null;
+      if (domain && !src.includes("sz=64")) {
+        setSrc(faviconUrlForDomain(domain).replace("sz=128", "sz=64"));
+        return;
+      }
+      setFailed(true);
+      return;
+    }
+    if (src.startsWith("/brand-logos/") && name?.trim()) {
+      const favicon = faviconUrlForCompanyName(name);
+      if (favicon && favicon !== src) {
+        setSrc(favicon);
+        return;
+      }
+    }
+    setFailed(true);
+  };
+
   return (
     <span
       className={cn(
@@ -89,17 +113,7 @@ export function CompanyLogo({
           width={size}
           height={size}
           className="size-full object-contain p-0.5"
-          onError={() => {
-            const domainMatch = src.match(/domain=([^&]+)/);
-            const domain = domainMatch?.[1]
-              ? decodeURIComponent(domainMatch[1])
-              : null;
-            if (domain && !src.includes("sz=64")) {
-              setSrc(faviconUrlForDomain(domain).replace("sz=128", "sz=64"));
-              return;
-            }
-            setFailed(true);
-          }}
+          onError={handleImageError}
         />
       ) : (
         <Image
@@ -108,7 +122,7 @@ export function CompanyLogo({
           width={size}
           height={size}
           className="size-full object-contain p-0.5"
-          onError={() => setFailed(true)}
+          onError={handleImageError}
         />
       )}
     </span>

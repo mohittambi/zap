@@ -9,6 +9,9 @@ import {
   countDistinctBoxNumbers,
   countDistinctBoxNumbersForSku,
   formatSkuBoxBreakdown,
+  formatSkuBoxNames,
+  formatSkuBoxNumbers,
+  formatSkuBoxQuantities,
   getBoxNameForNumber,
   getMaxBoxNumber,
   hasPackedLinesOnBox,
@@ -59,6 +62,16 @@ export function ConsignmentLineItemsEditor({
   );
 
   const boxesUsed = React.useMemo(() => countDistinctBoxNumbers(skus), [skus]);
+
+  const skusPacked = React.useMemo(
+    () => skus.filter((s) => sumPackedQty(s) > 0).length,
+    [skus]
+  );
+
+  const showBoxesSkuColumn = React.useMemo(
+    () => skus.some((s) => countDistinctBoxNumbersForSku(s) > 1),
+    [skus]
+  );
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -129,12 +142,13 @@ export function ConsignmentLineItemsEditor({
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function saveLines() {
+  async function saveLines(skusToSave?: ConsignmentSkuPacking[]) {
     if (readOnly) return;
-    const validation = validateConsignmentSkuPackingClient(skus, validBinSet);
+    const payload = skusToSave ?? skus;
+    const validation = validateConsignmentSkuPackingClient(payload, validBinSet);
     if (!validation.ok) {
       const first = validation.errors[0];
-      const row = skus[first.skuIndex];
+      const row = payload[first.skuIndex];
       const skuLabel =
         row?.po_secondary_sku && row?.company_code_primary
           ? `${row.po_secondary_sku} / ${row.company_code_primary}`
@@ -149,8 +163,9 @@ export function ConsignmentLineItemsEditor({
     try {
       await apiFetch(`/api/outbound/consignments/${consignmentId}/line-items/save`, {
         method: "POST",
-        body: JSON.stringify({ skus }),
+        body: JSON.stringify({ skus: payload }),
       });
+      if (skusToSave) setSkus(skusToSave);
       toast.success("Consignment lines saved");
       setSource("saved");
       onSaved?.();
@@ -224,8 +239,8 @@ export function ConsignmentLineItemsEditor({
             {readOnly
               ? "Consignment is marked for dispatch. Saved line items cannot be edited."
               : source === "saved"
-                ? "Saved packing for this consignment. Edit per SKU and save to update the summary."
-                : "Prefilled from PO line items. Enter packing per SKU (multiple boxes allowed), then save."}
+                ? "Saved packing for this consignment. Columns match the packing CSV (box_number, box_quantity, box_name). Physical boxes used (top) is the consignment total."
+                : "Prefilled from PO line items. Columns match the packing CSV (box_number, box_quantity, box_name). Enter packing per SKU, then save."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -294,6 +309,7 @@ export function ConsignmentLineItemsEditor({
               activeBoxNumber={activeBoxNumber}
               activeBoxName={activeBoxName}
               boxesUsed={boxesUsed}
+              skusPacked={skusPacked}
               validBins={validBins}
               disabled={busy}
               canCloseBox={canCloseBox}
@@ -325,8 +341,17 @@ export function ConsignmentLineItemsEditor({
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">reserved</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">pending</th>
                     <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">packed qty</th>
-                    <th className="px-2 py-2 font-semibold whitespace-nowrap text-right"># boxes</th>
-                    <th className="px-2 py-2 font-semibold whitespace-nowrap">packing detail</th>
+                    <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">Box #</th>
+                    <th className="px-2 py-2 font-semibold whitespace-nowrap text-right">box quantity</th>
+                    <th className="px-2 py-2 font-semibold whitespace-nowrap">box name</th>
+                    {showBoxesSkuColumn ? (
+                      <th
+                        className="px-2 py-2 font-semibold whitespace-nowrap text-right"
+                        title="How many physical boxes this SKU is split across"
+                      >
+                        Boxes (SKU)
+                      </th>
+                    ) : null}
                     <th className="px-2 py-2 font-semibold whitespace-nowrap">action</th>
                   </tr>
                 </thead>
@@ -340,15 +365,34 @@ export function ConsignmentLineItemsEditor({
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.reserved_quantity}</td>
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sku.pending_quantity}</td>
                       <td className="px-2 py-2 text-right font-mono tabular-nums">{sumPackedQty(sku)}</td>
-                      <td className="px-2 py-2 text-right font-mono tabular-nums">
-                        {countDistinctBoxNumbersForSku(sku)}
-                      </td>
                       <td
-                        className="text-muted-foreground max-w-[12rem] truncate px-2 py-2 font-mono text-[11px]"
+                        className="px-2 py-2 text-right font-mono tabular-nums"
                         title={formatSkuBoxBreakdown(sku) || undefined}
                       >
-                        {formatSkuBoxBreakdown(sku) || "—"}
+                        {formatSkuBoxNumbers(sku) || "—"}
                       </td>
+                      <td
+                        className="px-2 py-2 text-right font-mono tabular-nums"
+                        title={formatSkuBoxBreakdown(sku) || undefined}
+                      >
+                        {formatSkuBoxQuantities(sku) || "—"}
+                      </td>
+                      <td
+                        className="text-muted-foreground max-w-[10rem] truncate px-2 py-2 font-mono text-[11px]"
+                        title={formatSkuBoxBreakdown(sku) || undefined}
+                      >
+                        {formatSkuBoxNames(sku) || "—"}
+                      </td>
+                      {showBoxesSkuColumn ? (
+                        <td
+                          className="px-2 py-2 text-right font-mono tabular-nums"
+                          title="Physical boxes this SKU spans"
+                        >
+                          {countDistinctBoxNumbersForSku(sku) > 1
+                            ? countDistinctBoxNumbersForSku(sku)
+                            : "—"}
+                        </td>
+                      ) : null}
                       <td className="px-2 py-2">
                         {readOnly ? (
                           <span className="text-muted-foreground text-xs">Locked</span>

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  localBrandLogoPath,
+  faviconUrlForDomain,
   matchBrandKey,
   resolveCompanyLogoUrl,
+  BRAND_DOMAINS,
 } from "../../src/lib/company-brand-logo";
 
 describe("company-brand-logo", () => {
@@ -21,17 +22,22 @@ describe("company-brand-logo", () => {
     );
   });
 
-  it("resolves bundled path for unknown DB but known name", () => {
+  it("prefers favicon over bundled path for known marketplace names", () => {
     assert.equal(
       resolveCompanyLogoUrl("Zepto", null),
-      localBrandLogoPath("zepto")
+      faviconUrlForDomain(BRAND_DOMAINS.zepto)
+    );
+    assert.equal(
+      resolveCompanyLogoUrl("Blinkit", null),
+      faviconUrlForDomain(BRAND_DOMAINS.blinkit)
+    );
+    assert.equal(
+      resolveCompanyLogoUrl("Pepperfry", null),
+      faviconUrlForDomain(BRAND_DOMAINS.pepperfry)
     );
   });
 
-  it("resolves local path for Pepperfry", () => {
-    assert.equal(
-      resolveCompanyLogoUrl("Pepperfry", null),
-      localBrandLogoPath("pepperfry")
-    );
+  it("returns null for unknown company names", () => {
+    assert.equal(resolveCompanyLogoUrl("Unknown Brand XYZ", null), null);
   });
 });

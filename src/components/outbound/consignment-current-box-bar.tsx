@@ -8,6 +8,7 @@ export function ConsignmentCurrentBoxBar({
   activeBoxNumber,
   activeBoxName,
   boxesUsed,
+  skusPacked,
   validBins,
   disabled = false,
   canCloseBox,
@@ -19,6 +20,7 @@ export function ConsignmentCurrentBoxBar({
   activeBoxNumber: number | null;
   activeBoxName: string;
   boxesUsed: number;
+  skusPacked: number;
   validBins: { key: string; label: string }[];
   disabled?: boolean;
   canCloseBox: boolean;
@@ -32,10 +34,16 @@ export function ConsignmentCurrentBoxBar({
   return (
     <div className="bg-muted/40 flex flex-col gap-3 rounded-md border px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs font-medium">
-          Physical boxes used:{" "}
-          <span className="text-foreground font-mono tabular-nums">{boxesUsed}</span>
-        </span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="text-muted-foreground text-xs font-medium">
+            Physical boxes used:{" "}
+            <span className="text-foreground font-mono tabular-nums">{boxesUsed}</span>
+          </span>
+          <span className="text-muted-foreground text-xs font-medium">
+            SKUs with packing:{" "}
+            <span className="text-foreground font-mono tabular-nums">{skusPacked}</span>
+          </span>
+        </div>
         <span className="text-muted-foreground text-xs">
           {hasOpenBox
             ? "Close the open box, then use Add box for the next physical bin."

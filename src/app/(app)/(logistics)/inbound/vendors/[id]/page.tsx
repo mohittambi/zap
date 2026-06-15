@@ -57,6 +57,7 @@ import {
   VendorDetailsCard,
   type VendorDetail,
 } from "../vendor-details-card";
+import { pickImageFromRecord } from "@/lib/listing-image-url";
 
 type PoRow = {
   po_id: number;
@@ -97,6 +98,54 @@ type SearchableSkuSelectProps = {
   readonly ariaLabel?: string;
   readonly disabled?: boolean;
 };
+
+function SkuListingThumb({
+  listing,
+  size = 28,
+}: {
+  listing: VendorListingRow["listing"];
+  size?: number;
+}) {
+  const src = React.useMemo(
+    () =>
+      listing
+        ? pickImageFromRecord(listing as unknown as Record<string, unknown>)
+        : null,
+    [listing]
+  );
+  const [hidden, setHidden] = React.useState(false);
+
+  React.useEffect(() => {
+    setHidden(false);
+  }, [src]);
+
+  if (!src || hidden) {
+    return (
+      <span
+        className="bg-muted/40 text-muted-foreground border-border/60 flex shrink-0 items-center justify-center rounded border text-[9px]"
+        style={{ width: size, height: size }}
+        aria-hidden
+      >
+        —
+      </span>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- remote warehouse / CDN hosts
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      className="bg-muted shrink-0 rounded border border-border/60 object-contain p-0.5"
+      style={{ width: size, height: size }}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setHidden(true)}
+    />
+  );
+}
 
 function SearchableSkuSelect({
   options,
@@ -148,6 +197,9 @@ function SearchableSkuSelect({
           disabled && "pointer-events-none opacity-50"
         )}
       >
+        {selectedRow ? (
+          <SkuListingThumb listing={selectedRow.listing} size={24} />
+        ) : null}
         <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
         <ChevronDown
           className="text-muted-foreground size-4 shrink-0"
@@ -187,15 +239,18 @@ function SearchableSkuSelect({
               filtered.map((vs) => (
                 <DropdownMenuItem
                   key={`${vs.id}-${vs.sku_id}`}
-                  className="cursor-pointer flex-col items-start gap-0.5 py-1.5 text-sm"
+                  className="cursor-pointer flex-row items-center gap-2 py-1.5 text-sm"
                   onClick={() => {
                     onChange(vs.sku_id);
                     setOpen(false);
                   }}
                 >
-                  <span className="font-mono text-xs">{vs.sku_id}</span>
-                  <span className="text-muted-foreground line-clamp-1 max-w-full text-xs">
-                    {vs.listing?.description ?? "—"}
+                  <SkuListingThumb listing={vs.listing} size={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-mono text-xs">{vs.sku_id}</span>
+                    <span className="text-muted-foreground line-clamp-1 max-w-full text-xs">
+                      {vs.listing?.description ?? "—"}
+                    </span>
                   </span>
                 </DropdownMenuItem>
               ))
