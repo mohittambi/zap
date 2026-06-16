@@ -1,3 +1,3 @@
-Item Code,HSN Code,Product UPC,Product Description,Basic Cost Price,IGST %,Quantity,Landing Rate,MRP,Margin %,Total Amount
-10149864,39269099,8906176480245,eCraftIndia Buddha Figurines(Box),169.49,18,100,200,2999,93.33,20000
-10146920,39269099,8906176480030,eCraftIndia Golden Handcrafted Palm Buddha Showpiece Set (7 inch Black)(Box),42.33,18,51,49.95,999,95,2547.45
+Item Code,HSN Code,Product UPC,Product Description,Grammage,Basic Cost Price,CGST %,SGST %,IGST %,CESS %,Additional CESS,Tax Amount,Landing Rate,Quantity,MRP,Margin %,Total Amount
+10149864,39269099,8906176480245,eCraftIndia Buddha Figurines(Box),1 pc,169.49,,,18,,,30.51,200,100,2999,93.33,20000
+10146920,39269099,8906176480030,eCraftIndia Golden Handcrafted Palm Buddha Showpiece Set (7 inch Black)(Box),1 pc,42.33,,,18,,,7.62,49.95,51,999,95,2547.45

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseOutboundPoLineItemsSpreadsheet } from "../../src/server/utils/outboundPoListingSpreadsheetParse";
+import { parseOutboundPoLineItemsSpreadsheet, deriveEffectiveTaxRate } from "../../src/server/utils/outboundPoListingSpreadsheetParse";
 import {
   computeAnalyticsFromListingsRows,
   computeCommercialTotalsFromRows,
@@ -24,6 +24,7 @@ describe("parseOutboundPoLineItemsSpreadsheet", () => {
     assert.strictEqual(row.hsn_code, "39269099");
     assert.strictEqual(row.product_upc, "8906176480245");
     assert.strictEqual(row.tax_rate, 18);
+    assert.strictEqual(row.igst_percent, 18);
     assert.strictEqual(row.original_demand, 100);
     assert.strictEqual(row.demand, 100);
     assert.strictEqual(row.landing_rate, 200);
@@ -49,6 +50,7 @@ describe("parseOutboundPoLineItemsSpreadsheet", () => {
     assert.strictEqual(content[0].title, "eCraftIndia Buddha Figurines");
     assert.strictEqual(content[0].rate_without_tax, 169.49);
     assert.strictEqual(content[0].tax_rate, 18);
+    assert.strictEqual(content[0].igst_percent, 18);
     assert.strictEqual(content[0].original_demand, 100);
     assert.strictEqual(content[0].mrp, 2999);
     assert.strictEqual(content[0].margin, 93.33);
@@ -111,8 +113,36 @@ describe("parseOutboundPoLineItemsSpreadsheet", () => {
     );
     assert.strictEqual(content[0].rate_without_tax, 127.12);
     assert.strictEqual(content[0].tax_rate, 18);
+    assert.strictEqual(content[0].igst_percent, 18);
     assert.strictEqual(content[0].original_demand, 6);
     assert.strictEqual(content[0].mrp, 150);
+  });
+
+  it("maps split CGST/SGST/IGST without overwriting each other", () => {
+    const csv = [
+      "Item Code,CGST %,SGST %,IGST %,Quantity,MRP",
+      "SKU-1,9,9,0,5,499",
+      "SKU-2,0,0,18,3,999",
+    ].join("\n");
+    const { content } = parseOutboundPoLineItemsSpreadsheet(
+      Buffer.from(csv, "utf8"),
+      "split-gst.csv"
+    );
+    assert.strictEqual(content.length, 2);
+    assert.strictEqual(content[0].cgst_percent, 9);
+    assert.strictEqual(content[0].sgst_percent, 9);
+    assert.strictEqual(content[0].igst_percent, 0);
+    assert.strictEqual(content[0].tax_rate, 18);
+    assert.strictEqual(content[1].igst_percent, 18);
+    assert.strictEqual(content[1].tax_rate, 18);
+  });
+
+  it("deriveEffectiveTaxRate prefers IGST then CGST+SGST then legacy tax_rate", () => {
+    assert.equal(deriveEffectiveTaxRate({ igst_percent: 18, cgst_percent: 9 }), 18);
+    assert.equal(deriveEffectiveTaxRate({ cgst_percent: 9, sgst_percent: 9 }), 18);
+    assert.equal(deriveEffectiveTaxRate({ tax_rate: 12 }), 12);
+    assert.equal(deriveEffectiveTaxRate({ igst_percent: 18, cess_percent: 5 }), 23);
+    assert.equal(deriveEffectiveTaxRate({ cgst_percent: 9, sgst_percent: 9, cess_percent: 2 }), 20);
   });
 });
 

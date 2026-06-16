@@ -33,34 +33,7 @@ function classifyPoUpload(file: File): "pdf" | "spreadsheet" | "other" {
   return "other";
 }
 
-/**
- * @swagger
- * /outbound/purchase-orders/{id}/attachments:
- *   post:
- *     summary: Upload outbound PO attachment (PDF/CSV/XLSX, max 2MB)
- *     description: Requires purchase_orders:create.
- *     tags: [Outbound]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: integer }
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required: [file]
- *             properties:
- *               file: { type: string, format: binary }
- *     responses:
- *       200: { description: OK }
- *       400: { description: Bad request }
- *       401: { description: Unauthorized }
- *       403: { description: Forbidden }
- *       404: { description: Purchase order not found }
- */
+/** Store PO attachment; spreadsheets also parse into listings_snapshot. */
 export async function POST(request: Request, context: Ctx) {
   try {
     const user = await requireAuth(request);
@@ -94,7 +67,7 @@ export async function POST(request: Request, context: Ctx) {
     const objectPath = path.posix.join("outbound-po", String(poId), fname);
     await uploadBufferToBucket(getOutboundBucket(), objectPath, buf, file.type || "application/octet-stream");
 
-    await outboundPoService.insertOutboundPoAttachment({
+    const attachmentId = await outboundPoService.insertOutboundPoAttachment({
       outbound_po_id: poId,
       original_filename: file.name,
       content_type: file.type || null,
@@ -103,39 +76,30 @@ export async function POST(request: Request, context: Ctx) {
       kind,
     });
 
-    let listingsUpdated = false;
-    let rowsParsed = 0;
-    let rowsRepaired = 0;
-    let stillMisaligned = 0;
     if (kind === "spreadsheet") {
-      try {
-        const result = await outboundPoService.applySpreadsheetToOutboundPo(
-          poId,
-          buf,
-          fname
-        );
-        listingsUpdated = result.listingsUpdated;
-        rowsParsed = result.rowsParsed;
-        rowsRepaired = result.rowsRepaired;
-        stillMisaligned = result.stillMisaligned;
-      } catch {
-        listingsUpdated = false;
-        rowsParsed = 0;
-      }
+      const parseResult = await outboundPoService.applySpreadsheetToOutboundPo(
+        poId,
+        buf,
+        file.name,
+        { confirmReplace: true, sourceAttachmentId: attachmentId }
+      );
+      return NextResponse.json({
+        ok: true,
+        attachmentId,
+        kind,
+        parseResult: {
+          rowsParsed: parseResult.rowsParsed,
+          rowsRepaired: parseResult.rowsRepaired,
+          stillMisaligned: parseResult.stillMisaligned,
+        },
+        parseWarning:
+          parseResult.stillMisaligned > 0
+            ? `${parseResult.stillMisaligned} line(s) may still have misaligned commercial columns after repair.`
+            : undefined,
+      });
     }
 
-    return NextResponse.json({
-      ok: true,
-      listingsUpdated,
-      parseResult:
-        kind === "spreadsheet"
-          ? { rowsParsed, rowsRepaired, stillMisaligned }
-          : undefined,
-      parseWarning:
-        kind === "spreadsheet" && stillMisaligned > 0
-          ? `${stillMisaligned} line(s) may still have misaligned commercial columns after repair. Prefer XLSX upload or review line items.`
-          : undefined,
-    });
+    return NextResponse.json({ ok: true, attachmentId, kind });
   } catch (err) {
     return handleApiError(err);
   }

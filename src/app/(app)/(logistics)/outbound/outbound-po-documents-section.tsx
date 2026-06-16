@@ -130,6 +130,7 @@ export function OutboundPoDocumentsSection({
   eaZapUploading,
   onEaZapFileChange,
   onUploadEaZap,
+  listingsSourceFilename,
   uploadSlot,
 }: {
   zapAttachments: ZapAtt[];
@@ -147,6 +148,7 @@ export function OutboundPoDocumentsSection({
   eaZapUploading: boolean;
   onEaZapFileChange: (file: File | null) => void;
   onUploadEaZap: () => void;
+  listingsSourceFilename?: string | null;
   /** Upload form (Add PO document) rendered below the table */
   uploadSlot?: React.ReactNode;
 }) {
@@ -161,7 +163,14 @@ export function OutboundPoDocumentsSection({
         <CardTitle className="text-base">Original PO documents</CardTitle>
         <CardDescription>
           PDF and spreadsheet uploaded in Zap (create or below), plus documents synced
-          from eAutomate when available.
+          from eAutomate when available. Spreadsheets update line items on upload.
+          {listingsSourceFilename ? (
+            <>
+              {" "}
+              Active line-item source:{" "}
+              <span className="font-medium">{listingsSourceFilename}</span>
+            </>
+          ) : null}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 p-0 sm:p-6 sm:pt-0">
@@ -326,8 +335,8 @@ export function OutboundPoAddDocumentUpload({
       <div>
         <p className="text-sm font-medium">Add PO document</p>
         <p className="text-muted-foreground text-xs leading-relaxed">
-          PDF or spreadsheet/CSV, max 2MB. Spreadsheets update SKU line items when
-          column headers match the sample.
+          PDF or spreadsheet/CSV, max 2MB. Spreadsheets update PO line items immediately
+          on upload — use the vendor PO file, not the sample template on live POs.
         </p>
         <p className="text-xs">
           <Link

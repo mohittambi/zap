@@ -3,8 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { useAuth } from "@/contexts/auth-context";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
+import {
+  EanMappingsImportPreviewDialog,
+  previewEanMappingsImportFile,
+} from "@/components/settings/ean-mappings-import-preview-dialog";
+import type { EanImportPreview } from "@/server/services/eanMappingsImportService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,6 +52,9 @@ function cellValue(v: string | null | undefined): React.ReactNode {
 }
 
 export default function OutboundEanMappingsPage() {
+  const { hasPermission } = useAuth();
+  const isAdmin = hasPermission("*", "*");
+
   const [draftSearch, setDraftSearch] = React.useState("");
   const [search, setSearch] = React.useState("");
   const [companyId, setCompanyId] = React.useState("");
@@ -56,6 +65,13 @@ export default function OutboundEanMappingsPage() {
   });
   const [data, setData] = React.useState<MatrixPageData | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const importRef = React.useRef<HTMLInputElement>(null);
+  const [importPreviewOpen, setImportPreviewOpen] = React.useState(false);
+  const [importPreview, setImportPreview] = React.useState<EanImportPreview | null>(
+    null
+  );
+  const [importPendingFile, setImportPendingFile] = React.useState<File | null>(null);
+  const [importPreviewBusy, setImportPreviewBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -151,6 +167,105 @@ export default function OutboundEanMappingsPage() {
             : ""}
         </p>
       ) : null}
+
+      {isAdmin ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const q = new URLSearchParams();
+              if (companyId) q.set("company_id", companyId);
+              if (search.trim()) q.set("search", search.trim());
+              const token = getStoredToken();
+              const url = apiUrl(
+                `/api/ean-mappings/export${q.toString() ? `?${q}` : ""}`
+              );
+              void fetch(url, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              })
+                .then(async (res) => {
+                  if (!res.ok) throw new Error(await res.text());
+                  const blob = await res.blob();
+                  const a = document.createElement("a");
+                  a.href = URL.createObjectURL(blob);
+                  a.download = "ean_mappings.csv";
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                })
+                .catch((e) =>
+                  toast.error(e instanceof Error ? e.message : "Export failed")
+                );
+            }}
+          >
+            Export CSV
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={importPreviewBusy}
+            onClick={() => importRef.current?.click()}
+          >
+            {importPreviewBusy ? "Loading…" : "Import CSV"}
+          </Button>
+          <Button type="button" variant="ghost" size="sm" asChild>
+            <a
+              href="/samples/ean-mappings/sample_ean_mappings_import.csv"
+              download
+            >
+              Download sample
+            </a>
+          </Button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="sr-only"
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              setImportPreviewBusy(true);
+              try {
+                const preview = await previewEanMappingsImportFile(f);
+                if (
+                  preview.stats.errorCount > 0 &&
+                  preview.stats.newCount === 0 &&
+                  preview.stats.replaceCount === 0
+                ) {
+                  toast.error(
+                    `Import has ${preview.stats.errorCount} error row(s). Fix the CSV and try again.`
+                  );
+                  return;
+                }
+                setImportPendingFile(f);
+                setImportPreview(preview);
+                setImportPreviewOpen(true);
+              } catch (err) {
+                toast.error(
+                  err instanceof Error ? err.message : "Import preview failed"
+                );
+              } finally {
+                setImportPreviewBusy(false);
+              }
+            }}
+          />
+        </div>
+      ) : null}
+
+      <EanMappingsImportPreviewDialog
+        open={importPreviewOpen}
+        onOpenChange={setImportPreviewOpen}
+        preview={importPreview}
+        pendingFile={importPendingFile}
+        onApplied={() => {
+          setImportPendingFile(null);
+          setImportPreview(null);
+          void load();
+        }}
+      />
 
       <Card className="border-primary/10 shadow-sm">
         <DataTableToolbar>

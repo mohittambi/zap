@@ -23,10 +23,12 @@ Bad rows were stored in `outbound_purchase_orders.listings_snapshot` and affecte
 
 ## Data flow
 
+See also: [Original PO document spreadsheet ingest](po-document-spreadsheet-ingest.md), [EAN mappings import](ean-mappings-import.md).
+
 ```mermaid
 flowchart TD
   subgraph ingest [Ingest]
-    Upload[Spreadsheet upload]
+    Upload[Spreadsheet upload to Original PO documents]
     Parse[parseOutboundPoLineItemsSpreadsheet]
     NormalizeIngest[normalizeOutboundListingRows]
     Snapshot[(listings_snapshot JSONB)]
@@ -34,17 +36,18 @@ flowchart TD
   end
   subgraph read [Read path]
     Extract[extractListingsRowsFromSnapshotNormalized]
+    MrpResolve[resolveOutboundListingMrp]
     UI[PO line items UI]
     SkuReport[SKU Level Report]
     Pendency[Pendency PDF]
     Invoice[Consignment invoice Excel]
     Ops[SKU PO Control]
-    Snapshot --> Extract
-    Extract --> UI
-    Extract --> SkuReport
-    Extract --> Pendency
-    Extract --> Invoice
-    Extract --> Ops
+    Snapshot --> Extract --> MrpResolve
+    MrpResolve --> UI
+    MrpResolve --> SkuReport
+    MrpResolve --> Pendency
+    MrpResolve --> Invoice
+    MrpResolve --> Ops
   end
 ```
 
@@ -77,11 +80,45 @@ Implementation: [`outboundListingNormalize.ts`](../../src/server/utils/outboundL
 
 ---
 
+## MRP vs landing rate
+
+Blinkit vendor spreadsheets expose separate columns:
+
+| Column | Meaning | Example (SKU 10314301) |
+|--------|---------|--------------------------|
+| `Landing Rate` | Inclusive landed unit price | 150 |
+| `MRP` | Retail MRP printed on label | 1099 |
+
+When columns shift during CSV ingest, **MRP can be overwritten with the landing rate** (e.g. `mrp: 150`). SKU/EAN mappings (`company_ean_mappings`) resolve **master SKU / EAN**, not MRP.
+
+### MRP resolution chain
+
+Implementation: `resolveOutboundListingMrp()` in [`outboundPurchaseOrdersService.ts`](../../src/server/services/outboundPurchaseOrdersService.ts)
+
+1. **PO spreadsheet** — use snapshot `mrp` when it is plausible retail MRP (not ≈ landing/inclusive rate).
+2. **Labels secondary** — `labels_master_data` joined via `secondary_listings` on `po_secondary_sku`.
+3. **Labels master** — same table joined on resolved `master_sku` from EAN mappings.
+4. **Unresolved** — flagged in Preview line items; ops should re-parse the vendor XLSX or add labels master data.
+
+`mrpLooksLikeLandingRate()` treats a value as suspicious when it is close to `landing_rate` or `rate × (1 + GST%)`, unless `mrp >= landing_rate × 1.5` (plausible retail markup).
+
+### Preview line items transparency
+
+PO Actions → **Preview line items** shows per row:
+
+- **PO MRP** — raw value from snapshot
+- **MRP** — resolved value used in SKU report
+- **Source** — `PO`, `Labels (secondary)`, `Labels (master)`, or `Unresolved`
+
+Rows with replaced or unresolved MRP appear under **Issues only**.
+
+---
+
 ## Surfaces covered
 
 | Surface | Normalization |
 |---------|----------------|
-| Spreadsheet upload / PO create | Yes — before snapshot persist |
+| Spreadsheet upload / PO create | Yes — auto-applied on upload |
 | PO line items API + UI | Yes — via normalized extract |
 | SKU Level Report XLSX | Yes — caller passes normalized rows |
 | PO Actions — Preview line items | Yes — modal before SKU report download |
@@ -139,36 +176,37 @@ PO CSV also **rejoins** cells between `Product Description` and `Basic Cost Pric
    npm run repair:outbound-po-listings -- --all
    ```
 
-### Re-upload alternative
+5. **Re-parse from stored Original PO document** (restores full row count + correct MRP from XLSX):
 
-Upload the original vendor **XLSX** via PO **Attachments**. The ingest path parses, normalizes, and overwrites `listings_snapshot`.
+   ```bash
+   # Uses analytics_object.listings_source_attachment_id after a UI "Use as line items" apply
+   npm run repair:outbound-po-listings -- --po-number 1735810041652 --reparse-from-source
 
-### Upload API feedback
+   # Or explicit attachment id from outbound_po_attachments
+   npm run repair:outbound-po-listings -- --po-number 1735810041652 --reparse-from-attachment 42
+   ```
 
-Attachment upload returns:
+   Add `--dry-run` to print intent without writing. Combine with `--sync-consignment-items` to refresh consignment `raw` JSONB.
 
-```json
-{
-  "parseResult": {
-    "rowsParsed": 17,
-    "rowsRepaired": 10,
-    "stillMisaligned": 0
-  },
-  "parseWarning": "..."
-}
-```
+### Re-upload (UI)
 
-`parseWarning` appears when rows remain misaligned after repair.
+On the PO detail page, **Add PO document** with the vendor XLSX — line items update on upload. See [po-document-spreadsheet-ingest.md](po-document-spreadsheet-ingest.md).
+
+### Upload API
+
+`POST …/attachments` returns `parseResult` and optional `parseWarning` for spreadsheets.
+
+EAN mapping import uses separate preview/apply routes — see [ean-mappings-import.md](ean-mappings-import.md).
 
 ### Verification checklist
 
 For a repaired PO:
 
 1. PO line items expanded row: title, color, MRP, rate, tax % correct.
-2. PO actions preview + SKU report: MRP is corrected to retail MRP (listing master fallback when PO value looks like rate-with-tax).
-2. SKU report: no color text in `rate_without_tax`.
-3. Pendency PDF: pending qty ≠ GST %.
-4. `analytics_object` commercial totals plausible.
+2. PO actions preview + SKU report: MRP is retail (1099 not 150 for SKU 10314301); source column shows `PO` or `Labels`.
+3. SKU report: no color text in `rate_without_tax`.
+4. Pendency PDF: pending qty ≠ GST %.
+5. `analytics_object` commercial totals plausible; `listings_source_filename` points at vendor XLSX.
 
 ---
 
@@ -184,4 +222,8 @@ For a repaired PO:
 
 - [`outbound-po-listing-normalize.test.ts`](../../tests/unit/outbound-po-listing-normalize.test.ts) — edge cases from PO `1735810041652`
 - [`outbound-po-listing-spreadsheet.test.ts`](../../tests/unit/outbound-po-listing-spreadsheet.test.ts) — quoted/unquoted CSV ingest
+- [`outbound-po-document-spreadsheet.test.ts`](../../tests/unit/outbound-po-document-spreadsheet.test.ts) — golden XLSX fixture (17 rows, MRP 1099)
+- [`outbound-po-listings-preview.test.ts`](../../tests/unit/outbound-po-listings-preview.test.ts) — preview + MRP source
+- [`outbound-listing-mrp.test.ts`](../../tests/unit/outbound-listing-mrp.test.ts) — MRP resolution chain
 - [`outbound-po-sku-report.test.ts`](../../tests/unit/outbound-po-sku-report.test.ts) — XLSX export columns
+- [`ean-mappings-import.test.ts`](../../tests/unit/ean-mappings-import.test.ts) — CSV import preview/apply

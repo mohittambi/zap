@@ -12,6 +12,8 @@ const emptyLookups: OutboundSkuLookups = {
   eanBySkuKey: new Map(),
   listingSkuByKey: new Map(),
   binStockBySkuId: new Map(),
+  labelsMrpBySecondarySku: new Map(),
+  labelsMrpByMasterSku: new Map(),
 };
 
 const po = {
@@ -58,8 +60,40 @@ describe("buildOutboundPoListingsPreviewFromRows", () => {
     assert.equal(row.tax_rate, "18");
     assert.equal(row.color, "Black & Golden");
     assert.equal(row.demand, "6");
-    assert.equal(row.mrp, "150");
+    assert.equal(row.po_mrp_raw, "150");
+    assert.equal(row.mrp_source, "unresolved");
+    assert.ok(row.issues.some((i) => i.startsWith("mrp_unresolved")));
     assert.ok(row.issues.length > 0);
+  });
+
+  it("resolves MRP from labels master when PO value looks like landing rate", () => {
+    const lookups: OutboundSkuLookups = {
+      ...emptyLookups,
+      labelsMrpBySecondarySku: new Map([["10314301", 1099]]),
+    };
+    const preview = buildOutboundPoListingsPreviewFromRows(
+      po,
+      [
+        {
+          po_secondary_sku: "10314301",
+          title: 'eCraftIndia Ganesha in Palm Showpiece (6.2", Black & Golden)(Box)',
+          mrp: 150,
+          landing_rate: 150,
+          rate_without_tax: 127.12,
+          tax_rate: 18,
+          demand: 35,
+        },
+      ],
+      lookups
+    );
+
+    const row = preview.rowsPreview[0];
+    assert.equal(row.status, "repaired");
+    assert.equal(row.po_mrp_raw, "150");
+    assert.equal(row.resolved_mrp, "1099");
+    assert.equal(row.mrp_source, "labels_secondary");
+    assert.equal(preview.stats.mrpReplacedCount, 1);
+    assert.equal(preview.stats.mrpUnresolvedCount, 0);
   });
 
   it("marks clean row as ok", () => {
@@ -85,6 +119,8 @@ describe("buildOutboundPoListingsPreviewFromRows", () => {
     assert.equal(preview.rowsPreview[0].rate_without_tax, "177.97");
     assert.equal(preview.rowsPreview[0].tax_rate, "18");
     assert.equal(preview.rowsPreview[0].demand, "50");
+    assert.equal(preview.rowsPreview[0].mrp_source, "po_spreadsheet");
+    assert.equal(preview.rowsPreview[0].po_mrp_raw, "999");
   });
 
   it("marks row with missing SKU and zero demand as warning", () => {

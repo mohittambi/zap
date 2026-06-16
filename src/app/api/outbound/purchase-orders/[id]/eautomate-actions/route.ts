@@ -3,7 +3,6 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import {
-  getSkuReportItemsByPoNumber,
   getProductLabelRowsByPoNumber,
   getProductLabelRowsFromSnapshot,
   type SkuReportItemRow,
@@ -11,10 +10,8 @@ import {
 import { buildPhase1BoxLabelsPdf } from "@/server/services/labelPdfService";
 import {
   acknowledgeOutboundPo,
-  buildSkuReportXlsxFromRows,
   buildOutboundPoListingsPreview,
   cancelOutboundPo,
-  consignmentItemsToSkuReportRows,
   extractListingsRowsFromSnapshotNormalized,
   patchOutboundPurchaseOrderField,
   type OutboundPoEditableField,
@@ -259,16 +256,11 @@ export async function POST(request: Request, context: Ctx) {
       return NextResponse.json({ ok: true });
     }
 
-    /** SKU report: primary source = outbound_consignment_items (raw JSONB), fallback = listings_snapshot. */
+    /** SKU report: merge consignment ops fields with listings_snapshot commercial data. */
     if (action === "download_sku_report") {
-      const pn = po.po_number;
-      const skuItems = await getSkuReportItemsByPoNumber(pn);
-      const reportRows =
-        skuItems.length > 0
-          ? consignmentItemsToSkuReportRows(skuItems)
-          : extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
+      const reportRows = await outboundPoService.buildSkuReportRowsForPo(po);
       if (reportRows.length > 0) {
-        const { buffer, filename } = await buildSkuReportXlsxFromRows(
+        const { buffer, filename } = await outboundPoService.buildSkuReportXlsxFromRows(
           reportRows,
           po
         );

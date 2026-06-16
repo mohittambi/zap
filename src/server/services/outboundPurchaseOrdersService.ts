@@ -13,6 +13,8 @@ import {
 } from "@/server/services/eanMappingsService";
 import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 import {
+  computeOutboundTaxAmountPerUnit,
+  deriveEffectiveTaxRate,
   isMisalignedCommercialRow,
   looksLikeGstPercent,
   mrpLooksLikeLandingRate,
@@ -641,11 +643,12 @@ export async function insertOutboundPoAttachment(input: {
   size_bytes: number;
   stored_path: string;
   kind: string;
-}): Promise<void> {
-  await query(
+}): Promise<number> {
+  const r = await query(
     `INSERT INTO outbound_po_attachments (
        outbound_po_id, original_filename, content_type, size_bytes, stored_path, kind
-     ) VALUES ($1, $2, $3, $4, $5, $6)`,
+     ) VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
     [
       input.outbound_po_id,
       input.original_filename.slice(0, 500),
@@ -655,6 +658,7 @@ export async function insertOutboundPoAttachment(input: {
       input.kind,
     ]
   );
+  return Number(r.rows[0]?.id);
 }
 
 export async function deleteOutboundPurchaseOrderById(id: number): Promise<void> {
@@ -930,36 +934,31 @@ export function computeAnalyticsFromListingsRows(
 export async function applySpreadsheetToOutboundPo(
   outboundPoId: number,
   buf: Buffer,
-  filename: string
+  filename: string,
+  opts?: { confirmReplace?: boolean; sourceAttachmentId?: number | null }
 ): Promise<{
   listingsUpdated: boolean;
   rowsParsed: number;
   rowsRepaired: number;
   stillMisaligned: number;
 }> {
-  const envelope = parseOutboundPoLineItemsSpreadsheet(buf, filename);
-  if (envelope.content.length === 0) {
-    return {
-      listingsUpdated: false,
-      rowsParsed: 0,
-      rowsRepaired: 0,
-      stillMisaligned: envelope.stillMisaligned,
-    };
-  }
-  const { rows, repairedCount, stillMisaligned } = normalizeOutboundListingRows(
-    envelope.content
+  const { applySpreadsheetBufferToOutboundPo } = await import(
+    "@/server/services/outboundPoSpreadsheetIngestService"
   );
-  const normalizedEnvelope = { ...envelope, content: rows };
-  await updateOutboundPoListingsSnapshot(outboundPoId, normalizedEnvelope);
-  await updateOutboundPoAnalyticsObject(
+  const result = await applySpreadsheetBufferToOutboundPo(
     outboundPoId,
-    computeAnalyticsFromListingsRows(rows)
+    buf,
+    filename,
+    {
+      confirmReplace: opts?.confirmReplace ?? true,
+      sourceAttachmentId: opts?.sourceAttachmentId,
+    }
   );
   return {
-    listingsUpdated: true,
-    rowsParsed: rows.length,
-    rowsRepaired: repairedCount,
-    stillMisaligned,
+    listingsUpdated: result.listingsUpdated,
+    rowsParsed: result.rowsParsed,
+    rowsRepaired: result.rowsRepaired,
+    stillMisaligned: result.stillMisaligned,
   };
 }
 
@@ -1000,12 +999,19 @@ export type OutboundPoListingsPreviewRowStatus = "ok" | "repaired" | "warning" |
 export type OutboundPoListingsPreviewRow = {
   rowNumber: number;
   po_secondary_sku: string | null;
+  master_sku: string | null;
   title: string | null;
   color: string | null;
   rate_without_tax: string | null;
   tax_rate: string | null;
   demand: string | null;
+  landing_rate: string | null;
+  /** Raw MRP from PO snapshot / spreadsheet before resolution. */
+  po_mrp_raw: string | null;
+  /** MRP used in SKU report after resolution chain. */
   mrp: string | null;
+  resolved_mrp: string | null;
+  mrp_source: OutboundListingMrpSource;
   status: OutboundPoListingsPreviewRowStatus;
   issues: string[];
   skuReportCells: Record<string, string>;
@@ -1018,6 +1024,8 @@ export type OutboundPoListingsPreview = {
     repairedCount: number;
     warningCount: number;
     errorCount: number;
+    mrpReplacedCount: number;
+    mrpUnresolvedCount: number;
   };
   rowsPreview: OutboundPoListingsPreviewRow[];
   parseWarning?: string;
@@ -1028,6 +1036,13 @@ function strTrimSkuField(v: unknown): string {
   return String(v).trim();
 }
 
+export type OutboundListingMrpSource =
+  | "po_spreadsheet"
+  | "labels_secondary"
+  | "labels_master"
+  | "margin_restored"
+  | "unresolved";
+
 /** Resolve retail MRP for export/preview with listing-master fallback. */
 export function resolveOutboundListingMrp(
   normalizedRow: Record<string, unknown>,
@@ -1035,28 +1050,48 @@ export function resolveOutboundListingMrp(
     rawRow?: Record<string, unknown>;
     lookups?: OutboundSkuLookups;
   } = {}
-): { mrp: number | null; issues: string[] } {
+): { mrp: number | null; source: OutboundListingMrpSource; issues: string[] } {
   const issues: string[] = [];
   const normalizedMrp = numberFromUnknown(normalizedRow.mrp);
 
   if (!mrpLooksLikeLandingRate(normalizedRow) && normalizedMrp != null) {
-    return { mrp: normalizedMrp, issues };
+    return { mrp: normalizedMrp, source: "po_spreadsheet", issues };
   }
 
   const sku = strTrimSkuField(normalizedRow.po_secondary_sku);
-  const labelsMrp =
+  const labelsSecondary =
     sku && opts.lookups?.labelsMrpBySecondarySku
       ? opts.lookups.labelsMrpBySecondarySku.get(sku)
       : undefined;
   if (
-    labelsMrp != null &&
-    labelsMrp > 0 &&
-    !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: labelsMrp })
+    labelsSecondary != null &&
+    labelsSecondary > 0 &&
+    !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: labelsSecondary })
   ) {
     issues.push(
-      "MRP replaced from listing master (PO value looked like rate with tax)."
+      "MRP replaced from listing master (PO value looked like landing/inclusive rate)."
     );
-    return { mrp: labelsMrp, issues };
+    return { mrp: labelsSecondary, source: "labels_secondary", issues };
+  }
+
+  const masterSku = strTrimSkuField(
+    opts.lookups
+      ? enrichOutboundReportRow(normalizedRow, opts.lookups).master_sku
+      : normalizedRow.master_sku
+  );
+  const labelsMaster =
+    masterSku && opts.lookups?.labelsMrpByMasterSku
+      ? opts.lookups.labelsMrpByMasterSku.get(masterSku)
+      : undefined;
+  if (
+    labelsMaster != null &&
+    labelsMaster > 0 &&
+    !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: labelsMaster })
+  ) {
+    issues.push(
+      "MRP replaced from listing master via master SKU (PO value looked like landing/inclusive rate)."
+    );
+    return { mrp: labelsMaster, source: "labels_master", issues };
   }
 
   const rawMrp = numberFromUnknown(opts.rawRow?.mrp);
@@ -1065,13 +1100,25 @@ export function resolveOutboundListingMrp(
     rawMrp > 0 &&
     !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: rawMrp })
   ) {
-    return { mrp: rawMrp, issues };
+    return { mrp: rawMrp, source: "po_spreadsheet", issues };
   }
 
   if (mrpLooksLikeLandingRate(normalizedRow)) {
-    issues.push("MRP may still be rate with tax; no listing master override found.");
+    issues.push(
+      "MRP may be landing/inclusive price. Re-parse the vendor spreadsheet from Original PO documents or add SKU/EAN + labels master data."
+    );
   }
-  return { mrp: normalizedMrp, issues };
+  return { mrp: normalizedMrp, source: "unresolved", issues };
+}
+
+function formatPreviewMrp(v: unknown): string | null {
+  const n = numberFromUnknown(v);
+  if (n == null) {
+    if (v == null || v === "") return null;
+    const s = String(v).trim();
+    return s || null;
+  }
+  return String(n);
 }
 
 /** Preview normalized listing rows as they would appear in the SKU Level Report. */
@@ -1083,9 +1130,12 @@ export function buildOutboundPoListingsPreviewFromRows(
   let repairedCount = 0;
   let warningCount = 0;
   let errorCount = 0;
+  let mrpReplacedCount = 0;
+  let mrpUnresolvedCount = 0;
 
   const rowsPreview: OutboundPoListingsPreviewRow[] = rawRows.map((rawRow, idx) => {
     const { row, repaired, repairs } = normalizeOutboundListingRow(rawRow);
+    const enriched = enrichOutboundReportRow(row, lookups);
     const cells = buildSkuReportRowCells(row, po, lookups);
     const stillMisaligned = isMisalignedCommercialRow(row);
     const mrpResolution = resolveOutboundListingMrp(row, {
@@ -1095,6 +1145,35 @@ export function buildOutboundPoListingsPreviewFromRows(
     const issues = [...repairs, ...mrpResolution.issues];
     let status: OutboundPoListingsPreviewRowStatus = "ok";
 
+    if (
+      mrpResolution.source === "labels_secondary" ||
+      mrpResolution.source === "labels_master" ||
+      mrpResolution.source === "margin_restored"
+    ) {
+      mrpReplacedCount += 1;
+    } else if (mrpResolution.source === "unresolved") {
+      mrpUnresolvedCount += 1;
+      issues.push(
+        "mrp_unresolved: MRP could not be confirmed from PO spreadsheet or labels master."
+      );
+    }
+
+    const sku = strTrimSkuField(row.po_secondary_sku);
+    const masterSku = strTrimSkuField(enriched.master_sku);
+    if (sku && !masterSku) {
+      issues.push(
+        "missing_ean_mapping: No SKU/EAN mapping for this PO secondary SKU."
+      );
+    } else if (
+      sku &&
+      masterSku &&
+      mrpResolution.source === "unresolved" &&
+      !lookups.labelsMrpBySecondarySku.get(sku) &&
+      !lookups.labelsMrpByMasterSku.get(masterSku)
+    ) {
+      issues.push("missing_labels_master: No MRP in labels master for this SKU.");
+    }
+
     if (stillMisaligned) {
       status = "error";
       errorCount += 1;
@@ -1103,12 +1182,17 @@ export function buildOutboundPoListingsPreviewFromRows(
       status = "repaired";
       repairedCount += 1;
     } else {
-      const sku = cells.po_secondary_sku.trim();
       const demandN = Number(cells.demand);
       const extraWarnings: string[] = [];
       if (!sku) extraWarnings.push("Missing PO secondary SKU.");
       if (!Number.isFinite(demandN) || demandN <= 0) {
         extraWarnings.push("Demand is zero or invalid.");
+      }
+      if (
+        mrpResolution.source === "unresolved" &&
+        mrpLooksLikeLandingRate(row)
+      ) {
+        extraWarnings.push("MRP may be landing/inclusive rate, not retail MRP.");
       }
       if (extraWarnings.length > 0) {
         status = "warning";
@@ -1117,15 +1201,22 @@ export function buildOutboundPoListingsPreviewFromRows(
       }
     }
 
+    const resolvedMrp = formatPreviewMrp(mrpResolution.mrp);
+
     return {
       rowNumber: idx + 1,
       po_secondary_sku: cells.po_secondary_sku || null,
+      master_sku: masterSku || null,
       title: cells.title || null,
       color: cells.color || null,
       rate_without_tax: cells.rate_without_tax || null,
       tax_rate: cells.tax_rate || null,
       demand: cells.demand || null,
+      landing_rate: formatPreviewMrp(row.landing_rate ?? rawRow.landing_rate),
+      po_mrp_raw: formatPreviewMrp(rawRow.mrp ?? row.mrp),
       mrp: cells.mrp || null,
+      resolved_mrp: resolvedMrp,
+      mrp_source: mrpResolution.source,
       status,
       issues,
       skuReportCells: { ...cells },
@@ -1139,6 +1230,8 @@ export function buildOutboundPoListingsPreviewFromRows(
       repairedCount,
       warningCount,
       errorCount,
+      mrpReplacedCount,
+      mrpUnresolvedCount,
     },
     rowsPreview,
     parseWarning:
@@ -1197,8 +1290,20 @@ type SkuReportColumn =
   | "zap_ean"
   | "universal_ean"
   | "title"
-  | "mrp"
+  | "product_upc"
+  | "grammage"
   | "rate_without_tax"
+  | "cgst_percent"
+  | "sgst_percent"
+  | "igst_percent"
+  | "cess_percent"
+  | "additional_cess"
+  | "tax_amount"
+  | "landing_rate"
+  | "demand"
+  | "mrp"
+  | "margin"
+  | "total_amount"
   | "tax_rate"
   | "hsn"
   | "size"
@@ -1229,15 +1334,26 @@ const SKU_REPORT_COLUMNS: SkuReportColumn[] = [
   "zap_ean",
   "universal_ean",
   "title",
-  "mrp",
+  "product_upc",
+  "grammage",
   "rate_without_tax",
+  "cgst_percent",
+  "sgst_percent",
+  "igst_percent",
+  "cess_percent",
+  "additional_cess",
+  "tax_amount",
+  "landing_rate",
+  "demand",
+  "mrp",
+  "margin",
+  "total_amount",
   "tax_rate",
   "hsn",
   "size",
   "color",
   "ops_tag",
   "warehouse_quantity",
-  "demand",
   "packed",
   "dispatched",
   "pending",
@@ -1270,13 +1386,11 @@ function firstPresentTaxRate(
   row: Record<string, unknown>,
   fallback?: Record<string, unknown>
 ): number | null {
-  const keys = [
-    "tax_rate",
-    "gst_rate",
-    "igst",
-    "igst_percent",
-    "gst_percent",
-  ] as const;
+  const merged = fallback ? { ...fallback, ...row } : row;
+  const fromSplit = deriveEffectiveTaxRate(merged);
+  if (fromSplit != null) return fromSplit;
+
+  const keys = ["tax_rate", "gst_rate", "igst", "gst_percent"] as const;
   for (const key of keys) {
     const parsed = parsePercentLike(row[key]);
     if (parsed != null) return parsed;
@@ -1286,6 +1400,34 @@ function firstPresentTaxRate(
     }
   }
   return null;
+}
+
+function readCommercialField(
+  row: Record<string, unknown>,
+  listing: Record<string, unknown>,
+  key: string
+): unknown {
+  return row[key] ?? listing[key];
+}
+
+function resolveSkuReportTaxAmount(
+  row: Record<string, unknown>,
+  listing: Record<string, unknown>,
+  taxPct: number | null
+): string {
+  const stored = readCommercialField(row, listing, "tax_amount");
+  if (stored != null && stored !== "") return csvCellValue(stored);
+
+  const merged = { ...listing, ...row };
+  const computed = computeOutboundTaxAmountPerUnit(merged);
+  if (computed != null) return String(computed);
+
+  const basic = numberFromUnknown(row.rate_without_tax ?? listing.rate_without_tax);
+  const additional = numberFromUnknown(row.additional_cess ?? listing.additional_cess) ?? 0;
+  if (basic != null && basic > 0 && taxPct != null && taxPct > 0) {
+    return String(round2((basic * taxPct) / 100 + additional));
+  }
+  return "";
 }
 
 function readListingObject(row: Record<string, unknown>): Record<string, unknown> {
@@ -1367,8 +1509,28 @@ export function buildSkuReportRowCells(
     zap_ean: csvCellValue(enriched.zap_ean),
     universal_ean: csvCellValue(enriched.universal_ean),
     title: csvCellValue(row.title),
-    mrp: csvCellValue(resolvedMrp ?? row.mrp),
+    product_upc: csvCellValue(
+      readCommercialField(row, listing, "product_upc")
+    ),
+    grammage: csvCellValue(readCommercialField(row, listing, "grammage")),
     rate_without_tax: csvCellValue(row.rate_without_tax),
+    cgst_percent: csvCellValue(readCommercialField(row, listing, "cgst_percent")),
+    sgst_percent: csvCellValue(readCommercialField(row, listing, "sgst_percent")),
+    igst_percent: csvCellValue(readCommercialField(row, listing, "igst_percent")),
+    cess_percent: csvCellValue(readCommercialField(row, listing, "cess_percent")),
+    additional_cess: csvCellValue(
+      readCommercialField(row, listing, "additional_cess")
+    ),
+    tax_amount: resolveSkuReportTaxAmount(row, listing, taxPct),
+    landing_rate: csvCellValue(
+      readCommercialField(row, listing, "landing_rate")
+    ),
+    demand: String(demand),
+    mrp: csvCellValue(resolvedMrp ?? row.mrp),
+    margin: csvCellValue(readCommercialField(row, listing, "margin")),
+    total_amount: csvCellValue(
+      readCommercialField(row, listing, "total_amount")
+    ),
     tax_rate: taxPct != null ? String(taxPct) : "",
     hsn: csvCellValue(row.hsn_code ?? row.hsn),
     size: csvCellValue(row.size ?? listing.size),
@@ -1378,7 +1540,6 @@ export function buildSkuReportRowCells(
       enriched.warehouse_quantity != null
         ? String(enriched.warehouse_quantity)
         : "",
-    demand: String(demand),
     packed: String(packed),
     dispatched: String(dispatched),
     pending: String(pending),
@@ -1413,17 +1574,49 @@ export function buildSkuReportXlsxBuffer(
   return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
+export async function buildSkuReportRowsForPo(
+  po: OutboundPoRow
+): Promise<Record<string, unknown>[]> {
+  const snapshotRows = extractListingsRowsFromSnapshotNormalized(
+    po.listings_snapshot
+  );
+  const { getSkuReportItemsByPoNumber } = await import(
+    "@/server/services/outboundConsignmentItemsService"
+  );
+  const skuItems = await getSkuReportItemsByPoNumber(String(po.po_number ?? ""));
+  if (skuItems.length === 0) {
+    return snapshotRows;
+  }
+  const consignmentRows = consignmentItemsToSkuReportRows(skuItems);
+  if (snapshotRows.length === 0) {
+    return normalizeOutboundListingRows(consignmentRows).rows;
+  }
+  const merged = mergeSkuReportConsignmentWithSnapshot(
+    consignmentRows,
+    snapshotRows
+  );
+  return normalizeOutboundListingRows(merged).rows;
+}
+
 export async function buildSkuReportXlsxFromRows(
   rows: Record<string, unknown>[],
   po: OutboundPoRow
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const lookups = await loadOutboundSkuLookups(rows, po.company_id);
-  const enriched = await enrichRowsWithZapEan(rows, po.company_id);
+  const normalized = normalizeOutboundListingRows(rows).rows;
+  const lookups = await loadOutboundSkuLookups(normalized, po.company_id);
+  const enriched = await enrichRowsWithZapEan(normalized, po.company_id);
   const pn = skuReportSafeFilename(String(po.po_number ?? "po"));
   return {
     buffer: buildSkuReportXlsxBuffer(enriched, po, lookups),
     filename: `sku-report-${pn}.xlsx`,
   };
+}
+
+export async function buildSkuReportXlsxForPo(
+  po: OutboundPoRow
+): Promise<{ buffer: Buffer; filename: string }> {
+  const rows = await buildSkuReportRowsForPo(po);
+  return buildSkuReportXlsxFromRows(rows, po);
 }
 
 export function skuReportFromEnrichedRows(
@@ -1445,6 +1638,85 @@ export function skuReportFromEnrichedRows(
   );
 
   return `\ufeff${lines.join("\r\n")}`;
+}
+
+/** Overlay listings_snapshot commercial fields onto consignment rows for SKU report. */
+export function mergeSkuReportConsignmentWithSnapshot(
+  consignmentRows: Record<string, unknown>[],
+  snapshotRows: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  const bySku = new Map(
+    snapshotRows
+      .map((row) => {
+        const sku = strTrimSkuField(row.po_secondary_sku);
+        return sku ? ([sku, row] as const) : null;
+      })
+      .filter((e): e is readonly [string, Record<string, unknown>] => e != null)
+  );
+
+  return consignmentRows.map((cRow) => {
+    const sku = strTrimSkuField(cRow.po_secondary_sku);
+    const snap = sku ? bySku.get(sku) : undefined;
+    if (!snap) return cRow;
+
+    const demand =
+      numberFromUnknown(snap.demand) ??
+      numberFromUnknown(snap.original_demand) ??
+      numberFromUnknown(cRow.demand) ??
+      numberFromUnknown(cRow.original_demand) ??
+      0;
+
+    return {
+      ...snap,
+      ...cRow,
+      po_secondary_sku: cRow.po_secondary_sku ?? snap.po_secondary_sku,
+      company_code_primary:
+        cRow.company_code_primary ?? snap.company_code_primary,
+      company_code_secondary:
+        cRow.company_code_secondary ?? snap.company_code_secondary,
+      mrp: snap.mrp ?? cRow.mrp,
+      landing_rate: snap.landing_rate ?? cRow.landing_rate,
+      rate_without_tax: snap.rate_without_tax ?? cRow.rate_without_tax,
+      tax_rate: snap.tax_rate ?? cRow.tax_rate,
+      product_upc: snap.product_upc ?? cRow.product_upc,
+      grammage: snap.grammage ?? cRow.grammage,
+      cgst_percent: snap.cgst_percent ?? cRow.cgst_percent,
+      sgst_percent: snap.sgst_percent ?? cRow.sgst_percent,
+      igst_percent: snap.igst_percent ?? cRow.igst_percent,
+      cess_percent: snap.cess_percent ?? cRow.cess_percent,
+      additional_cess: snap.additional_cess ?? cRow.additional_cess,
+      tax_amount: snap.tax_amount ?? cRow.tax_amount,
+      margin: snap.margin ?? cRow.margin,
+      total_amount: snap.total_amount ?? cRow.total_amount,
+      demand,
+      original_demand:
+        snap.original_demand ?? snap.demand ?? cRow.original_demand ?? demand,
+      title: snap.title ?? cRow.title,
+      color: snap.color ?? cRow.color,
+      hsn: snap.hsn ?? snap.hsn_code ?? cRow.hsn ?? cRow.hsn_code,
+      packed: cRow.packed,
+      dispatched: cRow.dispatched,
+      fill_rate_percent: cRow.fill_rate_percent ?? cRow.fill_rate,
+      listing: cRow.listing ?? snap.listing,
+    };
+  });
+}
+
+function pickSkuReportMrp(
+  item: SkuReportItemRow,
+  raw: Record<string, unknown>
+): unknown {
+  const rawMrp = raw.mrp;
+  if (item.mrp == null) return rawMrp;
+  const withItemMrp = { ...raw, mrp: item.mrp };
+  if (
+    mrpLooksLikeLandingRate(withItemMrp) &&
+    rawMrp != null &&
+    !mrpLooksLikeLandingRate({ ...raw, mrp: rawMrp })
+  ) {
+    return rawMrp;
+  }
+  return item.mrp;
 }
 
 /** Map consignment DB rows to snapshot-shaped line items for SKU report enrichment. */
@@ -1476,7 +1748,7 @@ export function consignmentItemsToSkuReportRows(
       company_code_primary: item.company_code_primary ?? raw.company_code_primary,
       company_code_secondary:
         item.company_code_secondary ?? raw.company_code_secondary,
-      mrp: item.mrp ?? raw.mrp,
+      mrp: pickSkuReportMrp(item, raw),
       demand,
       original_demand: item.original_demand ?? raw.original_demand,
       packed,

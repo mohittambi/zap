@@ -1,10 +1,13 @@
 import * as XLSX from "xlsx";
 import { parseDelimitedRow } from "@/server/utils/csvParse";
 import {
+  deriveEffectiveTaxRate,
   isMisalignedCommercialRow,
   isNumericCommercialValue,
   normalizeOutboundListingRow,
 } from "@/server/utils/outboundListingNormalize";
+
+export { deriveEffectiveTaxRate };
 
 function normHeader(h: string): string {
   return h
@@ -58,13 +61,22 @@ function mapHeaderToField(norm: string): string | null {
     cost_price: "rate_without_tax",
     rate: "rate_without_tax",
     landing_rate: "landing_rate",
+    grammage: "grammage",
     tax_rate: "tax_rate",
     gst_rate: "tax_rate",
-    gst_: "tax_rate",
     gst_percent: "tax_rate",
-    igst: "tax_rate",
-    igst_: "tax_rate",
-    igst_percent: "tax_rate",
+    cgst_percent: "cgst_percent",
+    cgst_: "cgst_percent",
+    sgst_percent: "sgst_percent",
+    sgst_: "sgst_percent",
+    igst_percent: "igst_percent",
+    igst_: "igst_percent",
+    igst: "igst_percent",
+    cess_percent: "cess_percent",
+    cess_: "cess_percent",
+    additional_cess: "additional_cess",
+    additional_ces: "additional_cess",
+    tax_amount: "tax_amount",
     total_amt: "total_amount",
     total_amount: "total_amount",
     margin: "margin",
@@ -92,8 +104,21 @@ function mapHeaderToField(norm: string): string | null {
     return "original_demand";
   }
   if (norm.includes("landing") && norm.includes("rate")) return "landing_rate";
-  if (norm.includes("igst")) return "tax_rate";
-  if (norm.includes("gst")) return "tax_rate";
+  if (norm.includes("grammage")) return "grammage";
+  if (norm.includes("cgst")) return "cgst_percent";
+  if (norm.includes("sgst")) return "sgst_percent";
+  if (norm.includes("igst")) return "igst_percent";
+  if (norm.includes("additional") && norm.includes("ces")) return "additional_cess";
+  if (norm.includes("cess")) return "cess_percent";
+  if (norm.includes("tax") && norm.includes("amount")) return "tax_amount";
+  if (
+    norm === "gst" ||
+    norm === "gst_rate" ||
+    norm === "gst_percent" ||
+    (norm.includes("gst") && norm.includes("rate") && !norm.includes("igst"))
+  ) {
+    return "tax_rate";
+  }
   if (norm.includes("tax") && norm.includes("rate")) return "tax_rate";
   if (norm.includes("cost") && norm.includes("price")) return "rate_without_tax";
   if (norm.includes("total") && norm.includes("amt")) return "total_amount";
@@ -116,6 +141,12 @@ const DECIMAL_FIELDS = new Set([
   "total_amount",
   "margin",
   "overall_fill_rate",
+  "cgst_percent",
+  "sgst_percent",
+  "igst_percent",
+  "cess_percent",
+  "additional_cess",
+  "tax_amount",
 ]);
 
 function coerceCell(field: string, v: unknown): unknown {
@@ -158,6 +189,10 @@ function normalizeListingRow(row: Record<string, unknown>): Record<string, unkno
   }
   if (out.po_secondary_sku != null) {
     out.po_secondary_sku = String(out.po_secondary_sku).trim();
+  }
+  const effectiveTax = deriveEffectiveTaxRate(out);
+  if (effectiveTax != null) {
+    out.tax_rate = effectiveTax;
   }
   return out;
 }

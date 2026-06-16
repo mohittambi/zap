@@ -5,11 +5,14 @@ import { type SkuReportItemRow } from "../../src/server/services/outboundConsign
 import {
   buildSkuReportXlsxBuffer,
   computeSnapshotReportTaxRatePct,
+  consignmentItemsToSkuReportRows,
+  mergeSkuReportConsignmentWithSnapshot,
   repairOutboundListingCommercialFields,
+  resolveOutboundListingMrp,
   resolveSnapshotReportMasterSku,
   type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
-import { normalizeOutboundListingRow } from "../../src/server/utils/outboundListingNormalize";
+import { normalizeOutboundListingRow, computeOutboundTaxAmountPerUnit } from "../../src/server/utils/outboundListingNormalize";
 import type { OutboundSkuLookups } from "../../src/server/services/eanMappingsService";
 import {
   computeSkuReportTaxRatePct,
@@ -84,6 +87,8 @@ describe("SKU report fallback helpers", () => {
       ]),
       listingSkuByKey: new Map(),
       binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
     };
     const got = resolveSkuReportMasterSku(
       { po_secondary_sku: "10149918" },
@@ -189,6 +194,8 @@ describe("snapshot SKU report fallbacks", () => {
       ]),
       listingSkuByKey: new Map(),
       binStockBySkuId: new Map([["AAC500", 77]]),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
     };
     const po = {
       po_number: "PO-1",
@@ -234,6 +241,8 @@ describe("snapshot SKU report fallbacks", () => {
       eanBySkuKey: new Map(),
       listingSkuByKey: new Map(),
       binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
     };
     const po = {
       po_number: "43886110040004",
@@ -325,6 +334,8 @@ describe("snapshot SKU report fallbacks", () => {
       eanBySkuKey: new Map(),
       listingSkuByKey: new Map(),
       binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
     };
     const po = {
       po_number: "1735810041652",
@@ -369,5 +380,252 @@ describe("snapshot SKU report fallbacks", () => {
     assert.equal(data[mrpIdx], "150");
     assert.equal(data[rateIdx], "127.12");
     assert.equal(data[taxIdx], "18");
+  });
+
+  it("mergeSkuReportConsignmentWithSnapshot prefers snapshot MRP and demand", () => {
+    const merged = mergeSkuReportConsignmentWithSnapshot(
+      consignmentItemsToSkuReportRows([
+        {
+          po_secondary_sku: "10314301",
+          company_code_primary: null,
+          company_code_secondary: null,
+          mrp: 150,
+          original_demand: 1099,
+          dispatched_quantity: 0,
+          consignment_quantity: 0,
+          overall_fill_rate: null,
+          raw: {
+            po_secondary_sku: "10314301",
+            mrp: 150,
+            rate_without_tax: 127.12,
+            tax_rate: 18,
+            demand: 1099,
+          },
+        },
+      ]),
+      [
+        {
+          po_secondary_sku: "10314301",
+          mrp: 1099,
+          landing_rate: 150,
+          rate_without_tax: 127.12,
+          tax_rate: 18,
+          tax_amount: 22.88,
+          margin: 86.35,
+          total_amount: 5250,
+          product_upc: "8906176482287",
+          grammage: "1 pc",
+          igst_percent: 18,
+          demand: 35,
+        },
+      ]
+    );
+    const row = merged[0];
+    assert.equal(row.mrp, 1099);
+    assert.equal(row.demand, 35);
+    assert.equal(row.tax_amount, 22.88);
+    assert.equal(row.margin, 86.35);
+    assert.equal(row.total_amount, 5250);
+    assert.equal(row.product_upc, "8906176482287");
+    assert.equal(row.grammage, "1 pc");
+    assert.equal(row.igst_percent, 18);
+  });
+
+  it("buildSkuReportXlsxBuffer exports full vendor commercial columns", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map(),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
+    };
+    const po = {
+      po_number: "1735810041652",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Lucknow",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const buffer = buildSkuReportXlsxBuffer(
+      [
+        {
+          po_secondary_sku: "10314301",
+          product_upc: "8906176482287",
+          grammage: "1 pc",
+          rate_without_tax: 127.12,
+          cgst_percent: 0,
+          sgst_percent: 0,
+          igst_percent: 18,
+          cess_percent: 0,
+          additional_cess: 0,
+          tax_amount: 22.88,
+          landing_rate: 150,
+          demand: 35,
+          mrp: 1099,
+          margin: 86.35,
+          total_amount: 5250,
+          tax_rate: 18,
+          hsn_code: "39269099",
+          packed: 0,
+          dispatched: 0,
+        },
+      ],
+      po,
+      lookups
+    );
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets["SKU Report"], {
+      header: 1,
+    }) as string[][];
+    const header = aoa[0] as string[];
+    const data = aoa[1] as string[];
+    for (const col of [
+      "product_upc",
+      "grammage",
+      "cgst_percent",
+      "sgst_percent",
+      "igst_percent",
+      "cess_percent",
+      "additional_cess",
+      "tax_amount",
+      "landing_rate",
+      "margin",
+      "total_amount",
+    ]) {
+      assert.ok(header.includes(col), `missing column ${col}`);
+    }
+    assert.equal(data[header.indexOf("product_upc")], "8906176482287");
+    assert.equal(data[header.indexOf("grammage")], "1 pc");
+    assert.equal(data[header.indexOf("tax_amount")], "22.88");
+    assert.equal(data[header.indexOf("landing_rate")], "150");
+    assert.equal(data[header.indexOf("margin")], "86.35");
+    assert.equal(data[header.indexOf("total_amount")], "5250");
+    assert.equal(data[header.indexOf("tax_rate")], "18");
+  });
+
+  it("computeOutboundTaxAmountPerUnit uses basic cost and effective rate per unit", () => {
+    assert.equal(
+      computeOutboundTaxAmountPerUnit({
+        rate_without_tax: 127.12,
+        igst_percent: 18,
+      }),
+      22.88
+    );
+    assert.equal(
+      computeOutboundTaxAmountPerUnit({
+        rate_without_tax: 127.12,
+        igst_percent: 18,
+        additional_cess: 1.5,
+      }),
+      24.38
+    );
+  });
+
+  it("buildSkuReportXlsxBuffer computes tax_amount per unit when missing from snapshot", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map(),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
+    };
+    const po = {
+      po_number: "1735810041652",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Lucknow",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const buffer = buildSkuReportXlsxBuffer(
+      [
+        {
+          po_secondary_sku: "10314301",
+          rate_without_tax: 127.12,
+          igst_percent: 18,
+          demand: 35,
+          mrp: 1099,
+          landing_rate: 150,
+          packed: 0,
+          dispatched: 0,
+        },
+      ],
+      po,
+      lookups
+    );
+    const aoa = XLSX.utils.sheet_to_json(
+      XLSX.read(buffer, { type: "buffer" }).Sheets["SKU Report"],
+      { header: 1 }
+    ) as string[][];
+    const header = aoa[0] as string[];
+    const data = aoa[1] as string[];
+    assert.equal(data[header.indexOf("tax_amount")], "22.88");
+    assert.equal(data[header.indexOf("tax_rate")], "18");
+    assert.notEqual(data[header.indexOf("tax_amount")], "800.86");
+  });
+
+  it("buildSkuReportXlsxBuffer resolves landing-like MRP from labels secondary sku", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map(),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+      labelsMrpBySecondarySku: new Map([["10314301", 1099]]),
+      labelsMrpByMasterSku: new Map(),
+    };
+    const po = {
+      po_number: "1735810041652",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Lucknow",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const buffer = buildSkuReportXlsxBuffer(
+      [
+        {
+          po_secondary_sku: "10314301",
+          mrp: 150,
+          landing_rate: 150,
+          rate_without_tax: 127.12,
+          tax_rate: 18,
+          demand: 35,
+          packed: 0,
+          dispatched: 0,
+        },
+      ],
+      po,
+      lookups
+    );
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets["SKU Report"], {
+      header: 1,
+    }) as string[][];
+    const mrpIdx = (aoa[0] as string[]).indexOf("mrp");
+    assert.equal(aoa[1][mrpIdx], "1099");
+    const resolved = resolveOutboundListingMrp(
+      {
+        po_secondary_sku: "10314301",
+        mrp: 150,
+        landing_rate: 150,
+        rate_without_tax: 127.12,
+        tax_rate: 18,
+      },
+      { lookups }
+    );
+    assert.equal(resolved.mrp, 1099);
+    assert.equal(resolved.source, "labels_secondary");
   });
 });

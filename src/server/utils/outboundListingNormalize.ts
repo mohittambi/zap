@@ -145,10 +145,20 @@ function inclusiveRateFromRow(row: Record<string, unknown>): number | null {
   return null;
 }
 
+/** When vendor sheet has Landing Rate and MRP, retail MRP is usually well above landing. */
+export function isPlausibleRetailMrpVsLanding(row: Record<string, unknown>): boolean {
+  const mrp = numberFromUnknown(row.mrp);
+  const landing = numberFromUnknown(row.landing_rate);
+  if (mrp == null || mrp <= 0 || landing == null || landing <= 0) return false;
+  return mrp >= landing * 1.5;
+}
+
 /** True when stored MRP matches landing/inclusive rate rather than retail MRP. */
 export function mrpLooksLikeLandingRate(row: Record<string, unknown>): boolean {
   const mrp = numberFromUnknown(row.mrp);
   if (mrp == null || mrp <= 0) return false;
+
+  if (isPlausibleRetailMrpVsLanding(row)) return false;
 
   const landing = numberFromUnknown(row.landing_rate);
   if (landing != null && landing > 0 && approxEqual(mrp, landing)) return true;
@@ -387,6 +397,68 @@ export function repairOutboundListingCommercialFields(
   row: Record<string, unknown>
 ): Record<string, unknown> {
   return normalizeOutboundListingRow(row).row;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function parsePercentFromCell(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? v : null;
+  }
+  const text = String(v).trim();
+  if (!text) return null;
+  const stripped = text.replace(/%/g, "").trim();
+  const n = Number(stripped);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Effective GST % for accounts export: IGST or (CGST+SGST) or legacy tax_rate, plus CESS %.
+ * IGST and CGST/SGST are mutually exclusive per standard GST; they are not summed together.
+ */
+export function deriveEffectiveTaxRate(row: Record<string, unknown>): number | null {
+  const cess = parsePercentFromCell(row.cess_percent) ?? 0;
+  const igst = parsePercentFromCell(row.igst_percent);
+  if (igst != null && igst > 0) {
+    return igst + cess;
+  }
+
+  const cgst = parsePercentFromCell(row.cgst_percent);
+  const sgst = parsePercentFromCell(row.sgst_percent);
+  if ((cgst ?? 0) > 0 || (sgst ?? 0) > 0) {
+    return (cgst ?? 0) + (sgst ?? 0) + cess;
+  }
+
+  const legacy = parsePercentFromCell(row.tax_rate);
+  if (legacy != null) {
+    const hasExplicitCess = row.cess_percent != null && row.cess_percent !== "";
+    return hasExplicitCess ? legacy + cess : legacy;
+  }
+
+  if (cess > 0) return cess;
+  return null;
+}
+
+/**
+ * Per-unit tax on Basic Cost Price from the vendor PO spreadsheet.
+ * Percent taxes apply to rate_without_tax; additional_cess is a per-unit rupee add-on when present.
+ */
+export function computeOutboundTaxAmountPerUnit(
+  row: Record<string, unknown>
+): number | null {
+  const basic = numberFromUnknown(row.rate_without_tax);
+  if (basic == null || basic <= 0) return null;
+
+  const additional = numberFromUnknown(row.additional_cess) ?? 0;
+  const ratePct = deriveEffectiveTaxRate(row);
+  if (ratePct != null && ratePct > 0) {
+    return round2((basic * ratePct) / 100 + additional);
+  }
+  if (additional > 0) return round2(additional);
+  return null;
 }
 
 export function normalizeOutboundListingRows(

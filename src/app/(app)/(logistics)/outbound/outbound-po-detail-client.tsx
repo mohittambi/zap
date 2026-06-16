@@ -36,7 +36,6 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SearchableSelect } from "@/components/outbound/searchable-select";
 import { CreateConsignmentDialog } from "@/components/outbound/create-consignment-dialog";
-import { OutboundPoListingsPreviewDialog } from "@/components/outbound/outbound-po-listings-preview-dialog";
 import {
   TripletDatePicker,
   formatUtcDateOnly,
@@ -501,7 +500,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const [phase1LabelSize, setPhase1LabelSize] = React.useState<"70x40" | "75x38">("70x40");
   const [phase1Generating, setPhase1Generating] = React.useState(false);
   const [wipBusy, setWipBusy] = React.useState(false);
-  const [listingsPreviewOpen, setListingsPreviewOpen] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -823,22 +821,23 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
       });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
-        listingsUpdated?: boolean;
-        parseResult?: { rowsParsed?: number };
+        parseResult?: {
+          rowsParsed?: number;
+          rowsRepaired?: number;
+          stillMisaligned?: number;
+        };
+        parseWarning?: string;
       };
       if (!res.ok) throw new Error(j.error ?? res.statusText);
-      const isSpreadsheet =
-        file.name.toLowerCase().endsWith(".csv") ||
-        file.name.toLowerCase().endsWith(".xlsx") ||
-        file.name.toLowerCase().endsWith(".xls");
-      if (j.listingsUpdated) {
+      if (j.parseResult?.rowsParsed != null) {
+        const n = j.parseResult.rowsParsed;
+        const repaired = j.parseResult.rowsRepaired ?? 0;
         toast.success(
-          `File uploaded and ${j.parseResult?.rowsParsed ?? 0} line items extracted.`
+          repaired > 0
+            ? `Line items updated: ${n} rows (${repaired} repaired)`
+            : `Line items updated: ${n} rows`
         );
-      } else if (isSpreadsheet) {
-        toast.warning(
-          "File uploaded but no line items were extracted. Check that column headers match the expected format (download the sample file for reference)."
-        );
+        if (j.parseWarning) toast.warning(j.parseWarning);
       } else {
         toast.success("File uploaded");
       }
@@ -1120,7 +1119,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
   const canCreateConsignment = wipIsYes && ackIsYes && canMutate;
   const wip = (po.is_wip ?? "").toUpperCase().trim();
   const listingsEnvelope = (data.listings ?? {}) as OutboundListingsEnvelope;
-  const hasListingRows = Array.isArray(listingsEnvelope.content) && listingsEnvelope.content.length > 0;
 
   const legacyFetch = data.legacyOutboundFileFetchEnabled === true;
   const zapReady = data.zapStorageConfigured === true;
@@ -1205,15 +1203,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
         ) : (
           "Download SKU Level Report"
         )}
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className="border-blue-400 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/30 h-auto min-h-11 w-full whitespace-normal py-2"
-        disabled={!canMutate || stubBusy !== null || !hasListingRows}
-        onClick={() => setListingsPreviewOpen(true)}
-      >
-        Preview line items
       </Button>
       <Button
         type="button"
@@ -1489,6 +1478,11 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                 eaZapUploading={eaZapUploading}
                 onEaZapFileChange={setEaZapFile}
                 onUploadEaZap={() => void onUploadEaZap()}
+                listingsSourceFilename={
+                  typeof po.analytics_object?.listings_source_filename === "string"
+                    ? po.analytics_object.listings_source_filename
+                    : null
+                }
                 uploadSlot={
                   <OutboundPoAddDocumentUpload
                     canMutate={canMutate}
@@ -1960,15 +1954,6 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
           void load();
           void reloadConsignmentsTab();
         }}
-      />
-
-      <OutboundPoListingsPreviewDialog
-        poId={po.id}
-        poNumber={po.po_number}
-        open={listingsPreviewOpen}
-        onOpenChange={setListingsPreviewOpen}
-        downloadBusy={stubBusy === "download_sku_report"}
-        onDownloadSkuReport={() => void onStubWorkflow("download_sku_report")}
       />
 
       <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>

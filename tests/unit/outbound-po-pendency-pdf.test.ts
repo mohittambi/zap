@@ -14,6 +14,8 @@ function emptyLookups(companyId: number | null = null): PendencyLookups {
     eanBySkuKey: new Map(),
     listingSkuByKey: new Map(),
     binStockBySkuId: new Map(),
+    labelsMrpBySecondarySku: new Map(),
+    labelsMrpByMasterSku: new Map(),
   };
 }
 

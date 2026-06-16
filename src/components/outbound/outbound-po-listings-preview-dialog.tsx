@@ -5,6 +5,7 @@ import { Loader2, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import type {
+  OutboundListingMrpSource,
   OutboundPoListingsPreview,
   OutboundPoListingsPreviewRow,
   OutboundPoListingsPreviewRowStatus,
@@ -33,7 +34,51 @@ function statusBadgeVariant(
 }
 
 function isIssueRow(row: OutboundPoListingsPreviewRow): boolean {
-  return row.status !== "ok";
+  if (row.status !== "ok") return true;
+  if (row.mrp_source === "unresolved") return true;
+  if (
+    row.mrp_source === "labels_secondary" ||
+    row.mrp_source === "labels_master" ||
+    row.mrp_source === "margin_restored"
+  ) {
+    return true;
+  }
+  return row.issues.some(
+    (issue) =>
+      issue.startsWith("missing_ean_mapping") ||
+      issue.startsWith("missing_labels_master")
+  );
+}
+
+function mrpSourceLabel(source: OutboundListingMrpSource): string {
+  switch (source) {
+    case "po_spreadsheet":
+      return "PO";
+    case "labels_secondary":
+      return "Labels (secondary)";
+    case "labels_master":
+      return "Labels (master)";
+    case "margin_restored":
+      return "Margin";
+    case "unresolved":
+      return "Unresolved";
+    default:
+      return source;
+  }
+}
+
+function mrpCellClass(source: OutboundListingMrpSource): string {
+  if (source === "unresolved") {
+    return "bg-destructive/10 text-destructive font-medium";
+  }
+  if (
+    source === "labels_secondary" ||
+    source === "labels_master" ||
+    source === "margin_restored"
+  ) {
+    return "bg-amber-500/10 text-amber-900 dark:text-amber-200";
+  }
+  return "";
 }
 
 function commercialCellClass(status: OutboundPoListingsPreviewRowStatus): string {
@@ -46,8 +91,30 @@ function commercialCellClass(status: OutboundPoListingsPreviewRowStatus): string
   return "";
 }
 
+const COMMERCIAL_DETAIL_KEYS = [
+  "landing_rate",
+  "margin",
+  "tax_amount",
+  "total_amount",
+  "cgst_percent",
+  "sgst_percent",
+  "igst_percent",
+  "cess_percent",
+  "additional_cess",
+  "rate_without_tax",
+  "grammage",
+  "product_upc",
+] as const;
+
 function RowDetailPanel({ row }: { row: OutboundPoListingsPreviewRow }) {
-  const entries = Object.entries(row.skuReportCells).filter(([, v]) => v !== "");
+  const commercialEntries = COMMERCIAL_DETAIL_KEYS.map((key) => {
+    const value = row.skuReportCells[key];
+    return value ? ([key, value] as const) : null;
+  }).filter((entry): entry is readonly [string, string] => entry != null);
+  const commercialKeys = new Set<string>(COMMERCIAL_DETAIL_KEYS);
+  const entries = Object.entries(row.skuReportCells).filter(
+    ([key, v]) => v !== "" && !commercialKeys.has(key)
+  );
   return (
     <div className="space-y-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -57,14 +124,54 @@ function RowDetailPanel({ row }: { row: OutboundPoListingsPreviewRow }) {
         <span className="text-muted-foreground font-mono text-xs">
           Row {row.rowNumber}
           {row.po_secondary_sku ? ` · ${row.po_secondary_sku}` : ""}
+          {row.master_sku ? ` · master ${row.master_sku}` : ""}
         </span>
       </div>
+      <dl className="grid gap-2 sm:grid-cols-3">
+        <div className="min-w-0 rounded-md border px-2 py-1.5">
+          <dt className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            PO MRP
+          </dt>
+          <dd className="mt-0.5 font-mono text-xs">{row.po_mrp_raw ?? "—"}</dd>
+        </div>
+        <div className="min-w-0 rounded-md border px-2 py-1.5">
+          <dt className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            Resolved MRP
+          </dt>
+          <dd className={cn("mt-0.5 font-mono text-xs", mrpCellClass(row.mrp_source))}>
+            {row.resolved_mrp ?? row.mrp ?? "—"}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-md border px-2 py-1.5">
+          <dt className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            MRP source
+          </dt>
+          <dd className="mt-0.5 text-xs">{mrpSourceLabel(row.mrp_source)}</dd>
+        </div>
+      </dl>
       {row.issues.length > 0 ? (
         <ul className="text-muted-foreground list-disc space-y-1 pl-4 text-xs">
           {row.issues.map((issue) => (
             <li key={issue}>{issue}</li>
           ))}
         </ul>
+      ) : null}
+      {commercialEntries.length > 0 ? (
+        <div>
+          <p className="text-muted-foreground mb-2 text-[10px] font-medium uppercase tracking-wide">
+            Commercial (from PO spreadsheet)
+          </p>
+          <dl className="grid gap-2 sm:grid-cols-3">
+            {commercialEntries.map(([key, value]) => (
+              <div key={key} className="min-w-0 rounded-md border px-2 py-1.5">
+                <dt className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+                  {key.replaceAll("_", " ")}
+                </dt>
+                <dd className="mt-0.5 break-words font-mono text-xs">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       ) : null}
       <dl className="grid gap-2 sm:grid-cols-2">
         {entries.map(([key, value]) => (
@@ -97,7 +204,7 @@ function PreviewTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+      <table className="w-full min-w-[900px] border-collapse text-left text-xs">
         <thead>
           <tr className="bg-muted/50 border-b">
             <th className="px-2 py-2">#</th>
@@ -107,7 +214,9 @@ function PreviewTable({
             <th className="px-2 py-2 text-right">Rate</th>
             <th className="px-2 py-2 text-right">GST %</th>
             <th className="px-2 py-2 text-right">Demand</th>
+            <th className="px-2 py-2 text-right">PO MRP</th>
             <th className="px-2 py-2 text-right">MRP</th>
+            <th className="px-2 py-2">Source</th>
             <th className="px-2 py-2">Status</th>
           </tr>
         </thead>
@@ -141,7 +250,27 @@ function PreviewTable({
                   <td className={cn("px-2 py-2 text-right tabular-nums", commercialClass)}>
                     {row.demand ?? "—"}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums">{row.mrp ?? "—"}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                    {row.po_mrp_raw ?? "—"}
+                  </td>
+                  <td
+                    className={cn(
+                      "px-2 py-2 text-right tabular-nums",
+                      mrpCellClass(row.mrp_source)
+                    )}
+                  >
+                    {row.resolved_mrp ?? row.mrp ?? "—"}
+                  </td>
+                  <td className="px-2 py-2">
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                        mrpCellClass(row.mrp_source) || "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {mrpSourceLabel(row.mrp_source)}
+                    </span>
+                  </td>
                   <td className="px-2 py-2">
                     <Badge variant={statusBadgeVariant(row.status)} className="font-normal">
                       {row.status}
@@ -150,7 +279,7 @@ function PreviewTable({
                 </tr>
                 {viewSize === "compact" && expanded ? (
                   <tr className="bg-muted/20 border-b">
-                    <td colSpan={9} className="px-3 py-3">
+                    <td colSpan={11} className="px-3 py-3">
                       <RowDetailPanel row={row} />
                     </td>
                   </tr>
@@ -272,6 +401,16 @@ export function OutboundPoListingsPreviewDialog({
                 ) : null}
                 {preview.stats.errorCount > 0 ? (
                   <Badge variant="destructive">{preview.stats.errorCount} errors</Badge>
+                ) : null}
+                {preview.stats.mrpReplacedCount > 0 ? (
+                  <Badge variant="secondary">
+                    {preview.stats.mrpReplacedCount} MRP from labels
+                  </Badge>
+                ) : null}
+                {preview.stats.mrpUnresolvedCount > 0 ? (
+                  <Badge variant="destructive">
+                    {preview.stats.mrpUnresolvedCount} MRP unresolved
+                  </Badge>
                 ) : null}
               </div>
 

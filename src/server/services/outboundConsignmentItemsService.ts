@@ -1620,3 +1620,61 @@ export async function saveConsignmentLineItems(opts: {
 
   return { inserted };
 }
+
+/** Refresh commercial columns on existing consignment items from PO listing rows. */
+export async function syncOutboundConsignmentItemsCommercialFromListingRows(
+  poNumber: string,
+  normalizedRows: Record<string, unknown>[]
+): Promise<number> {
+  const pn = String(poNumber || "").trim();
+  if (!pn || normalizedRows.length === 0) return 0;
+
+  const rowsBySku = new Map(
+    normalizedRows
+      .filter((l) => l.po_secondary_sku != null)
+      .map((l) => [String(l.po_secondary_sku).trim(), l])
+  );
+  if (rowsBySku.size === 0) return 0;
+
+  const itemsR = await query(
+    `SELECT id, po_secondary_sku
+       FROM outbound_consignment_items
+      WHERE po_number = $1`,
+    [pn]
+  );
+
+  let updated = 0;
+  for (const item of itemsR.rows as {
+    id: number;
+    po_secondary_sku: string | null;
+  }[]) {
+    const sku = item.po_secondary_sku != null ? String(item.po_secondary_sku).trim() : "";
+    const normalized = sku ? rowsBySku.get(sku) : undefined;
+    if (!sku || !normalized) continue;
+
+    const cols = mapListingRowToItemColumns(normalized, pn);
+    await query(
+      `UPDATE outbound_consignment_items
+          SET po_number = $2,
+              po_secondary_sku = $3,
+              company_code_primary = $4,
+              company_code_secondary = $5,
+              mrp = $6,
+              original_demand = $7,
+              raw = $8::jsonb
+        WHERE id = $1`,
+      [
+        item.id,
+        cols.po_number,
+        cols.po_secondary_sku,
+        cols.company_code_primary,
+        cols.company_code_secondary,
+        cols.mrp,
+        cols.original_demand,
+        cols.rawJson,
+      ]
+    );
+    updated += 1;
+  }
+  return updated;
+}

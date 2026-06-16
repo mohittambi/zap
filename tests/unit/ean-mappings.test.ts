@@ -157,6 +157,8 @@ describe("eanMappingsService helpers", () => {
       ]),
       listingSkuByKey: new Map(),
       binStockBySkuId: new Map([["AAC500", 42]]),
+      labelsMrpBySecondarySku: new Map(),
+      labelsMrpByMasterSku: new Map(),
     };
     const enriched = enrichOutboundReportRow(
       { po_secondary_sku: "10149918" },

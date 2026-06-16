@@ -85,11 +85,11 @@ Implementation: [`outboundPoPendencyPdf.ts`](../src/server/utils/outboundPoPende
 
 ## SKU Level Report (XLSX)
 
-**`download_sku_report`** — commercial columns, **Master SKU**, **Company Code Primary**, **Zap EAN**, **Warehouse quantity** (Zap bins), and **GST %** (from line data or computed from rates).
+**`download_sku_report`** exports all **17 vendor commercial columns** from the Original PO spreadsheet (UPC, grammage, split GST, cess, tax amount, landing rate, margin, total amount, etc.) plus Zap enrichment: **Master SKU**, **Company Code Primary**, **Zap EAN**, **Warehouse quantity**, packed/dispatched/pending, and effective **GST %** (`tax_rate`).
 
 Uses the same enrichment as the pendency PDF and PO line items: **`loadOutboundSkuLookups`** + **`enrichRowsWithZapEan`** in [`eanMappingsService.ts`](../src/server/services/eanMappingsService.ts), built via **`buildSkuReportXlsxFromRows`** in [`outboundPurchaseOrdersService.ts`](../src/server/services/outboundPurchaseOrdersService.ts). **`po_secondary_sku`** stays the channel code only; it is never copied into **Master SKU**.
 
-**Data source:** `outbound_consignment_items` when present, else **`listings_snapshot`**. Rows are normalized via **`extractListingsRowsFromSnapshotNormalized`** before export (fixes inch-mark / comma title corruption). See [po-listing-commercial-field-repair.md](services/outbound/po-listing-commercial-field-repair.md).
+**Data source:** `outbound_consignment_items` merged with **`listings_snapshot`** commercial fields when present. Rows are normalized via **`extractListingsRowsFromSnapshotNormalized`** before export (fixes inch-mark / comma title corruption). Column glossary: [po-document-spreadsheet-ingest.md](services/outbound/po-document-spreadsheet-ingest.md). See also [po-listing-commercial-field-repair.md](services/outbound/po-listing-commercial-field-repair.md).
 
 ---
 

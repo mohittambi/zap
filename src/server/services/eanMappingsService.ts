@@ -195,6 +195,7 @@ export type OutboundSkuLookups = {
   listingSkuByKey: Map<string, ListingSkuFields>;
   binStockBySkuId: Map<string, number>;
   labelsMrpBySecondarySku: Map<string, number>;
+  labelsMrpByMasterSku: Map<string, number>;
 };
 
 /** Map channel / PO keys from EAN rows to product SKU for listings + bin resolution. */
@@ -461,6 +462,96 @@ export async function loadOutboundSkuLookups(
         labelsMrpBySecondarySku.set(sku, mrp);
       }
     }
+
+    const eanCodes = new Set<string>();
+    for (const sku of secondarySkus) {
+      const hit = eanBySkuKey.get(sku);
+      if (!hit) continue;
+      for (const e of [hit.channel_ean, hit.universal_ean]) {
+        const code = strTrimSkuField(e);
+        if (code) eanCodes.add(code);
+      }
+    }
+    if (eanCodes.size > 0) {
+      const byEanLabelsR = await query(
+        `SELECT secondary_sku, mrp
+           FROM labels_master_data
+          WHERE secondary_sku = ANY($1::varchar[])
+            AND mrp IS NOT NULL`,
+        [[...eanCodes]]
+      );
+      const mrpByEan = new Map<string, number>();
+      for (const row of byEanLabelsR.rows as {
+        secondary_sku: string;
+        mrp: string | number;
+      }[]) {
+        const key = strTrimSkuField(row.secondary_sku);
+        const mrp = Number(row.mrp);
+        if (key && Number.isFinite(mrp) && mrp > 0) {
+          mrpByEan.set(key, mrp);
+        }
+      }
+      for (const sku of secondarySkus) {
+        if (labelsMrpBySecondarySku.has(sku)) continue;
+        const hit = eanBySkuKey.get(sku);
+        if (!hit) continue;
+        for (const e of [hit.channel_ean, hit.universal_ean]) {
+          const code = strTrimSkuField(e);
+          const mrp = code ? mrpByEan.get(code) : undefined;
+          if (mrp != null) {
+            labelsMrpBySecondarySku.set(sku, mrp);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  const masterSkus = [
+    ...new Set(
+      rows.flatMap((r) => {
+        const fields = resolveOutboundLineItemProductSkuFields(
+          r,
+          eanBySkuKey,
+          listingSkuByKey
+        );
+        return [fields.master_sku].filter(Boolean);
+      })
+    ),
+  ];
+
+  const labelsMrpByMasterSku = new Map<string, number>();
+  if (masterSkus.length > 0) {
+    const bySecondary = await query(
+      `SELECT sl.master_sku, l.mrp
+         FROM labels_master_data l
+         INNER JOIN secondary_listings sl ON sl.secondary_sku = l.secondary_sku
+        WHERE sl.master_sku = ANY($1::varchar[])
+          AND l.mrp IS NOT NULL`,
+      [masterSkus]
+    );
+    for (const row of bySecondary.rows as { master_sku: string; mrp: string | number }[]) {
+      const master = strTrimSkuField(row.master_sku);
+      const mrp = Number(row.mrp);
+      if (master && Number.isFinite(mrp) && mrp > 0 && !labelsMrpByMasterSku.has(master)) {
+        labelsMrpByMasterSku.set(master, mrp);
+      }
+    }
+    const byEan = await query(
+      `SELECT m.sku_code, l.mrp
+         FROM labels_master_data l
+         INNER JOIN company_ean_mappings m ON m.zap_ean = l.secondary_sku
+        WHERE m.sku_code = ANY($1::varchar[])
+          AND l.mrp IS NOT NULL`,
+      [masterSkus]
+    );
+    for (const row of byEan.rows as { sku_code: string; mrp: string | number }[]) {
+      const master = strTrimSkuField(row.sku_code);
+      const mrp = Number(row.mrp);
+      if (master && Number.isFinite(mrp) && mrp > 0 && !labelsMrpByMasterSku.has(master)) {
+        labelsMrpByMasterSku.set(master, mrp);
+      }
+    }
   }
 
   return {
@@ -470,6 +561,7 @@ export async function loadOutboundSkuLookups(
     listingSkuByKey,
     binStockBySkuId,
     labelsMrpBySecondarySku,
+    labelsMrpByMasterSku,
   };
 }
 
