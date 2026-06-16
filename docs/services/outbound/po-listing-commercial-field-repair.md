@@ -165,6 +165,7 @@ Attachment upload returns:
 For a repaired PO:
 
 1. PO line items expanded row: title, color, MRP, rate, tax % correct.
+2. PO actions preview + SKU report: MRP is corrected to retail MRP (listing master fallback when PO value looks like rate-with-tax).
 2. SKU report: no color text in `rate_without_tax`.
 3. Pendency PDF: pending qty ≠ GST %.
 4. `analytics_object` commercial totals plausible.

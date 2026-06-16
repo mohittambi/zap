@@ -94,7 +94,8 @@ describe("buildOutboundPoListingsPreviewFromRows", () => {
         {
           po_secondary_sku: "",
           title: "Sample item",
-          mrp: 100,
+          // Pick an MRP that does NOT look like rate-with-tax (so normalization doesn't mark it repaired).
+          mrp: 120,
           rate_without_tax: 80,
           tax_rate: 18,
           demand: 0,
@@ -137,7 +138,7 @@ describe("buildOutboundPoListingsPreviewFromRows", () => {
         {
           po_secondary_sku: "",
           title: "Sparse row",
-          mrp: 100,
+          mrp: 120,
           rate_without_tax: 80,
           tax_rate: 18,
           demand: 0,

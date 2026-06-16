@@ -194,6 +194,7 @@ export type OutboundSkuLookups = {
   eanBySkuKey: Map<string, ZapEanLookup>;
   listingSkuByKey: Map<string, ListingSkuFields>;
   binStockBySkuId: Map<string, number>;
+  labelsMrpBySecondarySku: Map<string, number>;
 };
 
 /** Map channel / PO keys from EAN rows to product SKU for listings + bin resolution. */
@@ -444,12 +445,31 @@ export async function loadOutboundSkuLookups(
     }
   }
 
+  const labelsMrpBySecondarySku = new Map<string, number>();
+  if (secondarySkus.length > 0) {
+    const labelsR = await query(
+      `SELECT secondary_sku, mrp
+         FROM labels_master_data
+        WHERE secondary_sku = ANY($1::varchar[])
+          AND mrp IS NOT NULL`,
+      [secondarySkus]
+    );
+    for (const row of labelsR.rows as { secondary_sku: string; mrp: string | number }[]) {
+      const sku = strTrimSkuField(row.secondary_sku);
+      const mrp = Number(row.mrp);
+      if (sku && Number.isFinite(mrp) && mrp > 0) {
+        labelsMrpBySecondarySku.set(sku, mrp);
+      }
+    }
+  }
+
   return {
     companyId: resolvedCompanyId,
     companyCodeBySecondarySku,
     eanBySkuKey,
     listingSkuByKey,
     binStockBySkuId,
+    labelsMrpBySecondarySku,
   };
 }
 

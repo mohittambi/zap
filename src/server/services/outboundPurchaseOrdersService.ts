@@ -15,6 +15,7 @@ import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoLi
 import {
   isMisalignedCommercialRow,
   looksLikeGstPercent,
+  mrpLooksLikeLandingRate,
   normalizeOutboundListingRow,
   normalizeOutboundListingRows,
   repairOutboundListingCommercialFields,
@@ -1022,6 +1023,57 @@ export type OutboundPoListingsPreview = {
   parseWarning?: string;
 };
 
+function strTrimSkuField(v: unknown): string {
+  if (v == null) return "";
+  return String(v).trim();
+}
+
+/** Resolve retail MRP for export/preview with listing-master fallback. */
+export function resolveOutboundListingMrp(
+  normalizedRow: Record<string, unknown>,
+  opts: {
+    rawRow?: Record<string, unknown>;
+    lookups?: OutboundSkuLookups;
+  } = {}
+): { mrp: number | null; issues: string[] } {
+  const issues: string[] = [];
+  const normalizedMrp = numberFromUnknown(normalizedRow.mrp);
+
+  if (!mrpLooksLikeLandingRate(normalizedRow) && normalizedMrp != null) {
+    return { mrp: normalizedMrp, issues };
+  }
+
+  const sku = strTrimSkuField(normalizedRow.po_secondary_sku);
+  const labelsMrp =
+    sku && opts.lookups?.labelsMrpBySecondarySku
+      ? opts.lookups.labelsMrpBySecondarySku.get(sku)
+      : undefined;
+  if (
+    labelsMrp != null &&
+    labelsMrp > 0 &&
+    !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: labelsMrp })
+  ) {
+    issues.push(
+      "MRP replaced from listing master (PO value looked like rate with tax)."
+    );
+    return { mrp: labelsMrp, issues };
+  }
+
+  const rawMrp = numberFromUnknown(opts.rawRow?.mrp);
+  if (
+    rawMrp != null &&
+    rawMrp > 0 &&
+    !mrpLooksLikeLandingRate({ ...normalizedRow, mrp: rawMrp })
+  ) {
+    return { mrp: rawMrp, issues };
+  }
+
+  if (mrpLooksLikeLandingRate(normalizedRow)) {
+    issues.push("MRP may still be rate with tax; no listing master override found.");
+  }
+  return { mrp: normalizedMrp, issues };
+}
+
 /** Preview normalized listing rows as they would appear in the SKU Level Report. */
 export function buildOutboundPoListingsPreviewFromRows(
   po: OutboundPoRow,
@@ -1036,7 +1088,11 @@ export function buildOutboundPoListingsPreviewFromRows(
     const { row, repaired, repairs } = normalizeOutboundListingRow(rawRow);
     const cells = buildSkuReportRowCells(row, po, lookups);
     const stillMisaligned = isMisalignedCommercialRow(row);
-    const issues = [...repairs];
+    const mrpResolution = resolveOutboundListingMrp(row, {
+      rawRow,
+      lookups,
+    });
+    const issues = [...repairs, ...mrpResolution.issues];
     let status: OutboundPoListingsPreviewRowStatus = "ok";
 
     if (stillMisaligned) {
@@ -1289,6 +1345,7 @@ export function buildSkuReportRowCells(
       ? round2(Math.max(0, explicitTax))
       : computeSnapshotReportTaxRatePct(row);
   const fillRate = row.fill_rate_percent ?? row.fill_rate;
+  const resolvedMrp = resolveOutboundListingMrp(row, { lookups }).mrp;
 
   return {
     buyer_name: csvCellValue(po.company_name ?? row.buyer_name),
@@ -1310,7 +1367,7 @@ export function buildSkuReportRowCells(
     zap_ean: csvCellValue(enriched.zap_ean),
     universal_ean: csvCellValue(enriched.universal_ean),
     title: csvCellValue(row.title),
-    mrp: csvCellValue(row.mrp),
+    mrp: csvCellValue(resolvedMrp ?? row.mrp),
     rate_without_tax: csvCellValue(row.rate_without_tax),
     tax_rate: taxPct != null ? String(taxPct) : "",
     hsn: csvCellValue(row.hsn_code ?? row.hsn),

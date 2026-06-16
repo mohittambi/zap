@@ -128,6 +128,97 @@ function looksLikeOrderQty(n: number): boolean {
   return Number.isInteger(n) && n >= 1 && n <= 100_000;
 }
 
+const MRP_RELATIVE_TOLERANCE = 0.03;
+
+function approxEqual(a: number, b: number, relTol = MRP_RELATIVE_TOLERANCE): boolean {
+  if (b === 0) return Math.abs(a) < 0.01;
+  return Math.abs(a - b) / Math.abs(b) <= relTol;
+}
+
+function inclusiveRateFromRow(row: Record<string, unknown>): number | null {
+  const rate = numberFromUnknown(row.rate_without_tax);
+  if (rate == null || rate <= 0) return null;
+  const tax = numberFromUnknown(row.tax_rate);
+  if (tax != null && looksLikeGstPercent(tax)) {
+    return rate * (1 + tax / 100);
+  }
+  return null;
+}
+
+/** True when stored MRP matches landing/inclusive rate rather than retail MRP. */
+export function mrpLooksLikeLandingRate(row: Record<string, unknown>): boolean {
+  const mrp = numberFromUnknown(row.mrp);
+  if (mrp == null || mrp <= 0) return false;
+
+  const landing = numberFromUnknown(row.landing_rate);
+  if (landing != null && landing > 0 && approxEqual(mrp, landing)) return true;
+
+  const inclusive = inclusiveRateFromRow(row);
+  if (inclusive != null && approxEqual(mrp, inclusive)) return true;
+
+  const rate = numberFromUnknown(row.rate_without_tax);
+  if (rate == null || rate <= 0) return false;
+  for (const gst of [5, 12, 18, 28]) {
+    if (approxEqual(mrp, rate * (1 + gst / 100))) return true;
+  }
+  return false;
+}
+
+/** Candidate value is plausibly retail MRP (not margin %, GST %, or inclusive rate). */
+export function isPlausibleRetailMrp(
+  candidate: unknown,
+  row: Record<string, unknown>
+): boolean {
+  const mrp = numberFromUnknown(candidate);
+  if (mrp == null || mrp <= 0) return false;
+
+  const rate = numberFromUnknown(row.rate_without_tax);
+  if (rate != null && rate > 0 && mrp <= rate * 1.02) return false;
+
+  const candidateText = String(candidate).trim();
+  if (
+    rate != null &&
+    rate > mrp &&
+    mrp <= 100 &&
+    candidateText.includes(".")
+  ) {
+    return false;
+  }
+
+  return !mrpLooksLikeLandingRate({ ...row, mrp: candidate });
+}
+
+function correctShiftedMrp(
+  row: Record<string, unknown>,
+  repairs: string[]
+): Record<string, unknown> {
+  const out = { ...row };
+  if (!mrpLooksLikeLandingRate(out)) return out;
+
+  const marginN = numberFromUnknown(out.margin);
+  if (marginN != null && isPlausibleRetailMrp(marginN, out)) {
+    out.mrp = marginN;
+    repairs.push("mrp_restored_from_margin");
+    return out;
+  }
+
+  repairs.push("mrp_marked_suspicious");
+  return out;
+}
+
+function finalizeListingRow(
+  row: Record<string, unknown>,
+  repairs: string[],
+  repaired: boolean
+): OutboundListingNormalizeResult {
+  const finalized = correctShiftedMrp(row, repairs);
+  return {
+    row: finalized,
+    repaired: repaired || repairs.length > 0,
+    repairs,
+  };
+}
+
 function inferGstFromMrpAndRate(mrp: unknown, rate: unknown): number | null {
   const m = numberFromUnknown(mrp);
   const r = numberFromUnknown(rate);
@@ -202,7 +293,7 @@ export function normalizeOutboundListingRow(
       repairs.push("color_extracted");
     }
     repairs.push("title_unpacked");
-    return { row: out, repaired: true, repairs };
+    return finalizeListingRow(out, repairs, true);
   }
 
   if (!isMisalignedCommercialRow(row)) {
@@ -215,7 +306,7 @@ export function normalizeOutboundListingRow(
       }
     }
     out.title = fixMissingInchQuoteInTitle(String(out.title ?? ""));
-    return { row: out, repaired: repairs.length > 0, repairs };
+    return finalizeListingRow(out, repairs, repairs.length > 0);
   }
 
   const rateText = String(row.rate_without_tax ?? "").trim();
@@ -288,7 +379,7 @@ export function normalizeOutboundListingRow(
   }
   out.title = fixMissingInchQuoteInTitle(String(out.title ?? ""));
 
-  return { row: out, repaired: true, repairs };
+  return finalizeListingRow(out, repairs, true);
 }
 
 /** @deprecated Use normalizeOutboundListingRow */
