@@ -160,19 +160,52 @@ function finalizeParsedRows(rows: Record<string, unknown>[]): Record<string, unk
   return rows.map(normalizeListingRow).filter(isValidListingRow);
 }
 
+/** RFC 4180-style row split so inch marks and commas inside quoted titles stay intact. */
+export function parseDelimitedRow(line: string, delim: string): string[] {
+  const cells: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delim) {
+      cells.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
 function parseCsv(buf: Buffer): Record<string, unknown>[] {
-  const text = buf.toString("utf8");
+  const text = buf.toString("utf8").replace(/^\uFEFF/, "");
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) return [];
   const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
-  const headerCells = lines[0].split(delim).map((s) => s.replace(/^"|"$/g, "").trim());
+  const headerCells = parseDelimitedRow(lines[0], delim);
   const fieldNames = headerCells.map((h) => {
     const n = normHeader(h);
     return mapHeaderToField(n);
   });
   const rows: Record<string, unknown>[] = [];
   for (let i = 1; i < lines.length; i += 1) {
-    const cells = lines[i].split(delim).map((s) => s.replace(/^"|"$/g, "").trim());
+    const cells = parseDelimitedRow(lines[i], delim);
     const row: Record<string, unknown> = {};
     let any = false;
     for (let c = 0; c < fieldNames.length; c += 1) {

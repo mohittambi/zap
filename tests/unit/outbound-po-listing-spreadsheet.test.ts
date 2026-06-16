@@ -94,6 +94,26 @@ describe("parseOutboundPoLineItemsSpreadsheet", () => {
     );
     assert.deepStrictEqual(content, []);
   });
+
+  it("parses titles with inch marks and commas in quoted CSV fields", () => {
+    const csv = [
+      "Item Code,HSN Code,Product UPC,Product Description,Basic Cost Price,IGST %,Qty.,MRP,Margin %,Total Amt",
+      '10314301,39269099,8906176482287,"eCraftIndia Ganesha in Palm Showpiece (6.2"", Black & Golden)(Box)",127.12,18,6,150,93.33,762.72',
+    ].join("\n");
+    const { content } = parseOutboundPoLineItemsSpreadsheet(
+      Buffer.from(csv, "utf8"),
+      "inch-title.csv"
+    );
+    assert.strictEqual(content.length, 1);
+    assert.strictEqual(
+      content[0].title,
+      'eCraftIndia Ganesha in Palm Showpiece (6.2", Black & Golden)(Box)'
+    );
+    assert.strictEqual(content[0].rate_without_tax, 127.12);
+    assert.strictEqual(content[0].tax_rate, 18);
+    assert.strictEqual(content[0].original_demand, 6);
+    assert.strictEqual(content[0].mrp, 150);
+  });
 });
 
 describe("computeAnalyticsFromListingsRows", () => {

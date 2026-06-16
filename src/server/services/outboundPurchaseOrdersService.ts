@@ -1047,6 +1047,64 @@ function numberFromUnknown(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function isNumericCommercialValue(v: unknown): boolean {
+  if (v == null || v === "") return false;
+  const s = String(v).trim();
+  return /^-?\d+(\.\d+)?$/.test(s);
+}
+
+function looksLikeGstPercent(v: unknown): boolean {
+  const n = numberFromUnknown(v);
+  return n != null && Number.isInteger(n) && n >= 0 && n <= 28;
+}
+
+function mergeTitleWithColorFragment(title: string, fragment: string): string {
+  const base = title.trimEnd();
+  const tail = fragment.trim();
+  if (!tail) return base;
+  if (base.endsWith('"')) {
+    return `${base}${tail.startsWith(",") ? "" : ", "}${tail}`;
+  }
+  if (/[\("(][^)]*$/.test(base)) {
+    return `${base}${tail}`;
+  }
+  return `${base}, ${tail}`;
+}
+
+/**
+ * Repair listing rows where a comma inside the title (common with inch marks like 6.2")
+ * was parsed as a column boundary, leaving color text in rate_without_tax and the
+ * actual rate in tax_rate.
+ */
+export function repairOutboundListingCommercialFields(
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const rateRaw = row.rate_without_tax;
+  const rateText = rateRaw == null ? "" : String(rateRaw).trim();
+  if (!rateText || isNumericCommercialValue(rateRaw)) return row;
+
+  const shiftedRate = numberFromUnknown(row.tax_rate);
+  const taxColumnLooksLikePrice =
+    shiftedRate != null && shiftedRate > 28 && /[a-zA-Z]/.test(rateText);
+  if (!taxColumnLooksLikePrice) return row;
+
+  const out: Record<string, unknown> = { ...row };
+  out.title = mergeTitleWithColorFragment(String(row.title ?? ""), rateText);
+  out.rate_without_tax = row.tax_rate;
+
+  const demandMaybeTax =
+    numberFromUnknown(out.demand) ?? numberFromUnknown(out.original_demand);
+  if (looksLikeGstPercent(demandMaybeTax)) {
+    out.tax_rate = demandMaybeTax;
+    delete out.demand;
+    delete out.original_demand;
+  } else {
+    delete out.tax_rate;
+  }
+
+  return out;
+}
+
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -1209,8 +1267,9 @@ export async function buildSkuReportXlsxFromRows(
   rows: Record<string, unknown>[],
   po: OutboundPoRow
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const lookups = await loadOutboundSkuLookups(rows, po.company_id);
-  const enriched = await enrichRowsWithZapEan(rows, po.company_id);
+  const repairedRows = rows.map(repairOutboundListingCommercialFields);
+  const lookups = await loadOutboundSkuLookups(repairedRows, po.company_id);
+  const enriched = await enrichRowsWithZapEan(repairedRows, po.company_id);
   const pn = skuReportSafeFilename(String(po.po_number ?? "po"));
   return {
     buffer: buildSkuReportXlsxBuffer(enriched, po, lookups),
@@ -1244,7 +1303,7 @@ export function consignmentItemsToSkuReportRows(
   items: SkuReportItemRow[]
 ): Record<string, unknown>[] {
   return items.map((item) => {
-    const raw = item.raw ?? {};
+    const raw = repairOutboundListingCommercialFields(item.raw ?? {});
     const listing = raw.listing;
     const listObj =
       listing && typeof listing === "object" && !Array.isArray(listing)

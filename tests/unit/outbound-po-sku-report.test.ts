@@ -5,6 +5,7 @@ import { type SkuReportItemRow } from "../../src/server/services/outboundConsign
 import {
   buildSkuReportXlsxBuffer,
   computeSnapshotReportTaxRatePct,
+  repairOutboundListingCommercialFields,
   resolveSnapshotReportMasterSku,
   type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
@@ -294,5 +295,76 @@ describe("snapshot SKU report fallbacks", () => {
   it("returns null for unrealistic snapshot computed outlier values", () => {
     const row = { demand: 1, rate_without_tax: 100, total_amount: 500 };
     assert.equal(computeSnapshotReportTaxRatePct(row), null);
+  });
+
+  it("repairOutboundListingCommercialFields fixes inch-mark title column shift", () => {
+    const repaired = repairOutboundListingCommercialFields({
+      po_secondary_sku: "10314301",
+      title: 'eCraftIndia Ganesha in Palm Showpiece (6.2"',
+      mrp: 150,
+      rate_without_tax: "Black & Golden)(Box)",
+      tax_rate: 127.12,
+      demand: 18,
+      original_demand: 18,
+    });
+    assert.equal(
+      repaired.title,
+      'eCraftIndia Ganesha in Palm Showpiece (6.2", Black & Golden)(Box)'
+    );
+    assert.equal(repaired.mrp, 150);
+    assert.equal(repaired.rate_without_tax, 127.12);
+    assert.equal(repaired.tax_rate, 18);
+    assert.equal(repaired.demand, undefined);
+  });
+
+  it("buildSkuReportXlsxBuffer repairs corrupted rows before export", () => {
+    const lookups: OutboundSkuLookups = {
+      companyId: 30044,
+      companyCodeBySecondarySku: new Map(),
+      eanBySkuKey: new Map(),
+      listingSkuByKey: new Map(),
+      binStockBySkuId: new Map(),
+    };
+    const po = {
+      po_number: "1735810041652",
+      company_name: "Blinkit",
+      po_issue_date: null,
+      expiry_date: null,
+      created_at: "2026-01-01",
+      po_type: null,
+      delivery_city: "Lucknow",
+      company_id: 30044,
+    } as OutboundPoRow;
+    const buffer = buildSkuReportXlsxBuffer(
+      [
+        repairOutboundListingCommercialFields({
+          title: 'eCraftIndia Ganesha in Palm Showpiece (6.2"',
+          mrp: "150",
+          rate_without_tax: "Black & Golden)(Box)",
+          tax_rate: "127.12",
+          demand: 18,
+          packed: 0,
+          dispatched: 0,
+        }),
+      ],
+      po,
+      lookups
+    );
+    const wb = XLSX.read(buffer, { type: "buffer" });
+    const sheet = wb.Sheets["SKU Report"];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][];
+    const header = aoa[0];
+    const data = aoa[1];
+    const titleIdx = header.indexOf("title");
+    const mrpIdx = header.indexOf("mrp");
+    const rateIdx = header.indexOf("rate_without_tax");
+    const taxIdx = header.indexOf("tax_rate");
+    assert.equal(
+      data[titleIdx],
+      'eCraftIndia Ganesha in Palm Showpiece (6.2", Black & Golden)(Box)'
+    );
+    assert.equal(data[mrpIdx], "150");
+    assert.equal(data[rateIdx], "127.12");
+    assert.equal(data[taxIdx], "18");
   });
 });
