@@ -56,6 +56,7 @@ export function buildPendencyRowsFromListings(
     eanBySkuKey: new Map(),
     listingSkuByKey: new Map(),
     binStockBySkuId: new Map(),
+    labelsMrpBySecondarySku: new Map(),
   };
 
   return rows.map((row) => {
