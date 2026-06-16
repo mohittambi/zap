@@ -177,7 +177,7 @@ export function OutboundPoLineItemsTable({
                           </div>
                           <div>
                             <dt className="text-muted-foreground text-xs">Color</dt>
-                            <dd>{str(row.color ?? listing.color)}</dd>
+                            <dd>{str(row.color ?? listing?.color)}</dd>
                           </div>
                           <div>
                             <dt className="text-muted-foreground text-xs">Company Code Secondary</dt>
