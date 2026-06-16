@@ -84,6 +84,7 @@ Implementation: [`outboundListingNormalize.ts`](../../src/server/utils/outboundL
 | Spreadsheet upload / PO create | Yes — before snapshot persist |
 | PO line items API + UI | Yes — via normalized extract |
 | SKU Level Report XLSX | Yes — caller passes normalized rows |
+| PO Actions — Preview line items | Yes — modal before SKU report download |
 | Pendency PDF | Yes |
 | Consignment invoice Excel | Yes |
 | SKU PO Control matrix | Yes |

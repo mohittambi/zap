@@ -12,6 +12,7 @@ import { buildPhase1BoxLabelsPdf } from "@/server/services/labelPdfService";
 import {
   acknowledgeOutboundPo,
   buildSkuReportXlsxFromRows,
+  buildOutboundPoListingsPreview,
   cancelOutboundPo,
   consignmentItemsToSkuReportRows,
   extractListingsRowsFromSnapshotNormalized,
@@ -35,6 +36,7 @@ const ALLOWED_ACTIONS = new Set([
   "acknowledge",
   "cancel",
   "download_sku_report",
+  "preview_listings",
   "download_pendency_pdf",
   "generate_product_labels",
   "generate_phase1_box_labels",
@@ -287,6 +289,20 @@ export async function POST(request: Request, context: Ctx) {
         },
         { status: 422 }
       );
+    }
+
+    if (action === "preview_listings") {
+      const preview = await buildOutboundPoListingsPreview(po);
+      if (preview.stats.totalRows === 0) {
+        return NextResponse.json(
+          {
+            error: "No SKU line items found for this purchase order.",
+            hint: "Upload the received PO spreadsheet (XLSX/CSV) via the Attachments section, or run `npm run sync:outbound-po-detail` to refresh from eAutomate.",
+          },
+          { status: 422 }
+        );
+      }
+      return NextResponse.json(preview);
     }
 
     if (action === "acknowledge") {

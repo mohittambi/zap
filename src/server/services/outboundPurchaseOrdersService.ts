@@ -13,6 +13,7 @@ import {
 } from "@/server/services/eanMappingsService";
 import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
 import {
+  isMisalignedCommercialRow,
   looksLikeGstPercent,
   normalizeOutboundListingRow,
   normalizeOutboundListingRows,
@@ -991,6 +992,112 @@ export function extractListingsRowsFromSnapshotNormalized(
   snapshot: unknown
 ): Record<string, unknown>[] {
   return normalizeOutboundListingRows(extractListingsRowsFromSnapshot(snapshot)).rows;
+}
+
+export type OutboundPoListingsPreviewRowStatus = "ok" | "repaired" | "warning" | "error";
+
+export type OutboundPoListingsPreviewRow = {
+  rowNumber: number;
+  po_secondary_sku: string | null;
+  title: string | null;
+  color: string | null;
+  rate_without_tax: string | null;
+  tax_rate: string | null;
+  demand: string | null;
+  mrp: string | null;
+  status: OutboundPoListingsPreviewRowStatus;
+  issues: string[];
+  skuReportCells: Record<string, string>;
+};
+
+export type OutboundPoListingsPreview = {
+  ok: boolean;
+  stats: {
+    totalRows: number;
+    repairedCount: number;
+    warningCount: number;
+    errorCount: number;
+  };
+  rowsPreview: OutboundPoListingsPreviewRow[];
+  parseWarning?: string;
+};
+
+/** Preview normalized listing rows as they would appear in the SKU Level Report. */
+export function buildOutboundPoListingsPreviewFromRows(
+  po: OutboundPoRow,
+  rawRows: Record<string, unknown>[],
+  lookups: OutboundSkuLookups
+): OutboundPoListingsPreview {
+  let repairedCount = 0;
+  let warningCount = 0;
+  let errorCount = 0;
+
+  const rowsPreview: OutboundPoListingsPreviewRow[] = rawRows.map((rawRow, idx) => {
+    const { row, repaired, repairs } = normalizeOutboundListingRow(rawRow);
+    const cells = buildSkuReportRowCells(row, po, lookups);
+    const stillMisaligned = isMisalignedCommercialRow(row);
+    const issues = [...repairs];
+    let status: OutboundPoListingsPreviewRowStatus = "ok";
+
+    if (stillMisaligned) {
+      status = "error";
+      errorCount += 1;
+      issues.push("Commercial columns may still be misaligned after repair.");
+    } else if (repaired) {
+      status = "repaired";
+      repairedCount += 1;
+    } else {
+      const sku = cells.po_secondary_sku.trim();
+      const demandN = Number(cells.demand);
+      const extraWarnings: string[] = [];
+      if (!sku) extraWarnings.push("Missing PO secondary SKU.");
+      if (!Number.isFinite(demandN) || demandN <= 0) {
+        extraWarnings.push("Demand is zero or invalid.");
+      }
+      if (extraWarnings.length > 0) {
+        status = "warning";
+        warningCount += 1;
+        issues.push(...extraWarnings);
+      }
+    }
+
+    return {
+      rowNumber: idx + 1,
+      po_secondary_sku: cells.po_secondary_sku || null,
+      title: cells.title || null,
+      color: cells.color || null,
+      rate_without_tax: cells.rate_without_tax || null,
+      tax_rate: cells.tax_rate || null,
+      demand: cells.demand || null,
+      mrp: cells.mrp || null,
+      status,
+      issues,
+      skuReportCells: { ...cells },
+    };
+  });
+
+  return {
+    ok: rawRows.length > 0,
+    stats: {
+      totalRows: rawRows.length,
+      repairedCount,
+      warningCount,
+      errorCount,
+    },
+    rowsPreview,
+    parseWarning:
+      errorCount > 0
+        ? `${errorCount} line(s) may still have misaligned commercial columns. Prefer XLSX upload or review line items.`
+        : undefined,
+  };
+}
+
+export async function buildOutboundPoListingsPreview(
+  po: OutboundPoRow
+): Promise<OutboundPoListingsPreview> {
+  const rawRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+  const lookups = await loadOutboundSkuLookups(rawRows, po.company_id);
+  return buildOutboundPoListingsPreviewFromRows(po, rawRows, lookups);
 }
 
 function csvEscapeCell(cell: string): string {
