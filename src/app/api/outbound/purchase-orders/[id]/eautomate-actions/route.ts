@@ -14,7 +14,7 @@ import {
   buildSkuReportXlsxFromRows,
   cancelOutboundPo,
   consignmentItemsToSkuReportRows,
-  extractListingsRowsFromSnapshot,
+  extractListingsRowsFromSnapshotNormalized,
   patchOutboundPurchaseOrderField,
   type OutboundPoEditableField,
 } from "@/server/services/outboundPurchaseOrdersService";
@@ -264,7 +264,7 @@ export async function POST(request: Request, context: Ctx) {
       const reportRows =
         skuItems.length > 0
           ? consignmentItemsToSkuReportRows(skuItems)
-          : extractListingsRowsFromSnapshot(po.listings_snapshot);
+          : extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
       if (reportRows.length > 0) {
         const { buffer, filename } = await buildSkuReportXlsxFromRows(
           reportRows,
@@ -302,7 +302,7 @@ export async function POST(request: Request, context: Ctx) {
     }
 
     if (action === "download_pendency_pdf") {
-      const rows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+      const rows = extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
       if (rows.length === 0) {
         return NextResponse.json(
           {
@@ -337,7 +337,7 @@ export async function POST(request: Request, context: Ctx) {
       );
       if (labelRows.length === 0) {
         // Fallback: build from listings_snapshot (enriched with labels_master_data where available)
-        const snapshotRows = extractListingsRowsFromSnapshot(po.listings_snapshot);
+        const snapshotRows = extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
         labelRows = await getProductLabelRowsFromSnapshot(
           snapshotRows,
           po.company_id

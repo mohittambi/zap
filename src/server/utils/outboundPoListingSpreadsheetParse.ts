@@ -1,4 +1,10 @@
 import * as XLSX from "xlsx";
+import { parseDelimitedRow } from "@/server/utils/csvParse";
+import {
+  isMisalignedCommercialRow,
+  isNumericCommercialValue,
+  normalizeOutboundListingRow,
+} from "@/server/utils/outboundListingNormalize";
 
 function normHeader(h: string): string {
   return h
@@ -157,40 +163,81 @@ function normalizeListingRow(row: Record<string, unknown>): Record<string, unkno
 }
 
 function finalizeParsedRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  return rows.map(normalizeListingRow).filter(isValidListingRow);
+  return rows
+    .map((row) => normalizeOutboundListingRow(normalizeListingRow(row)).row)
+    .filter(isValidListingRow);
 }
 
-/** RFC 4180-style row split so inch marks and commas inside quoted titles stay intact. */
-export function parseDelimitedRow(line: string, delim: string): string[] {
-  const cells: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += ch;
-      }
+/** Merge cells between title and rate columns when unquoted commas split the description. */
+function rejoinSplitTitleCells(
+  cells: string[],
+  fieldNames: (string | null)[]
+): { cells: string[]; fieldNames: (string | null)[] } {
+  const titleIdx = fieldNames.indexOf("title");
+  const rateIdx = fieldNames.indexOf("rate_without_tax");
+  if (titleIdx < 0 || rateIdx < 0) return { cells, fieldNames };
+
+  let mergedTitle = cells[titleIdx] ?? "";
+  let scan = titleIdx + 1;
+  let rateDataIdx = -1;
+
+  while (scan < cells.length) {
+    const cell = cells[scan] ?? "";
+    const headerField = fieldNames[scan] ?? null;
+    const looksLikeRate =
+      isNumericCommercialValue(cell) &&
+      (String(cell).includes(".") ||
+        (headerField === "rate_without_tax" && scan >= rateIdx));
+
+    if (looksLikeRate && scan >= rateIdx - 1) {
+      rateDataIdx = scan;
+      break;
+    }
+
+    if (scan < rateIdx || /[a-zA-Z")]/.test(cell)) {
+      mergedTitle = mergedTitle
+        ? `${mergedTitle}, ${cell.trim()}`
+        : cell.trim();
+      scan += 1;
       continue;
     }
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === delim) {
-      cells.push(cur.trim());
-      cur = "";
-    } else {
-      cur += ch;
+    break;
+  }
+
+  if (rateDataIdx < 0 || rateDataIdx <= titleIdx) {
+    return { cells, fieldNames };
+  }
+
+  const newCells = [
+    ...cells.slice(0, titleIdx),
+    mergedTitle.trim(),
+    ...cells.slice(rateDataIdx),
+  ];
+  const newFields = [
+    ...fieldNames.slice(0, titleIdx),
+    "title",
+    ...fieldNames.slice(rateIdx),
+  ];
+  return { cells: newCells, fieldNames: newFields };
+}
+
+function rowFromCells(
+  cells: string[],
+  fieldNames: (string | null)[]
+): Record<string, unknown> | null {
+  const rejoined = rejoinSplitTitleCells(cells, fieldNames);
+  const row: Record<string, unknown> = {};
+  let any = false;
+  for (let c = 0; c < rejoined.fieldNames.length; c += 1) {
+    const fn = rejoined.fieldNames[c];
+    if (!fn) continue;
+    const val = coerceCell(fn, rejoined.cells[c] ?? "");
+    if (val != null && val !== "") {
+      row[fn] = val;
+      any = true;
     }
   }
-  cells.push(cur.trim());
-  return cells;
+  return any ? row : null;
 }
 
 function parseCsv(buf: Buffer): Record<string, unknown>[] {
@@ -206,18 +253,8 @@ function parseCsv(buf: Buffer): Record<string, unknown>[] {
   const rows: Record<string, unknown>[] = [];
   for (let i = 1; i < lines.length; i += 1) {
     const cells = parseDelimitedRow(lines[i], delim);
-    const row: Record<string, unknown> = {};
-    let any = false;
-    for (let c = 0; c < fieldNames.length; c += 1) {
-      const fn = fieldNames[c];
-      if (!fn) continue;
-      const val = coerceCell(fn, cells[c] ?? "");
-      if (val != null && val !== "") {
-        row[fn] = val;
-        any = true;
-      }
-    }
-    if (any) rows.push(row);
+    const row = rowFromCells(cells, fieldNames);
+    if (row) rows.push(row);
   }
   return finalizeParsedRows(rows);
 }
@@ -263,12 +300,16 @@ function parseXlsx(buf: Buffer): Record<string, unknown>[] {
 export function parseOutboundPoLineItemsSpreadsheet(
   buf: Buffer,
   filename: string
-): { content: Record<string, unknown>[] } {
+): {
+  content: Record<string, unknown>[];
+  stillMisaligned: number;
+} {
   const lower = filename.toLowerCase();
   const rows = lower.endsWith(".csv")
     ? parseCsv(buf)
     : lower.endsWith(".xlsx") || lower.endsWith(".xls")
       ? parseXlsx(buf)
       : parseCsv(buf);
-  return { content: rows };
+  const stillMisaligned = rows.filter((r) => isMisalignedCommercialRow(r)).length;
+  return { content: rows, stillMisaligned };
 }

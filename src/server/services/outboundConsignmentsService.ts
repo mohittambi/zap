@@ -10,7 +10,7 @@ import {
 } from "@/server/services/outboundConsignmentItemsService";
 import {
   refreshOutboundPoConsignmentCountAnalytics,
-  extractListingsRowsFromSnapshot,
+  extractListingsRowsFromSnapshotNormalized,
   computeSnapshotReportTaxRatePct,
   type OutboundPoRow,
 } from "@/server/services/outboundPurchaseOrdersService";
@@ -1034,7 +1034,7 @@ async function buildInvoiceExcelDataRowsForConsignment(
     [consignmentId]
   );
 
-  const listingRows = extractListingsRowsFromSnapshot(c.listings_snapshot);
+  const listingRows = extractListingsRowsFromSnapshotNormalized(c.listings_snapshot);
   const listingBySku = new Map<string, Record<string, unknown>>();
   for (const lr of listingRows) {
     const sku = lr.po_secondary_sku != null ? String(lr.po_secondary_sku).trim() : "";

@@ -12,6 +12,20 @@ import {
   type OutboundSkuLookups,
 } from "@/server/services/eanMappingsService";
 import { parseOutboundPoLineItemsSpreadsheet } from "@/server/utils/outboundPoListingSpreadsheetParse";
+import {
+  looksLikeGstPercent,
+  normalizeOutboundListingRow,
+  normalizeOutboundListingRows,
+  repairOutboundListingCommercialFields,
+  type OutboundListingNormalizeResult,
+} from "@/server/utils/outboundListingNormalize";
+
+export {
+  normalizeOutboundListingRow,
+  normalizeOutboundListingRows,
+  repairOutboundListingCommercialFields,
+  type OutboundListingNormalizeResult,
+};
 
 /**
  * Keys eAutomate may merge into `analytics_object` that are NOT numeric PO KPIs — e.g. form payloads
@@ -881,7 +895,7 @@ export function mergeCommercialIntoAnalytics(
   snapshot: unknown
 ): Record<string, unknown> {
   if (commercialTotalsPresent(analytics)) return analytics;
-  const rows = extractListingsRowsFromSnapshot(snapshot);
+  const rows = extractListingsRowsFromSnapshotNormalized(snapshot);
   if (rows.length === 0) return analytics;
   const commercial = computeCommercialTotalsFromRows(rows);
   if (commercial.total_before_tax <= 0 && commercial.total_after_tax <= 0) {
@@ -915,17 +929,36 @@ export async function applySpreadsheetToOutboundPo(
   outboundPoId: number,
   buf: Buffer,
   filename: string
-): Promise<{ listingsUpdated: boolean; rowsParsed: number }> {
+): Promise<{
+  listingsUpdated: boolean;
+  rowsParsed: number;
+  rowsRepaired: number;
+  stillMisaligned: number;
+}> {
   const envelope = parseOutboundPoLineItemsSpreadsheet(buf, filename);
   if (envelope.content.length === 0) {
-    return { listingsUpdated: false, rowsParsed: 0 };
+    return {
+      listingsUpdated: false,
+      rowsParsed: 0,
+      rowsRepaired: 0,
+      stillMisaligned: envelope.stillMisaligned,
+    };
   }
-  await updateOutboundPoListingsSnapshot(outboundPoId, envelope);
+  const { rows, repairedCount, stillMisaligned } = normalizeOutboundListingRows(
+    envelope.content
+  );
+  const normalizedEnvelope = { ...envelope, content: rows };
+  await updateOutboundPoListingsSnapshot(outboundPoId, normalizedEnvelope);
   await updateOutboundPoAnalyticsObject(
     outboundPoId,
-    computeAnalyticsFromListingsRows(envelope.content)
+    computeAnalyticsFromListingsRows(rows)
   );
-  return { listingsUpdated: true, rowsParsed: envelope.content.length };
+  return {
+    listingsUpdated: true,
+    rowsParsed: rows.length,
+    rowsRepaired: repairedCount,
+    stillMisaligned,
+  };
 }
 
 /**
@@ -951,6 +984,13 @@ export function extractListingsRowsFromSnapshot(
     }
   }
   return [];
+}
+
+/** Line items from snapshot with commercial-field normalization applied. */
+export function extractListingsRowsFromSnapshotNormalized(
+  snapshot: unknown
+): Record<string, unknown>[] {
+  return normalizeOutboundListingRows(extractListingsRowsFromSnapshot(snapshot)).rows;
 }
 
 function csvEscapeCell(cell: string): string {
@@ -1047,64 +1087,6 @@ function numberFromUnknown(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function isNumericCommercialValue(v: unknown): boolean {
-  if (v == null || v === "") return false;
-  const s = String(v).trim();
-  return /^-?\d+(\.\d+)?$/.test(s);
-}
-
-function looksLikeGstPercent(v: unknown): boolean {
-  const n = numberFromUnknown(v);
-  return n != null && Number.isInteger(n) && n >= 0 && n <= 28;
-}
-
-function mergeTitleWithColorFragment(title: string, fragment: string): string {
-  const base = title.trimEnd();
-  const tail = fragment.trim();
-  if (!tail) return base;
-  if (base.endsWith('"')) {
-    return `${base}${tail.startsWith(",") ? "" : ", "}${tail}`;
-  }
-  if (/[\("(][^)]*$/.test(base)) {
-    return `${base}${tail}`;
-  }
-  return `${base}, ${tail}`;
-}
-
-/**
- * Repair listing rows where a comma inside the title (common with inch marks like 6.2")
- * was parsed as a column boundary, leaving color text in rate_without_tax and the
- * actual rate in tax_rate.
- */
-export function repairOutboundListingCommercialFields(
-  row: Record<string, unknown>
-): Record<string, unknown> {
-  const rateRaw = row.rate_without_tax;
-  const rateText = rateRaw == null ? "" : String(rateRaw).trim();
-  if (!rateText || isNumericCommercialValue(rateRaw)) return row;
-
-  const shiftedRate = numberFromUnknown(row.tax_rate);
-  const taxColumnLooksLikePrice =
-    shiftedRate != null && shiftedRate > 28 && /[a-zA-Z]/.test(rateText);
-  if (!taxColumnLooksLikePrice) return row;
-
-  const out: Record<string, unknown> = { ...row };
-  out.title = mergeTitleWithColorFragment(String(row.title ?? ""), rateText);
-  out.rate_without_tax = row.tax_rate;
-
-  const demandMaybeTax =
-    numberFromUnknown(out.demand) ?? numberFromUnknown(out.original_demand);
-  if (looksLikeGstPercent(demandMaybeTax)) {
-    out.tax_rate = demandMaybeTax;
-    delete out.demand;
-    delete out.original_demand;
-  } else {
-    delete out.tax_rate;
-  }
-
-  return out;
-}
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -1183,6 +1165,7 @@ export function buildSkuReportRowCells(
   lookups: OutboundSkuLookups
 ): Record<SkuReportColumn, string> {
   const enriched = enrichOutboundReportRow(row, lookups);
+  const listing = readListingObject(row);
   const demand =
     numberFromRow(row, "demand") ??
     numberFromRow(row, "original_demand") ??
@@ -1193,9 +1176,12 @@ export function buildSkuReportRowCells(
   const explicitPending = numberFromRow(row, "pending");
   const pending =
     explicitPending != null ? explicitPending : demand - (packed + dispatched);
-  const taxPct = computeSnapshotReportTaxRatePct(row);
+  const explicitTax = firstPresentTaxRate(row, listing);
+  const taxPct =
+    explicitTax != null && looksLikeGstPercent(explicitTax)
+      ? round2(Math.max(0, explicitTax))
+      : computeSnapshotReportTaxRatePct(row);
   const fillRate = row.fill_rate_percent ?? row.fill_rate;
-  const listing = readListingObject(row);
 
   return {
     buyer_name: csvCellValue(po.company_name ?? row.buyer_name),
@@ -1267,9 +1253,8 @@ export async function buildSkuReportXlsxFromRows(
   rows: Record<string, unknown>[],
   po: OutboundPoRow
 ): Promise<{ buffer: Buffer; filename: string }> {
-  const repairedRows = rows.map(repairOutboundListingCommercialFields);
-  const lookups = await loadOutboundSkuLookups(repairedRows, po.company_id);
-  const enriched = await enrichRowsWithZapEan(repairedRows, po.company_id);
+  const lookups = await loadOutboundSkuLookups(rows, po.company_id);
+  const enriched = await enrichRowsWithZapEan(rows, po.company_id);
   const pn = skuReportSafeFilename(String(po.po_number ?? "po"));
   return {
     buffer: buildSkuReportXlsxBuffer(enriched, po, lookups),
@@ -1303,7 +1288,7 @@ export function consignmentItemsToSkuReportRows(
   items: SkuReportItemRow[]
 ): Record<string, unknown>[] {
   return items.map((item) => {
-    const raw = repairOutboundListingCommercialFields(item.raw ?? {});
+    const raw = normalizeOutboundListingRow(item.raw ?? {}).row;
     const listing = raw.listing;
     const listObj =
       listing && typeof listing === "object" && !Array.isArray(listing)
@@ -1343,8 +1328,9 @@ export async function buildSkuReportCsvFromRows(
   rows: Record<string, unknown>[],
   po: OutboundPoRow
 ): Promise<string> {
-  const lookups = await loadOutboundSkuLookups(rows, po.company_id);
-  const enriched = await enrichRowsWithZapEan(rows, po.company_id);
+  const normalized = normalizeOutboundListingRows(rows).rows;
+  const lookups = await loadOutboundSkuLookups(normalized, po.company_id);
+  const enriched = await enrichRowsWithZapEan(normalized, po.company_id);
   return skuReportFromEnrichedRows(enriched, po, lookups);
 }
 
@@ -1427,7 +1413,7 @@ export function outboundPoListingsSnapshotToCsv(
   snapshot: unknown,
   po: OutboundPoRow
 ): string {
-  const rows = extractListingsRowsFromSnapshot(snapshot);
+  const rows = extractListingsRowsFromSnapshotNormalized(snapshot);
   const lines: string[] = [];
 
   if (rows.length === 0) {
@@ -1610,7 +1596,7 @@ export async function buildOutboundPoItemsPayloadFromSnapshot(
   curr_page_count: number;
   content: Record<string, unknown>[];
 }> {
-  const all = extractListingsRowsFromSnapshot(snapshot);
+  const all = extractListingsRowsFromSnapshotNormalized(snapshot);
   const filtered = filterListingsRowsBySearch(all, opts.search);
   const withEan = await enrichRowsWithZapEan(filtered, opts.companyId ?? null);
   const enriched = await enrichRowsWithListingImages(withEan);

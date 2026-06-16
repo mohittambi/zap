@@ -304,7 +304,16 @@ export async function POST(request: Request) {
       });
       if (kind === "spreadsheet") {
         try {
-          await outboundPoService.applySpreadsheetToOutboundPo(id, buf, fname);
+          const parseResult = await outboundPoService.applySpreadsheetToOutboundPo(
+            id,
+            buf,
+            fname
+          );
+          if (parseResult.stillMisaligned > 0) {
+            console.warn(
+              `[outbound-po] PO ${po_number}: ${parseResult.stillMisaligned} line(s) still misaligned after spreadsheet parse`
+            );
+          }
         } catch {
           /* parsing failure is non-fatal */
         }

@@ -9,6 +9,7 @@ import {
   resolveSnapshotReportMasterSku,
   type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
+import { normalizeOutboundListingRow } from "../../src/server/utils/outboundListingNormalize";
 import type { OutboundSkuLookups } from "../../src/server/services/eanMappingsService";
 import {
   computeSkuReportTaxRatePct,
@@ -337,15 +338,17 @@ describe("snapshot SKU report fallbacks", () => {
     } as OutboundPoRow;
     const buffer = buildSkuReportXlsxBuffer(
       [
-        repairOutboundListingCommercialFields({
+        normalizeOutboundListingRow({
           title: 'eCraftIndia Ganesha in Palm Showpiece (6.2"',
           mrp: "150",
           rate_without_tax: "Black & Golden)(Box)",
           tax_rate: "127.12",
           demand: 18,
+          margin: 6,
+          total_amount: 762.72,
           packed: 0,
           dispatched: 0,
-        }),
+        }).row,
       ],
       po,
       lookups

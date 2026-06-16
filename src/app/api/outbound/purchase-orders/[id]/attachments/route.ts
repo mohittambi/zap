@@ -105,6 +105,8 @@ export async function POST(request: Request, context: Ctx) {
 
     let listingsUpdated = false;
     let rowsParsed = 0;
+    let rowsRepaired = 0;
+    let stillMisaligned = 0;
     if (kind === "spreadsheet") {
       try {
         const result = await outboundPoService.applySpreadsheetToOutboundPo(
@@ -114,6 +116,8 @@ export async function POST(request: Request, context: Ctx) {
         );
         listingsUpdated = result.listingsUpdated;
         rowsParsed = result.rowsParsed;
+        rowsRepaired = result.rowsRepaired;
+        stillMisaligned = result.stillMisaligned;
       } catch {
         listingsUpdated = false;
         rowsParsed = 0;
@@ -124,7 +128,13 @@ export async function POST(request: Request, context: Ctx) {
       ok: true,
       listingsUpdated,
       parseResult:
-        kind === "spreadsheet" ? { rowsParsed } : undefined,
+        kind === "spreadsheet"
+          ? { rowsParsed, rowsRepaired, stillMisaligned }
+          : undefined,
+      parseWarning:
+        kind === "spreadsheet" && stillMisaligned > 0
+          ? `${stillMisaligned} line(s) may still have misaligned commercial columns after repair. Prefer XLSX upload or review line items.`
+          : undefined,
     });
   } catch (err) {
     return handleApiError(err);

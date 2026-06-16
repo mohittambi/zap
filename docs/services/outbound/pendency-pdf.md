@@ -110,7 +110,9 @@ Built by `buildPendencyRowsFromListings` before `createOutboundPoPendencyPdf`:
 |---|------------------|-----------------------------------------------|
 | Format | PDF | CSV |
 | Focus | Pending qty + warehouse stock + MRP for open lines | Full commercial / GST columns for consignment or snapshot lines |
-| SKU enrichment | `loadOutboundSkuLookups` + `enrichOutboundReportRow` | Same helpers via `buildSkuReportCsvFromRows` |
+| SKU enrichment | `loadOutboundSkuLookups` + `enrichOutboundReportRow` on **normalized** snapshot rows | Same helpers via `buildSkuReportXlsxFromRows` |
+
+Line items are normalized before pendency/SKU export when sourced from `listings_snapshot`. See [po-listing-commercial-field-repair.md](po-listing-commercial-field-repair.md).
 | Warehouse column | **Warehouse Inventory** (bins) | **`warehouse_quantity`** (bins) |
 | Company / master SKU | **Company Code Primary** (this doc) | **`master_sku`**, **`company_code_primary`**, **`zap_ean`** — see [`outboundPurchaseOrdersService.ts`](../../../src/server/services/outboundPurchaseOrdersService.ts) |
 

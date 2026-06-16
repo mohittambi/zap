@@ -8,7 +8,7 @@ import {
   validateConsignmentPackingRows,
 } from "@/server/services/outboundConsignmentItemsService";
 import {
-  extractListingsRowsFromSnapshot,
+  extractListingsRowsFromSnapshotNormalized,
   getOutboundPurchaseOrderByPoNumber,
 } from "@/server/services/outboundPurchaseOrdersService";
 import type { ParsedConsignmentPackingRow } from "@/server/utils/outboundConsignmentPackingSpreadsheetParse";
@@ -81,7 +81,7 @@ async function knownSkusForConsignment(
 
   const po = await getOutboundPurchaseOrderByPoNumber(poNumber);
   if (po?.listings_snapshot) {
-    for (const row of extractListingsRowsFromSnapshot(po.listings_snapshot)) {
+    for (const row of extractListingsRowsFromSnapshotNormalized(po.listings_snapshot)) {
       const sku = row.po_secondary_sku ?? row.item_code ?? row.sku;
       if (sku != null && String(sku).trim()) {
         poSkus.add(String(sku).trim());

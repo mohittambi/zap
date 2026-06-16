@@ -89,7 +89,7 @@ Implementation: [`outboundPoPendencyPdf.ts`](../src/server/utils/outboundPoPende
 
 Uses the same enrichment as the pendency PDF and PO line items: **`loadOutboundSkuLookups`** + **`enrichRowsWithZapEan`** in [`eanMappingsService.ts`](../src/server/services/eanMappingsService.ts), built via **`buildSkuReportXlsxFromRows`** in [`outboundPurchaseOrdersService.ts`](../src/server/services/outboundPurchaseOrdersService.ts). **`po_secondary_sku`** stays the channel code only; it is never copied into **Master SKU**.
 
-**Data source:** `outbound_consignment_items` when present, else **`listings_snapshot`**. See [`eautomate-actions/route.ts`](../src/app/api/outbound/purchase-orders/[id]/eautomate-actions/route.ts).
+**Data source:** `outbound_consignment_items` when present, else **`listings_snapshot`**. Rows are normalized via **`extractListingsRowsFromSnapshotNormalized`** before export (fixes inch-mark / comma title corruption). See [po-listing-commercial-field-repair.md](services/outbound/po-listing-commercial-field-repair.md).
 
 ---
 

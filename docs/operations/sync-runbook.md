@@ -89,6 +89,7 @@ These are **single-entity** or optional flows; run them manually when needed:
 
 - **`npm run sync:vendor -- <vendorId>`** — one vendor + listings (useful for a targeted refresh).
 - **`npm run sync:outbound-po-detail -- <po_number>`** — one outbound PO by number (see `scripts/sync-eautomate-outbound-po-detail.ts`).
+- **`npm run repair:outbound-po-listings`** — repair misaligned commercial fields in `listings_snapshot` (inch-mark / comma title corruption). See [po-listing-commercial-field-repair.md](../services/outbound/po-listing-commercial-field-repair.md). Use `--dry-run`, `--po-number <pn>`, `--all`, or `--sync-consignment-items`.
 - **SQL seeds** (`npm run seed`, `seed:forms`, demo seeds, etc.) — local fixtures, not live eAutomate.
 
 ## Runtime and risk notes

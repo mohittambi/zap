@@ -1,5 +1,5 @@
 import { query } from "@/server/db";
-import { extractListingsRowsFromSnapshot } from "@/server/services/outboundPurchaseOrdersService";
+import { extractListingsRowsFromSnapshotNormalized } from "@/server/services/outboundPurchaseOrdersService";
 import {
   companyOutboundColumnKey,
   type OpsCompanyOutboundColumn,
@@ -399,7 +399,7 @@ export async function recomputeOpsMasterSkuPoMetrics(): Promise<{
     ).trim();
     companyNames.set(companyId, companyName);
 
-    const lines = extractListingsRowsFromSnapshot(po.listings_snapshot);
+    const lines = extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
     if (lines.length === 0) {
       posWithoutSnapshot += 1;
       continue;
@@ -848,7 +848,7 @@ export async function getOpsSkuPoControlDetail(
   );
 
   for (const po of outboundR.rows as Record<string, unknown>[]) {
-    const lines = extractListingsRowsFromSnapshot(po.listings_snapshot);
+    const lines = extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
     for (const line of lines) {
       const n = normalizeOutboundListingLine(line);
       if (n.master_sku !== sku) continue;

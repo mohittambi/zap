@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { parseDelimitedRow } from "@/server/utils/csvParse";
 
 export type ParsedConsignmentPackingRow = {
   rowNumber: number;
@@ -253,9 +254,7 @@ function parseCsv(buf: Buffer): ConsignmentPackingParseResult {
     };
   }
   const delim = lines[0].includes("\t") && !lines[0].includes(",") ? "\t" : ",";
-  const matrix: unknown[][] = lines.map((line) =>
-    line.split(delim).map((s) => s.replace(/^"|"$/g, "").trim())
-  );
+  const matrix: unknown[][] = lines.map((line) => parseDelimitedRow(line, delim));
   return parseMatrix(matrix);
 }
 
