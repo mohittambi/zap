@@ -1,15 +1,26 @@
-const TOKEN_KEY = "zap_token";
+export const TOKEN_KEY = "zap_token";
 
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(TOKEN_KEY);
+  const fromLocal = localStorage.getItem(TOKEN_KEY);
+  if (fromLocal) return fromLocal;
+  // One-time migration from tab-scoped sessionStorage (logged-out new tabs).
+  const legacy = sessionStorage.getItem(TOKEN_KEY);
+  if (legacy) {
+    localStorage.setItem(TOKEN_KEY, legacy);
+    sessionStorage.removeItem(TOKEN_KEY);
+    return legacy;
+  }
+  return null;
 }
 
 export function setStoredToken(token: string): void {
-  sessionStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.removeItem(TOKEN_KEY);
 }
 
 export function clearStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
 }
 

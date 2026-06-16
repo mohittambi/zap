@@ -7,6 +7,7 @@ import {
   setStoredToken,
   getStoredToken,
   apiFetch,
+  TOKEN_KEY,
 } from "@/lib/api-browser";
 
 export type AuthPermission = { resource: string; action: string };
@@ -68,6 +69,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     void refreshUser();
   }, [refreshUser]);
+
+  React.useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== TOKEN_KEY) return;
+      if (!event.newValue) {
+        setUser(null);
+        router.replace("/login");
+        return;
+      }
+      void refreshUser();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [refreshUser, router]);
 
   React.useEffect(() => {
     if (loading) return;
