@@ -107,10 +107,11 @@ const COMMERCIAL_DETAIL_KEYS = [
 ] as const;
 
 function RowDetailPanel({ row }: { row: OutboundPoListingsPreviewRow }) {
-  const commercialEntries = COMMERCIAL_DETAIL_KEYS.map((key) => {
+  const commercialEntries = COMMERCIAL_DETAIL_KEYS.flatMap((key) => {
     const value = row.skuReportCells[key];
-    return value ? ([key, value] as const) : null;
-  }).filter((entry): entry is readonly [string, string] => entry != null);
+    if (!value) return [];
+    return [[key, value] as const];
+  });
   const commercialKeys = new Set<string>(COMMERCIAL_DETAIL_KEYS);
   const entries = Object.entries(row.skuReportCells).filter(
     ([key, v]) => v !== "" && !commercialKeys.has(key)
