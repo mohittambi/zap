@@ -3,6 +3,9 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as inboundGrnsService from "@/server/services/inboundGrnsService";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
+
+const AUDIT_TERMINAL = new Set(["CLOSED", "AUDITED", "DONE", "COMPLETED"]);
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
@@ -85,6 +88,21 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
     if (Object.keys(fields).length === 0) {
       throw new AppError("No valid fields to update", 400);
+    }
+
+    const auditVal = String(fields.grn_audit_status ?? "").trim().toUpperCase();
+    if (AUDIT_TERMINAL.has(auditVal) && !user.roles.includes("admin")) {
+      const gid = Number(grnId);
+      if (Number.isFinite(gid) && gid !== 0) {
+        await appendInboundGrnLogSafe({
+          grnId: gid,
+          logType: "AUDIT_DENIED",
+          operationPerformed: "Mark-audited attempt blocked — not an admin",
+          createdBy: user.email,
+          raw: { attempted_value: auditVal, user_roles: user.roles },
+        });
+      }
+      throw new AppError("Admin role required to mark GRN as audited", 403);
     }
 
     const updated = await inboundGrnsService.updateGrnStatus(grnId, fields, user.email);

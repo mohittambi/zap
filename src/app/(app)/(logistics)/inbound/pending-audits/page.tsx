@@ -33,6 +33,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type GrnRow = {
   grn_id: number;
@@ -53,6 +62,7 @@ type GrnRow = {
   po_total_quantity: number;
   created_by: string | null;
   created_at: string | null;
+  grn_audit_price_total?: number | null;
 };
 
 type GrnListResponse = {
@@ -128,12 +138,14 @@ function FilterableHead({
 }
 
 export default function InboundPendingAuditsPage() {
+  const { isAdmin } = useAuth();
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
   const [data, setData] = React.useState<GrnListResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [markingId, setMarkingId] = React.useState<number | null>(null);
+  const [confirmRow, setConfirmRow] = React.useState<GrnRow | null>(null);
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] =
     React.useState(false);
@@ -178,12 +190,18 @@ export default function InboundPendingAuditsPage() {
         body: JSON.stringify({ grn_audit_status: "CLOSED" }),
       });
       toast.success(`GRN ${grnId} marked as Audited`);
+      setConfirmRow(null);
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to mark audited");
     } finally {
       setMarkingId(null);
     }
+  }
+
+  async function confirmMarkAudited() {
+    if (!confirmRow) return;
+    await markAudited(confirmRow.grn_id);
   }
 
   const totalPages =
@@ -254,6 +272,66 @@ export default function InboundPendingAuditsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={confirmRow !== null}
+        onOpenChange={(open) => {
+          if (!open && markingId === null) setConfirmRow(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Audit</DialogTitle>
+            <DialogDescription>
+              Review the GRN details before marking it as audited.
+            </DialogDescription>
+          </DialogHeader>
+          {confirmRow ? (
+            <div className="space-y-3 text-sm">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <dt className="text-muted-foreground text-xs">GRN Id</dt>
+                  <dd className="font-mono font-medium">{confirmRow.grn_id}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground text-xs">Vendor</dt>
+                  <dd className="truncate">{confirmRow.vendor_name ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground text-xs">Vendor invoice #</dt>
+                  <dd>{confirmRow.vendor_invoice_number ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground text-xs">GRN shortage quantity</dt>
+                  <dd className="font-mono">{confirmRow.grn_shortage_quantity}</dd>
+                </div>
+              </dl>
+              <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed dark:border-amber-900/50 dark:bg-amber-950/30">
+                This action is irreversible. GRN lines will be locked. A Debit/Credit
+                Note will be auto-generated if a price discrepancy exists.
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={markingId !== null}
+              onClick={() => setConfirmRow(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={markingId !== null}
+              onClick={() => void confirmMarkAudited()}
+            >
+              {markingId !== null ? "Saving…" : "Confirm & Mark Audited"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card className="border-primary/10 shadow-sm">
         <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-end sm:justify-between">
@@ -345,6 +423,11 @@ export default function InboundPendingAuditsPage() {
                       <TableHead className="text-right whitespace-nowrap">
                         Actual box count recieved
                       </TableHead>
+                      {isAdmin ? (
+                        <TableHead className="text-right whitespace-nowrap">
+                          Audited Price Total
+                        </TableHead>
+                      ) : null}
                       <TableHead className="whitespace-nowrap">
                         GRN audited by
                       </TableHead>
@@ -442,6 +525,14 @@ export default function InboundPendingAuditsPage() {
                         <TableCell className="text-right font-mono text-xs">
                           {row.actual_box_count_recieved}
                         </TableCell>
+                        {isAdmin ? (
+                          <TableCell className="text-right font-mono text-xs">
+                            {row.grn_audit_price_total != null &&
+                            row.grn_audit_price_total > 0
+                              ? row.grn_audit_price_total
+                              : "—"}
+                          </TableCell>
+                        ) : null}
                         <TableCell className="text-muted-foreground max-w-[120px] truncate text-xs">
                           {row.grn_audit_by ?? "—"}
                         </TableCell>
@@ -456,8 +547,15 @@ export default function InboundPendingAuditsPage() {
                             size="sm"
                             variant="outline"
                             className="h-7 whitespace-nowrap px-2 text-xs"
-                            disabled={markingId === row.grn_id || audited}
-                            onClick={() => void markAudited(row.grn_id)}
+                            disabled={
+                              !isAdmin || markingId === row.grn_id || audited
+                            }
+                            title={
+                              !isAdmin
+                                ? "Only admins can mark a GRN as audited"
+                                : undefined
+                            }
+                            onClick={() => setConfirmRow(row)}
                           >
                             {actionLabel}
                           </Button>

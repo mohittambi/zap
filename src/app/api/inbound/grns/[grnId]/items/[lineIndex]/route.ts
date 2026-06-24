@@ -44,7 +44,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     const updated = await inboundGrnsService.updateInboundGrnItemRaw(
       grnId,
       lineIndex,
-      body
+      body,
+      user.email
     );
     const gid = Number(grnId);
     const li = Number(lineIndex);

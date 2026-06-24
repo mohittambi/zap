@@ -104,7 +104,7 @@ Component rendered in GRN detail Summary tab. All actions use `useMutation` + `q
 
 Actions:
 - **Close GRN** — visible when `grn_status === 'OPEN'` → `POST /api/inbound/grns/[grnId]/close`
-- **Mark Audit Complete** — visible when `grn_audit_status !== 'CLOSED'` and `grn_status === 'CLOSED'` → `PATCH /api/inbound/grns/[grnId]` with `{ grn_audit_status: 'CLOSED', grn_audit_by: userEmail }`
+- **Mark Audit Complete** — visible when `grn_audit_status !== 'CLOSED'` and `grn_status === 'CLOSED'` → `PATCH /api/inbound/grns/[grnId]` with `{ grn_audit_status: 'CLOSED', grn_audit_by: userEmail }`. **Web parity gap:** on web, this action requires the **`admin` role**, shows a **Confirm Audit** dialog, and locks GRN lines after audit. Mobile should gate the button to admins and add confirmation before implementing.
 - **Mark Invoice Collected** — visible when `grn_audit_status === 'CLOSED'` and not yet COLLECTED → `PATCH` with `{ grn_invoice_collection_status: 'COLLECTED' }`
 - **Approve Accounts** — gated by accounts permission → `PATCH` with `{ accounts_status: 'APPROVED' }`
 - **Reject Accounts** — gated by accounts permission → `PATCH` with `{ accounts_status: 'REJECTED' }`

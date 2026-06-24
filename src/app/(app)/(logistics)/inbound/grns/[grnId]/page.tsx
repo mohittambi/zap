@@ -64,6 +64,7 @@ import {
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import { formatGrnLabel } from "@/lib/idDisplay";
+import { useAuth } from "@/contexts/auth-context";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -335,6 +336,11 @@ function formatDisplayDateTime(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso);
   return displayFormatter.format(d);
+}
+
+function isGrnAuditClosed(auditStatus: string | null | undefined): boolean {
+  const up = String(auditStatus ?? "").trim().toUpperCase();
+  return up === "CLOSED" || up === "AUDITED" || up === "DONE" || up === "COMPLETED";
 }
 
 /** Calendar dates only — e.g. "17 Apr 2026" (aligned with CLOSED GRN summary). */
@@ -956,7 +962,10 @@ function parseGrnLineNum(s: string, label: string): number {
   return n;
 }
 
-function buildGrnLinePatchBody(d: CloseGrnLineDraft): Record<string, unknown> {
+function buildGrnLinePatchBody(
+  d: CloseGrnLineDraft,
+  opts?: { includeAuditPrice?: boolean }
+): Record<string, unknown> {
   const inv = parseGrnLineNum(d.inv, "Quantity in Invoice");
   const acc = parseGrnLineNum(d.acc, "Accepted Quantity");
   const rej = parseGrnLineNum(d.rej, "Rejected Quantity");
@@ -967,21 +976,24 @@ function buildGrnLinePatchBody(d: CloseGrnLineDraft): Record<string, unknown> {
     rejected_quantity: rej,
     shortage_quantity: short,
   });
-  let auditPayload: number | null;
-  if (d.audit.trim() === "") {
-    auditPayload = null;
-  } else {
-    auditPayload = parseGrnLineNum(d.audit, "Audited Price (excl. Taxes)");
-  }
-  return {
+  const body: Record<string, unknown> = {
     invoice_quantity: inv,
     accepted_quantity: acc,
     rejected_quantity: rej,
     shortage_quantity: short,
     received_price: parseGrnLineNum(d.price, "Product Price (excl. Taxes)"),
     tax_rate: parseGrnLineNum(d.tax, "Tax Rate"),
-    audit_price: auditPayload,
   };
+  if (opts?.includeAuditPrice !== false) {
+    let auditPayload: number | null;
+    if (d.audit.trim() === "") {
+      auditPayload = null;
+    } else {
+      auditPayload = parseGrnLineNum(d.audit, "Audited Price (excl. Taxes)");
+    }
+    body.audit_price = auditPayload;
+  }
+  return body;
 }
 
 function closeModalDraftDiffers(line: LineRow, d: CloseGrnLineDraft): boolean {
@@ -1114,6 +1126,7 @@ function GrnSkuDetailSheet(props: {
   onSelectLine: (line: LineRow) => void;
   grnTitle: string;
   onLineUpdated: (line: { line_index: number; sku_id: string | null; raw: JsonRecord }) => void;
+  isAuditClosed: boolean;
 }) {
   const {
     open,
@@ -1125,6 +1138,7 @@ function GrnSkuDetailSheet(props: {
     onSelectLine,
     grnTitle,
     onLineUpdated,
+    isAuditClosed,
   } = props;
 
   const sku =
@@ -1226,6 +1240,10 @@ function GrnSkuDetailSheet(props: {
 
   async function saveGrnLineInput() {
     if (!selectedLine || !grnId.trim()) return;
+    if (isAuditClosed) {
+      toast.error("GRN has been audited. Lines are locked.");
+      return;
+    }
     const parseNum = (s: string, label: string) => {
       const t = s.trim();
       if (t === "") {
@@ -1608,7 +1626,7 @@ function GrnSkuDetailSheet(props: {
                         label="Quantity in Invoice"
                         value={draftInv}
                         onChange={setDraftInv}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         inputClassName="text-violet-700 dark:text-violet-300"
                         inputMode="decimal"
                       />
@@ -1616,7 +1634,7 @@ function GrnSkuDetailSheet(props: {
                         label="Accepted Quantity"
                         value={draftAcc}
                         onChange={setDraftAcc}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         inputClassName="text-emerald-700 dark:text-emerald-400"
                         inputMode="decimal"
                       />
@@ -1624,7 +1642,7 @@ function GrnSkuDetailSheet(props: {
                         label="Rejected Quantity"
                         value={draftRej}
                         onChange={setDraftRej}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         inputClassName="text-red-600"
                         inputMode="decimal"
                       />
@@ -1632,7 +1650,7 @@ function GrnSkuDetailSheet(props: {
                         label="Short Quantity"
                         value={draftShort}
                         onChange={setDraftShort}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         className="border-blue-300/80"
                         inputClassName="text-blue-700 dark:text-blue-300"
                         inputMode="decimal"
@@ -1641,21 +1659,21 @@ function GrnSkuDetailSheet(props: {
                         label="Product Price (excl. Taxes)"
                         value={draftPrice}
                         onChange={setDraftPrice}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         inputMode="decimal"
                       />
                       <GrnInputEditableBox
                         label="Tax Rate"
                         value={draftTax}
                         onChange={setDraftTax}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         inputMode="decimal"
                       />
                       <GrnInputEditableBox
                         label="Audited Price (excl. Taxes)"
                         value={draftAudit}
                         onChange={setDraftAudit}
-                        disabled={savingGrnInput}
+                        disabled={savingGrnInput || isAuditClosed}
                         className="border-amber-300/70 bg-amber-50 dark:bg-amber-950/30"
                         inputClassName="text-amber-950 dark:text-amber-100"
                         inputMode="decimal"
@@ -1665,7 +1683,10 @@ function GrnSkuDetailSheet(props: {
                       <Button
                         type="button"
                         size="sm"
-                        disabled={savingGrnInput || !grnInputDirty}
+                        disabled={savingGrnInput || !grnInputDirty || isAuditClosed}
+                        title={
+                          isAuditClosed ? "GRN is audited — lines are locked" : undefined
+                        }
                         onClick={() => void saveGrnLineInput()}
                       >
                         {savingGrnInput ? "Saving…" : "Save line"}
@@ -1685,6 +1706,7 @@ function GrnSkuDetailSheet(props: {
 export default function InboundGrnDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { isAdmin } = useAuth();
   const grnId = typeof params.grnId === "string" ? params.grnId : "";
   const [bundle, setBundle] = React.useState<GrnDetailsBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -1829,6 +1851,7 @@ export default function InboundGrnDetailPage() {
 
   const row = bundle?.header ?? null;
   const snap = bundle?.snapshot ?? null;
+  const isAuditClosed = isGrnAuditClosed(row?.grn_audit_status);
 
   const [grnSkuSheetOpen, setGrnSkuSheetOpen] = React.useState(false);
   const [grnSkuSelectedLine, setGrnSkuSelectedLine] =
@@ -2149,7 +2172,7 @@ export default function InboundGrnDetailPage() {
       for (const line of bundle.grn_items) {
         const d = closeGrnDrafts[line.line_index];
         if (!d || !closeModalDraftDiffers(line, d)) continue;
-        const payload = buildGrnLinePatchBody(d);
+        const payload = buildGrnLinePatchBody(d, { includeAuditPrice: isAdmin });
         const res = await apiFetch<{
           line_index: number;
           sku_id: string | null;
@@ -3136,6 +3159,7 @@ export default function InboundGrnDetailPage() {
             selectedLine={grnSkuSelectedLine}
             onSelectLine={setGrnSkuSelectedLine}
             grnTitle={`GRN #${row.grn_id}`}
+            isAuditClosed={isAuditClosed}
             onLineUpdated={async () => {
               /** After a line save, close the sidebar and re-fetch the whole
                * bundle so derived totals (accepted/rejected/shortage on the
@@ -3315,14 +3339,16 @@ export default function InboundGrnDetailPage() {
                             <TableHead>Current Entry By</TableHead>
                             <TableHead className="text-right">Damage Images Count</TableHead>
                             <TableHead>Created At</TableHead>
-                            <TableHead
-                              className={cn(
-                                "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
-                                "font-medium text-emerald-950 dark:text-emerald-100"
-                              )}
-                            >
-                              Audit Price (excl. GST)
-                            </TableHead>
+                            {isAdmin ? (
+                              <TableHead
+                                className={cn(
+                                  "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
+                                  "font-medium text-emerald-950 dark:text-emerald-100"
+                                )}
+                              >
+                                Audit Price (excl. GST)
+                              </TableHead>
+                            ) : null}
                             <TableHead>Audited By</TableHead>
                             <TableHead>Last Audited At</TableHead>
                           </TableRow>
@@ -3478,23 +3504,25 @@ export default function InboundGrnDetailPage() {
                                     pickLine(line.raw, GRN_ITEM_KEYS.lineCreatedAt)
                                   )}
                                 </TableCell>
-                                <TableCell
-                                  className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Input
-                                    className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
-                                    value={d.audit}
-                                    disabled={closeGrnBusy}
-                                    onChange={(e) =>
-                                      setCloseGrnDrafts((prev) => ({
-                                        ...prev,
-                                        [line.line_index]: { ...d, audit: e.target.value },
-                                      }))
-                                    }
+                                {isAdmin ? (
+                                  <TableCell
+                                    className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
                                     onClick={(e) => e.stopPropagation()}
-                                  />
-                                </TableCell>
+                                  >
+                                    <Input
+                                      className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
+                                      value={d.audit}
+                                      disabled={closeGrnBusy}
+                                      onChange={(e) =>
+                                        setCloseGrnDrafts((prev) => ({
+                                          ...prev,
+                                          [line.line_index]: { ...d, audit: e.target.value },
+                                        }))
+                                      }
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  </TableCell>
+                                ) : null}
                                 <TableCell className="text-xs">
                                   {pickLine(line.raw, GRN_ITEM_KEYS.auditedBy)}
                                 </TableCell>

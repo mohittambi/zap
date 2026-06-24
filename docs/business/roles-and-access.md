@@ -39,6 +39,18 @@ In Zap, roles work the same way.
 - Assign and change roles
 - Access all system settings and audit logs
 - Trigger data syncs with eAutomate
+- **Mark inbound GRNs as audited** (close the pending-audit workflow) — only administrators can complete this step
+
+### Inbound audit controls
+
+Completing the **Pending Audit** step (marking a GRN as audited) is restricted to users with the **Administrator** role:
+
+- The web UI shows a **Confirm Audit** dialog before the action is sent to the server.
+- Non-administrators see a disabled **Mark Audited** button; direct API attempts return an error and are logged.
+- After audit is complete, GRN receipt line data is **locked** and cannot be edited.
+- Price discrepancies can trigger automatic debit-note generation; all audit actions are recorded in the GRN activity log.
+
+Other roles (warehouse, finance, operations) may still enter quantities and upload invoices while a GRN is open, but **cannot bypass audit approval**.
 
 ---
 
@@ -70,6 +82,7 @@ In Zap, roles work the same way.
 - Edit product listings or pricing
 - Acknowledge or cancel channel orders
 - Access financial notes or settlement records
+- Mark GRNs as audited (admin-only)
 
 ---
 
@@ -85,6 +98,7 @@ In Zap, roles work the same way.
 - Edit product listings
 - Acknowledge or cancel orders
 - Generate labels
+- Mark GRNs as audited (admin-only)
 
 ---
 

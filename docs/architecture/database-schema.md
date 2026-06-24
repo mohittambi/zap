@@ -490,7 +490,7 @@ Rebuilt on each respective sync (truncate + insert).
 |--------|------|--------|
 | `grn_id`, `log_id` | BIGINT | PK |
 | `line_index` | INT | NOT NULL |
-| `log_type` | VARCHAR(80) | |
+| `log_type` | VARCHAR(80) | Application-defined; includes audit controls: `AUDIT`, `AUDIT_DENIED`, `AUDIT_LOCKED`, plus `STATUS`, `LINE`, `DEBIT_NOTE`, `GRN` |
 | `operation_performed` | TEXT | |
 | `po_id`, `vendor_id`, `foreign_key` | BIGINT | |
 | `sku_id` | VARCHAR(100) | |

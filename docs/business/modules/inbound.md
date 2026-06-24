@@ -78,6 +78,11 @@ Step 7: Records closed in Zap
 - Enter received quantities SKU by SKU
 - Flag damaged, missing, or excess items
 
+### Audit controls
+- Completing the audit (marking a GRN as audited) is an **administrator-only** action with a confirmation step in the web UI
+- After audit, receipt line data is **locked** and cannot be changed
+- If audited prices differ from vendor prices, the system can **automatically generate** a rate-diff debit note
+
 ### Upload documents
 - Attach vendor invoices directly to a GRN
 - Upload signed delivery challans or any other paperwork
@@ -112,6 +117,7 @@ Step 7: Records closed in Zap
 |------|-------------|
 | **Procurement** | Creates POs (or they are synced in from eAutomate) |
 | **Warehouse team** | Physically receives goods and raises GRNs |
+| **Audit (administrators)** | Verify invoices, enter audited prices, mark GRNs as audited |
 | **Finance** | Reviews invoices, raises debit/credit notes, settles accounts |
 | **Operations managers** | Monitor overall inbound flow, queue management |
 

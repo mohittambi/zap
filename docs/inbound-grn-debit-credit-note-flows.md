@@ -4,11 +4,11 @@
 
 ## 1 — GRN Lifecycle (operator order)
 
-Typical Zap sequence: **receive and edit lines while `OPEN` → attach vendor invoice → close GRN** (invoice required). **Pending Audit** surfaces GRNs from the Zap-maintained **`inbound_grn_pending_audit`** queue; the audit team verifies invoice alignment and enters **`audit_price`** on GRN lines. **Rate-diff Zap debit notes** are raised when discrepancies exist—see §2 for auto-on-close behaviour.
+Typical Zap sequence: **receive and edit lines while `OPEN` → attach vendor invoice → close GRN** (invoice required). **Pending Audit** surfaces GRNs from the Zap-maintained **`inbound_grn_pending_audit`** queue; an **admin** verifies invoice alignment and enters **`audit_price`** on GRN lines (admin-only in Close GRN modal and Pending Audits list). **Rate-diff Zap debit notes** are raised when discrepancies exist—see §2 for auto-generation on **GRN close** and **audit close**.
 
 ### Summary flow (stakeholder milestones)
 
-Vendor selection → Item selection → **PO creation** → **GRN open** → **Receipt / quantity (and vendor price while OPEN)** → **Operational debit–credit handling** (when there is shortage, damage, or vendor-led adjustment—the **§3 GRN-linked** debit/credit records in Zap) → **GRN closed** → **Vendor invoice uploaded** (*see Zap ordering note*) → **Audit** (pending audit queue; **`audit_price`** on lines) → **Zap rate-diff debit note** (when **`received_price` > `audit_price`** — typically created on **`POST …/close`**, §2) → **Accounts** (approve/reject workflow) → **Physical invoice marked collected** (§1 Accounts — physical invoice) → **Assigned DN number** (when an **§2 Zap** DN exists — §2 “Accounts Team — Zap DN”) → **Invoice + DN Excel** (`GET …/invoice-export`) **Download**.
+Vendor selection → Item selection → **PO creation** → **GRN open** → **Receipt / quantity (and vendor price while OPEN)** → **Operational debit–credit handling** (when there is shortage, damage, or vendor-led adjustment—the **§3 GRN-linked** debit/credit records in Zap) → **GRN closed** → **Vendor invoice uploaded** (*see Zap ordering note*) → **Audit** (pending audit queue; admin marks audited with confirmation; **`audit_price`** on lines) → **Zap rate-diff debit note** (when **`received_price` > `audit_price`** — auto on **`POST …/close`** or when admin **`PATCH`es audit closed**, §2) → **Accounts** (approve/reject workflow) → **Physical invoice marked collected** (§1 Accounts — physical invoice) → **Assigned DN number** (when an **§2 Zap** DN exists — §2 “Accounts Team — Zap DN”) → **Invoice + DN Excel** (`GET …/invoice-export`) **Download**.
 
 **Zap ordering:** In product, **`POST …/close` requires vendor invoice PDF already on file**; if your narrative lists *close → upload invoice*, reorder operations so **invoice upload precedes GRN close** in Zap.
 
@@ -37,7 +37,7 @@ flowchart TD
 
     AUDIT_TEAM --> RATE_DN{Zap_vendor_price_above_audit_price}
 
-    RATE_DN -->|At_close_or_POST_debit_note| DN_ZAP["Zap_DN_lifecycle"]
+    RATE_DN -->|At_close_audit_close_or_POST_debit_note| DN_ZAP["Zap_DN_lifecycle"]
     RATE_DN -->|No_delta| SKIP_DN[No_Zap_DN]
 
     DN_ZAP --> INV_COLL["Invoice_collection_physical_copy"]
@@ -50,9 +50,24 @@ flowchart TD
 
 ### Invoice Audit Team
 
-1. **Where they work:** The **Pending Audit** hub at route `/inbound/pending-audits` lists GRNs joined from **`inbound_grn_pending_audit`** with filters in `listPendingAuditGrnsPaginated` ([`inboundGrnsService.ts`](../../src/server/services/inboundGrnsService.ts)). That queue row set is Zap data (see service comments for lifecycle).
-2. **What they verify:** Invoice vs receipt; **audit price** (`audit_price` and related keys on each GRN line `raw`) is captured via `PATCH …/items/{lineIndex}` on inbound GRNs ([`updateInboundGrnItemRaw`](../../src/server/services/inboundGrnsService.ts)).
-3. **Rate discrepancy DN:** Zap compares **received (vendor) price** vs **audit price** when building lines for `inbound_zap_debit_notes` ([`generateDebitNote`](../../src/server/services/grnDebitNoteService.ts)). This is distinct from receipt-issue debit/credit records in §3.
+1. **Where they work:** The **Pending Audit** hub at route `/inbound/pending-audits` lists GRNs joined from **`inbound_grn_pending_audit`** with filters in `listPendingAuditGrnsPaginated` ([`inboundGrnsService.ts`](../../src/server/services/inboundGrnsService.ts)). That queue row set is Zap data (see service comments for lifecycle). Admins see an **Audited Price Total** column (`grn_audit_price_total` from line `audit_price` sums).
+2. **What they verify:** Invoice vs receipt; **audit price** (`audit_price` and related keys on each GRN line `raw`) is captured via `PATCH …/items/{lineIndex}` while the GRN is not yet audit-closed. **Audited Price** inputs are **admin-only** in the Close GRN modal and Pending Audits context.
+3. **Mark audited:** Only **`admin`** role users can set terminal `grn_audit_status` (web UI: **Confirm Audit** dialog before PATCH). Non-admins receive **403**; the attempt is logged as `AUDIT_DENIED`.
+4. **After audit:** GRN line edits are blocked (`updateInboundGrnItemRaw` → **409**, log `AUDIT_LOCKED`); GRN INPUT UI is read-only.
+5. **Rate discrepancy DN:** Zap compares **received (vendor) price** vs **audit price** when building lines for `inbound_zap_debit_notes` ([`generateDebitNote`](../../src/server/services/grnDebitNoteService.ts)). Auto-generation runs on **`POST …/close`** and when admin marks audit closed via **`PATCH …/grn_audit_status`**. This is distinct from receipt-issue debit/credit records in §3.
+
+### Activity log (audit controls)
+
+Audit-related entries in `inbound_grn_logs` (visible on the GRN **Activity** tab):
+
+| `log_type` | When |
+|---|---|
+| `AUDIT` | Admin successfully marks GRN audited |
+| `AUDIT_DENIED` | Non-admin attempted to set terminal `grn_audit_status` |
+| `AUDIT_LOCKED` | Line edit blocked because audit is already closed |
+| `STATUS` | Any workflow status PATCH (includes audit fields) |
+| `LINE` | Line quantities/prices saved |
+| `DEBIT_NOTE` | Rate-diff debit note generated or updated |
 
 ### Accounts Team — Physical invoice copy
 
@@ -66,7 +81,11 @@ Business wording **Pending Physical Copy Receiving** maps to Zap’s **Pending I
 
 ## 2 — Zap Debit Note (Rate Discrepancy)
 
-**Creation:** Zap writes a row to `inbound_zap_debit_notes` **automatically immediately after a successful `POST …/close`** when at least one line has positive accepted quantity and `received_price > audit_price` (same eligibility as explicit generation, with `force_regenerate: false` on the automatic path). No discrepancy → close still succeeds with no DN. If a **terminal** Zap note already exists (`ISSUED` / `CLOSED`), auto-generation is skipped without failing close (HTTP **409** from `generateDebitNote` is swallowed). Operators may also call **`POST /api/inbound/grns/[grnId]/debit-note`** to generate or regenerate subject to status and optional `force_regenerate`.
+**Creation:** Zap writes a row to `inbound_zap_debit_notes` **automatically** (best-effort, `force_regenerate: false`) after:
+- a successful **`POST …/close`**, or
+- a successful admin **`PATCH …/grn_audit_status`** to a terminal value (`CLOSED` / `AUDITED` / `DONE` / `COMPLETED`),
+
+when at least one line has positive accepted quantity and `received_price > audit_price` (same eligibility as explicit generation). No discrepancy → the triggering action still succeeds with no DN. If a **terminal** Zap note already exists (`ISSUED` / `CLOSED`), auto-generation is skipped without failing the close/audit path (HTTP **409** from `generateDebitNote` is swallowed). Operators may also call **`POST /api/inbound/grns/[grnId]/debit-note`** to generate or regenerate subject to status and optional `force_regenerate`.
 
 Lives in `inbound_zap_debit_notes`.
 
@@ -88,7 +107,7 @@ stateDiagram-v2
 
 | Status | Trigger |
 |--------|---------|
-| `DRAFT` | Auto-created on **`POST …/close`** when rate discrepancy lines exist; or via **`POST …/debit-note`**; reference pattern `DN-GRN-{id}-{YYYYMMDD}` |
+| `DRAFT` | Auto-created on **`POST …/close`** or **audit close PATCH** when rate discrepancy lines exist; or via **`POST …/debit-note`**; reference pattern `DN-GRN-{id}-{YYYYMMDD}` |
 | `ISSUED` | Accounts team assigns a real DN number in the Zap UI |
 | `EXPORTED` | Tally CSV downloaded via debit-note/export |
 | `CLOSED` | Vendor CN copy uploaded via cn-copy endpoint |
@@ -97,7 +116,7 @@ stateDiagram-v2
 
 This is the **rate-discrepancy** Zap debit note only—not the shortage/damage GRN-linked records in §3.
 
-1. **When it applies:** A row exists in `inbound_zap_debit_notes` when there is a positive price delta (`received_price > audit_price`) on accepted quantity—typically after **`POST …/close`** (auto) or **`POST …/debit-note`** (explicit). If **no** Zap note exists, Accounts has no Zap DN number to assign; the invoice Excel export still works but omits DN summary lines and the **Debit Note** worksheet.
+1. **When it applies:** A row exists in `inbound_zap_debit_notes` when there is a positive price delta (`received_price > audit_price`) on accepted quantity—typically after **`POST …/close`** or **audit close PATCH** (auto) or **`POST …/debit-note`** (explicit). If **no** Zap note exists, Accounts has no Zap DN number to assign; the invoice Excel export still works but omits DN summary lines and the **Debit Note** worksheet.
 
 2. **Assign DN number:** Accounts sets the real vendor/register **DN number** with **`PATCH /api/inbound/grns/[grnId]/debit-note`** and JSON body `{ "dn_number": "<assigned number>" }`, which calls [`assignDnNumber`](../../src/server/services/grnDebitNoteService.ts) and moves **`DRAFT` / `EXPORTED`** → **`ISSUED`**.
 
@@ -169,6 +188,6 @@ Note?}
 | | Zap rate-diff debit note (§2) | GRN-linked debit/credit records (§3) |
 |---|---|---|
 | **Source** | Created in Zap from rate audit deltas | Persisted on the GRN in Zap |
-| **Trigger** | **`received_price` > `audit_price`** after audit-aware close / generate | Receipt issues, vendor shortage/damage/overpayment workflows |
+| **Trigger** | **`received_price` > `audit_price`** after GRN close, audit close, or explicit generate | Receipt issues, vendor shortage/damage/overpayment workflows |
 | **Table** | `inbound_zap_debit_notes` | `inbound_grn_debit_credit_notes` |
 | **Lifecycle** | DRAFT → ISSUED → EXPORTED → CLOSED | Assignment / upload / reversal per fields on §3 diagram |
