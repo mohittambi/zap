@@ -18,10 +18,19 @@ import {
   INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN,
   INBOUND_JOURNEY_GRN_WITH_DRAFT_ZAP_DN,
   INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS,
+  INBOUND_JOURNEY_VENDOR_ID,
+  INBOUND_JOURNEY_ZAP_REPORT_GRN_ID,
+  INBOUND_JOURNEY_ZAP_REPORT_PO_ID,
 } from "../fixtures/inbound_journey_constants.mjs";
 
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
 let token = "";
+
+async function jsonOrNull(response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return null;
+  return response.json().catch(() => null);
+}
 
 async function getToken() {
   const r = await fetch(`${BASE}/api/auth/login`, {
@@ -33,7 +42,7 @@ async function getToken() {
     }),
   });
   if (r.status !== 200) return "";
-  return (await r.json()).token ?? "";
+  return (await jsonOrNull(r))?.token ?? "";
 }
 
 async function loginAs(email, password) {
@@ -43,7 +52,7 @@ async function loginAs(email, password) {
     body: JSON.stringify({ email, password }),
   });
   if (r.status !== 200) return "";
-  return (await r.json()).token ?? "";
+  return (await jsonOrNull(r))?.token ?? "";
 }
 
 async function apiWithToken(authToken, path, opts = {}) {
@@ -68,13 +77,10 @@ async function api(path, opts = {}) {
 
 async function fixturesPresent() {
   if (!token) return false;
-  const r = await api(
-    `/api/inbound/pending-audits/grns?search_keyword=${INBOUND_JOURNEY_GRN_PENDING_AUDIT}&page=1&count=20`
-  );
+  const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`);
   if (r.status !== 200) return false;
-  const j = await r.json();
-  const rows = j.content ?? [];
-  return rows.some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT);
+  const row = await r.json();
+  return row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT;
 }
 
 function skip(msg) {
@@ -207,12 +213,74 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     return true;
   }
 
+  it("GRN listing search includes fixture GRN", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`
+    );
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.ok(
+      (j.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT),
+      "searched GRN should appear in /api/inbound/grns"
+    );
+  });
+
+  it("GRN listing vendor filter includes vendor fixture rows", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/grns?page=1&count=100&vendor_id=${INBOUND_JOURNEY_VENDOR_ID}`
+    );
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    const rows = j.content || [];
+    assert.ok(rows.length > 0, "fixture vendor should have GRN rows");
+    assert.ok(
+      rows.every((row) => row.vendor_id === INBOUND_JOURNEY_VENDOR_ID),
+      "vendor filter should not leak other vendors"
+    );
+  });
+
+  it("PO GRN report CSV includes Zap-source canonical GRN and line item", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/vendors/${INBOUND_JOURNEY_VENDOR_ID}/purchase-orders/${INBOUND_JOURNEY_ZAP_REPORT_PO_ID}/grn-report`
+    );
+    assert.strictEqual(r.status, 200);
+    const csv = await r.text();
+    const lines = csv.trim().split("\n");
+    assert.ok(lines.length >= 2, "CSV should include at least one data row");
+    assert.ok(lines[0].includes("source"), "CSV header should expose source");
+    assert.ok(lines[0].includes("sku_id"), "CSV header should expose line item columns");
+    assert.ok(csv.includes(String(INBOUND_JOURNEY_ZAP_REPORT_GRN_ID)));
+    assert.ok(csv.includes("zap"));
+    assert.ok(csv.includes("FIXTURE_SKU_ZAP_REPORT"));
+    assert.ok(csv.includes(",25"), "CSV should include received-audit price diff");
+  });
+
   it("pending-audits list includes fixture GRN", async () => {
     if (!(await requireFixture())) return;
     const r = await api(`/api/inbound/pending-audits/grns?page=1&count=50`);
     assert.strictEqual(r.status, 200);
     const j = await r.json();
     assert.ok((j.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT));
+  });
+
+  it("pending-audits rows include grn_audit_price_total", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/pending-audits/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`
+    );
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    const row = (j.content || []).find(
+      (item) => item.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT
+    );
+    if (!row) {
+      skip("fixture GRN not in pending-audits queue, likely consumed by a prior test");
+      return;
+    }
+    assert.strictEqual(row.grn_audit_price_total, 100);
   });
 
   it("pending-invoice-collection list includes fixture GRN", async () => {
@@ -470,6 +538,19 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     assert.strictEqual(r.status, 200);
   });
 
+  it("approved accounts GRN leaves pending-accounts queue", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/pending-accounts/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS}`
+    );
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.ok(
+      !(j.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS),
+      "APPROVED GRN should leave pending-accounts queue"
+    );
+  });
+
   it("POST close returns 400 when GRN has no invoice files", async () => {
     if (!(await requireFixture())) return;
     const probe = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_NO_INVOICE_OPEN}`);
@@ -492,6 +573,33 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     );
   });
 
+  it("PATCH grn audit_status CLOSED rejected for non-admin and logs denial", async () => {
+    if (!(await requireFixture())) return;
+    const warehouseToken = await loginAs("warehouse@example.com", "warehouse123");
+    if (!warehouseToken) return skip("warehouse user login failed — run npm run seed");
+    const r = await apiWithToken(
+      warehouseToken,
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grn_audit_status: "CLOSED" }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 403);
+
+    const detailsR = await api(
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}/details`
+    );
+    assert.strictEqual(detailsR.status, 200);
+    const bundle = await detailsR.json();
+    assert.ok(
+      (bundle.grn_logs || []).some((log) => log.log_type === "AUDIT_DENIED"),
+      "AUDIT_DENIED log should be visible in GRN details after blocked audit"
+    );
+  });
+
   it("PATCH grn audit_status CLOSED succeeds on fixture GRN", async () => {
     if (!(await requireFixture())) return;
     const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`, {
@@ -503,6 +611,70 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     assert.strictEqual(r.status, 200);
   });
 
+  it("audited GRN leaves pending-audits and enters pending-invoice", async () => {
+    if (!(await requireFixture())) return;
+    const auditR = await api(
+      `/api/inbound/pending-audits/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`
+    );
+    assert.strictEqual(auditR.status, 200);
+    const auditList = await auditR.json();
+    assert.ok(
+      !(auditList.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT),
+      "audited GRN should leave pending-audits queue"
+    );
+
+    const invoiceR = await api(
+      `/api/inbound/pending-invoice-collection/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`
+    );
+    assert.strictEqual(invoiceR.status, 200);
+    const invoiceList = await invoiceR.json();
+    assert.ok(
+      (invoiceList.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_AUDIT),
+      "audited GRN should enter pending-invoice queue"
+    );
+  });
+
+  it("PATCH line item returns 409 after audit is closed and logs lock", async () => {
+    if (!(await requireFixture())) return;
+    const probe = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}`);
+    assert.strictEqual(probe.status, 200);
+    const header = await probe.json();
+    if (!["CLOSED", "AUDITED", "DONE", "COMPLETED"].includes(
+      String(header.grn_audit_status ?? "").toUpperCase()
+    )) {
+      skip("fixture audit is not closed yet — audit-close test may have been skipped");
+      return;
+    }
+
+    const r = await api(
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}/items/0`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice_quantity: 10,
+          accepted_quantity: 9,
+          rejected_quantity: 1,
+          shortage_quantity: 0,
+          received_price: 100,
+          tax_rate: 0,
+        }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 409);
+
+    const detailsR = await api(
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_AUDIT}/details`
+    );
+    assert.strictEqual(detailsR.status, 200);
+    const bundle = await detailsR.json();
+    assert.ok(
+      (bundle.grn_logs || []).some((log) => log.log_type === "AUDIT_LOCKED"),
+      "AUDIT_LOCKED log should be visible after blocked post-audit line edit"
+    );
+  });
+
   it("PATCH grn invoice_collection_status COLLECTED succeeds on fixture GRN", async () => {
     if (!(await requireFixture())) return;
     const r = await api(`/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_INVOICE}`, {
@@ -512,6 +684,29 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     });
     if (r.status === 503) return skip("server unreachable");
     assert.strictEqual(r.status, 200);
+  });
+
+  it("collected invoice GRN leaves pending-invoice and enters pending-accounts", async () => {
+    if (!(await requireFixture())) return;
+    const invoiceR = await api(
+      `/api/inbound/pending-invoice-collection/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_INVOICE}`
+    );
+    assert.strictEqual(invoiceR.status, 200);
+    const invoiceList = await invoiceR.json();
+    assert.ok(
+      !(invoiceList.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_INVOICE),
+      "COLLECTED GRN should leave pending-invoice queue"
+    );
+
+    const accountsR = await api(
+      `/api/inbound/pending-accounts/grns?page=1&count=50&search_keyword=${INBOUND_JOURNEY_GRN_PENDING_INVOICE}`
+    );
+    assert.strictEqual(accountsR.status, 200);
+    const accountsList = await accountsR.json();
+    assert.ok(
+      (accountsList.content || []).some((row) => row.grn_id === INBOUND_JOURNEY_GRN_PENDING_INVOICE),
+      "COLLECTED GRN should enter pending-accounts queue"
+    );
   });
 
   it("PATCH debit-note dn_number assignment succeeds on fixture DRAFT note (re-seed to repeat)", async () => {

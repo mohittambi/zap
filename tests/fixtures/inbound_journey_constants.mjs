@@ -28,3 +28,7 @@ export const INBOUND_JOURNEY_ZAP_DN_DRAFT_ID = 988877601;
 
 /** CLOSED fixture with APPROVED accounts_status — used for inventory receipt success test. */
 export const INBOUND_JOURNEY_GRN_APPROVED_ACCOUNTS = 988877115;
+
+/** Zap-source PO/GRN used to pin canonical GRN listing + report CSV behavior. */
+export const INBOUND_JOURNEY_ZAP_REPORT_PO_ID = 988877920;
+export const INBOUND_JOURNEY_ZAP_REPORT_GRN_ID = 988877120;

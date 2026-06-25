@@ -8,6 +8,7 @@
 -- GRN 988877113 is OPEN with zero invoice files: POST /close must return 400 (non-destructive).
 -- GRN 988877114 is CLOSED with a seeded DRAFT Zap DN (988877601) — re-seed after successful DN assignment test.
 -- GRN 988877115 is CLOSED with APPROVED accounts_status for inventory receipt success test.
+-- GRN 988877120 is a Zap-source GRN on PO 988877920 for canonical listing/report CSV tests.
 
 BEGIN;
 
@@ -26,49 +27,60 @@ DELETE FROM inbound_grn_debit_credit_notes
 DELETE FROM inbound_pending_debit_credit_notes
   WHERE note_id = 988877501 OR grn_id IN (-988877301, 988877301, 988877104);
 
+DELETE FROM inbound_grn_logs
+  WHERE grn_id IN (
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
+  );
+
 DELETE FROM inbound_grn_items
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_invoice_files
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_detail_snapshot
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_audit
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_invoice_collection
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_grn_pending_accounts_approval
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_po_detail_grns
-  WHERE po_id = 988877900 OR grn_id IN (-988877301, 988877301);
+  WHERE po_id IN (988877900, 988877920) OR grn_id IN (-988877301, 988877301, 988877120);
 
 DELETE FROM inbound_po_detail_lines
-  WHERE po_id = 988877900;
+  WHERE po_id IN (988877900, 988877920);
 
 DELETE FROM inbound_grns
   WHERE grn_id IN (
-    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, -988877301, 988877301
+    988877101, 988877102, 988877103, 988877104, 988877111, 988877112, 988877113, 988877114, 988877115, 988877120, -988877301, 988877301
   );
 
 DELETE FROM inbound_po_detail_snapshot
-  WHERE po_id = 988877900;
+  WHERE po_id IN (988877900, 988877920);
+
+DELETE FROM vendor_purchase_order_lines
+  WHERE po_id IN (988877900, 988877920);
+
+DELETE FROM vendor_purchase_orders
+  WHERE po_id IN (988877900, 988877920);
 
 DELETE FROM vendors
   WHERE id = 988877001;
@@ -92,6 +104,47 @@ VALUES (
   'fixture',
   NOW(),
   NOW()
+);
+
+INSERT INTO vendor_purchase_orders (
+  po_id,
+  vendor_id,
+  vendor_name,
+  expected_date,
+  created_by,
+  modified_by,
+  created_at,
+  updated_at,
+  status,
+  sku_count,
+  total_quantity,
+  number_of_grns,
+  total_invoice_quantity,
+  total_accepted_quantity,
+  total_rejected_quantity,
+  sku_fill_rate,
+  quantity_fill_rate,
+  source
+)
+VALUES (
+  988877920,
+  988877001,
+  'Inbound Journey Test Vendor',
+  CURRENT_DATE + INTERVAL '7 days',
+  'fixture',
+  'fixture',
+  NOW(),
+  NOW(),
+  'OPEN',
+  1,
+  12,
+  1,
+  12,
+  10,
+  1,
+  100,
+  83.33,
+  'zap'
 );
 
 INSERT INTO inbound_grns (
@@ -862,6 +915,75 @@ VALUES (
     'shortage_quantity', 0,
     'received_price', 80,
     'audit_price', 80,
+    'tax_rate', 0
+  )
+);
+
+-- Zap-source PO/GRN fixture for canonical GRN listing and report CSV coverage.
+
+INSERT INTO inbound_grns (
+  grn_id,
+  po_id,
+  vendor_id,
+  vendor_name,
+  grn_status,
+  grn_audit_status,
+  grn_audit_by,
+  grn_invoice_collection_status,
+  grn_invoice_collection_by,
+  vendor_invoice_number,
+  box_count_invoice,
+  actual_box_count_received,
+  grn_sku_count,
+  grn_invoice_quantity,
+  grn_accepted_quantity,
+  grn_rejected_quantity,
+  grn_shortage_quantity,
+  po_sku_count,
+  po_total_quantity,
+  accounts_status,
+  accounts_by,
+  source,
+  created_by
+)
+VALUES (
+  988877120,
+  988877920,
+  988877001,
+  'Inbound Journey Test Vendor',
+  'CLOSED',
+  'OPEN',
+  NULL,
+  NULL,
+  NULL,
+  'ZAP-REPORT-INV',
+  2,
+  2,
+  1,
+  12,
+  10,
+  1,
+  1,
+  1,
+  12,
+  NULL,
+  NULL,
+  'zap',
+  'fixture'
+);
+
+INSERT INTO inbound_grn_items (grn_id, line_index, sku_id, raw)
+VALUES (
+  988877120,
+  0,
+  'FIXTURE_SKU_ZAP_REPORT',
+  jsonb_build_object(
+    'invoice_quantity', 12,
+    'accepted_quantity', 10,
+    'rejected_quantity', 1,
+    'shortage_quantity', 1,
+    'received_price', 125,
+    'audit_price', 100,
     'tax_rate', 0
   )
 );
