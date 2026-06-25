@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CircleHelp, ListFilter } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,6 +107,7 @@ function FilterableHead({
 }
 
 export default function InboundPendingAccountsPage() {
+  const { isAdmin } = useAuth();
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -400,26 +402,35 @@ export default function InboundPendingAccountsPage() {
                           {formatDisplayDateTime(row.created_at)}
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 whitespace-nowrap px-2 text-xs text-green-600 hover:text-green-700"
-                              disabled={actingId === row.grn_id || row.accounts_status === "APPROVED"}
-                              onClick={() => void handleAction(row.grn_id, "APPROVED")}
+                          {isAdmin ? (
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 whitespace-nowrap px-2 text-xs text-green-600 hover:text-green-700"
+                                disabled={actingId === row.grn_id || row.accounts_status === "APPROVED"}
+                                onClick={() => void handleAction(row.grn_id, "APPROVED")}
+                              >
+                                {actingId === row.grn_id ? "Saving…" : "Approve"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 whitespace-nowrap px-2 text-xs text-destructive hover:text-destructive"
+                                disabled={actingId === row.grn_id || row.accounts_status === "REJECTED"}
+                                onClick={() => void handleAction(row.grn_id, "REJECTED")}
+                              >
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span
+                              className="text-muted-foreground text-xs"
+                              title="Only admins can approve or reject accounts"
                             >
-                              {actingId === row.grn_id ? "Saving…" : "Approve"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 whitespace-nowrap px-2 text-xs text-destructive hover:text-destructive"
-                              disabled={actingId === row.grn_id || row.accounts_status === "REJECTED"}
-                              onClick={() => void handleAction(row.grn_id, "REJECTED")}
-                            >
-                              Reject
-                            </Button>
-                          </div>
+                              Admin only
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

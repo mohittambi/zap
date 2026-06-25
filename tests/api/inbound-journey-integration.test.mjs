@@ -36,6 +36,26 @@ async function getToken() {
   return (await r.json()).token ?? "";
 }
 
+async function loginAs(email, password) {
+  const r = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (r.status !== 200) return "";
+  return (await r.json()).token ?? "";
+}
+
+async function apiWithToken(authToken, path, opts = {}) {
+  return fetch(`${BASE}${path}`, {
+    ...opts,
+    headers: {
+      ...(opts.headers ?? {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+  });
+}
+
 async function api(path, opts = {}) {
   return fetch(`${BASE}${path}`, {
     ...opts,
@@ -421,6 +441,23 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     assert.strictEqual(r.status, 200);
     const j = await r.json();
     assert.strictEqual(j.credit_debit_note_status, "APPROVED");
+  });
+
+  it("PATCH grn accounts_status rejected for non-admin", async () => {
+    if (!(await requireFixture())) return;
+    const warehouseToken = await loginAs("warehouse@example.com", "warehouse123");
+    if (!warehouseToken) return skip("warehouse user login failed — run npm run seed");
+    const r = await apiWithToken(
+      warehouseToken,
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_ACCOUNTS}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accounts_status: "APPROVED" }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 403);
   });
 
   it("PATCH grn accounts_status succeeds on fixture GRN", async () => {

@@ -19,8 +19,8 @@ This matrix ties the **canonical inbound flow** (see [inbound-grn-debit-credit-n
 | Pending audit queue | Rows awaiting audit close | `GET /api/inbound/pending-audits/grns` | `listPendingAuditGrnsPaginated` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs) (+ fixture) |
 | Audit admin controls | Admin-only mark audited; line lock after audit | `PATCH /api/inbound/grns/[grnId]`, `PATCH …/items/[lineIndex]` | `updateGrnStatus`, `updateInboundGrnItemRaw` | Manual / planned: see scenarios below |
 | Pending invoice collection | Physical invoice receipt | `GET /api/inbound/pending-invoice-collection/grns` | `listPendingInvoiceCollectionGrnsPaginated` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs) (+ fixture) |
-| Pending accounts | Accounts approve / reject | `GET /api/inbound/pending-accounts/grns` | `listPendingAccountsGrnsPaginated` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs) (+ fixture) |
-| Workflow PATCH on GRN | Audit / invoice / accounts fields; terminal `grn_audit_status` requires **admin** | `PATCH /api/inbound/grns/[grnId]` | `updateGrnStatus` (+ `normalizeGrnAuditStatusForPatch`) | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs); [inbound-journey-ui-lib.test.ts](../tests/unit/inbound-journey-ui-lib.test.ts) |
+| Pending accounts | Accounts approve / reject (**admin** only) | `GET /api/inbound/pending-accounts/grns` | `listPendingAccountsGrnsPaginated` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs) (+ fixture) |
+| Workflow PATCH on GRN | Audit / invoice / accounts fields; terminal `grn_audit_status` and `accounts_status` (APPROVED/REJECTED) require **admin** | `PATCH /api/inbound/grns/[grnId]` | `updateGrnStatus` (+ `normalizeGrnAuditStatusForPatch`) | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs); [inbound-journey-ui-lib.test.ts](../tests/unit/inbound-journey-ui-lib.test.ts) |
 | Inventory booking | SKU → bin after APPROVED | `POST …/receive-inventory` | `receiveIntoInventory` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs): body validation / 422 |
 | Invoice Excel | Accounts export after physical copy **COLLECTED** (web button); **includes Zap DN summary + line sheet when a rate-diff note exists**; API has no `COLLECTED` guard | `GET …/invoice-export` | `buildInvoiceExcel` + route | [inbound-grn-flow.test.mjs](../tests/api/inbound-grn-flow.test.mjs) (data-dependent) |
 | List filters / CSV (PO hub) | Inbound PO / pending hubs | Listing pages query strings | — | [inbound-po-grn-pending-ui.test.ts](../tests/unit/inbound-po-grn-pending-ui.test.ts) |
@@ -48,6 +48,15 @@ Successfully calling `POST …/register-operational` **replaces** the draft `grn
 | Admin mark audited | Same PATCH as admin | **200**; `log_type = AUDIT`; row leaves pending-audit queue |
 | Line edit after audit | `PATCH …/items/{lineIndex}` when `grn_audit_status` is terminal | **409**; `log_type = AUDIT_LOCKED` |
 | Web Confirm Audit | Admin clicks Mark Audited on `/inbound/pending-audits` | Confirm Audit dialog shown; PATCH only after confirm |
+
+### Accounts admin control scenarios (manual / planned automation)
+
+| Scenario | Steps | Expected |
+|----------|-------|----------|
+| Non-admin approve accounts | `PATCH /api/inbound/grns/{id}` with `{ accounts_status: "APPROVED" }` as non-admin with `purchase_orders:write` | **403**; `inbound_grn_logs` row with `log_type = ACCOUNTS_DENIED` |
+| Non-admin without write | Same PATCH as warehouse/viewer (no `purchase_orders:write`) | **403** (insufficient permissions) |
+| Admin approve accounts | Same PATCH as admin | **200**; GRN leaves pending-accounts queue |
+| Web Approve/Reject | Admin clicks Approve or Reject on GRN Accounts tab or `/inbound/pending-accounts` | PATCH only when user has **admin** role |
 
 ## Related docs
 

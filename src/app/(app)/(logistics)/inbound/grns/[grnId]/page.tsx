@@ -4603,24 +4603,30 @@ export default function InboundGrnDetailPage() {
                   </dl>
 
                   {row?.accounts_status !== "APPROVED" && row?.accounts_status !== "REJECTED" ? (
-                    <div className="flex gap-3">
-                      <Button
-                        size="sm"
-                        disabled={accountsSubmitting || !row}
-                        onClick={() => row && handleAccountsAction(row.grn_id, "APPROVED")}
-                        className="bg-green-600 text-white hover:bg-green-700"
-                      >
-                        {accountsSubmitting ? "Saving…" : "Approve"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={accountsSubmitting || !row}
-                        onClick={() => row && handleAccountsAction(row.grn_id, "REJECTED")}
-                      >
-                        Reject
-                      </Button>
-                    </div>
+                    isAdmin ? (
+                      <div className="flex gap-3">
+                        <Button
+                          size="sm"
+                          disabled={accountsSubmitting || !row}
+                          onClick={() => row && handleAccountsAction(row.grn_id, "APPROVED")}
+                          className="bg-green-600 text-white hover:bg-green-700"
+                        >
+                          {accountsSubmitting ? "Saving…" : "Approve"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={accountsSubmitting || !row}
+                          onClick={() => row && handleAccountsAction(row.grn_id, "REJECTED")}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">
+                        Only admins can approve or reject accounts.
+                      </p>
+                    )
                   ) : (
                     <p className="text-muted-foreground text-sm">
                       {row?.accounts_status === "APPROVED"

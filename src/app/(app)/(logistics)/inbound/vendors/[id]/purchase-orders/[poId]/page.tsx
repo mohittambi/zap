@@ -481,9 +481,8 @@ export default function InboundPoDetailPage() {
     [snap?.vendor_listings_raw]
   );
 
-  /** Latest upstream activity across all GRNs on this PO. Reflects when ops
-   * actually touched a GRN in eAutomate (closed, audited, etc.) — not when
-   * zap last pulled the data. Falls back to the PO's own updated_at. */
+  /** Latest activity across all GRNs on this PO (from merged zap canonical +
+   * snapshot data). Falls back to the PO snapshot's po_raw timestamps. */
   const latestGrnActivityIso = React.useMemo<string | null>(() => {
     let best: number | null = null;
     const consider = (raw: unknown): void => {
@@ -826,12 +825,18 @@ export default function InboundPoDetailPage() {
                 GRN section
               </div>
               <p className="text-muted-foreground text-[11px] leading-snug">
-                <span>GRN rows are mirrored from eAutomate via </span>
-                <code className="text-[10px]">npm run sync:po:details*</code>
-                <span>.</span>
+                {header?.source === "zap" ? (
+                  <span>GRNs are managed in Zap.</span>
+                ) : (
+                  <>
+                    <span>GRN data is supplemented by eAutomate sync via </span>
+                    <code className="text-[10px]">npm run sync:po:details*</code>
+                    <span>.</span>
+                  </>
+                )}
                 {latestGrnActivityIso ? (
                   <>
-                    <span> Latest GRN activity upstream: </span>
+                    <span> Last GRN activity: </span>
                     <span className="text-foreground font-medium">
                       {formatDt(latestGrnActivityIso)}
                     </span>

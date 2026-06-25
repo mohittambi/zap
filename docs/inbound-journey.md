@@ -57,7 +57,7 @@ flowchart TD
 | 6. Close GRN | Warehouse | GRN detail | `POST …/close` (+ optional rate-diff DN draft) | [workflows.md](services/inbound/workflows.md) |
 | 7. Pending audit | Audit (admin) | `/inbound/pending-audits` | `GET` queue + admin `PATCH` audit closed (Confirm Audit dialog) | [Process notes §V](services/inbound/inbound-tab-process-notes.md), [workflows.md](current-system/workflows.md) |
 | 8. Physical invoice copy | Accounts | `/inbound/pending-invoice-collection` | `PATCH` → `COLLECTED` on collection status | [Process notes §VI](services/inbound/inbound-tab-process-notes.md) |
-| 9. Accounts approval | Accounts | `/inbound/pending-accounts` | `PATCH /api/inbound/grns/[grnId]` | [workflows.md](services/inbound/workflows.md) |
+| 9. Accounts approval | Accounts (admin) | `/inbound/pending-accounts` | Admin `PATCH /api/inbound/grns/[grnId]` approve/reject | [workflows.md](services/inbound/workflows.md) |
 | 10. Debit / credit notes | Finance | GRN detail, `/inbound/pending-debit-credit` | `debit-note`, `cn-copy`, eAutomate DCN queue | [GRN flows §2–3](inbound-grn-debit-credit-note-flows.md) |
 | 11. Invoice Excel | Accounts | GRN Accounts tab | `GET …/invoice-export` (after **COLLECTED** on web) | [API test matrix](inbound-journey-api-test-matrix.md) |
 | 12. Book inventory | Warehouse | GRN detail (after APPROVED) | `POST …/receive-inventory` | [API test matrix](inbound-journey-api-test-matrix.md) |
@@ -71,7 +71,7 @@ flowchart TD
 | **Procurement** | Vendors, inbound POs (create or monitor sync) |
 | **Warehouse** | GRN quantities, invoice upload, GRN close, receive into bins |
 | **Audit** | Verify invoice vs receipt; admin captures `audit_price`; admin-only mark audited with confirmation; lines locked after audit |
-| **Accounts** | Physical invoice collection, approval, DN numbering, Excel export |
+| **Accounts** | Physical invoice collection; **admin-only** approve/reject; DN numbering, Excel export |
 | **Operations** | Queue hygiene, escalations, sync runs when data is stale |
 
 ---

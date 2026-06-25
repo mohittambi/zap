@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as XLSX from "xlsx";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { mergePoGrnSources } from "@/server/services/eautomatePoDetailsIngestService";
 
 /**
  * Ensures a PO snapshot row exists and returns its `po_raw` + canonical vendor id.
@@ -533,58 +534,193 @@ export async function buildInboundPoXlsxBytes(
   };
 }
 
+function csvEsc(v: unknown): string {
+  const s = v == null ? "" : String(v);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function pickNumFromRaw(
+  raw: Record<string, unknown>,
+  keys: readonly string[]
+): number {
+  for (const key of keys) {
+    const v = raw[key];
+    if (v == null || v === "") continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+const LINE_QTY_KEYS = [
+  "accepted_quantity",
+  "acceptedQuantity",
+  "grn_accepted_quantity",
+  "quantity",
+] as const;
+
+const LINE_VENDOR_PRICE_KEYS = [
+  "received_price",
+  "receivedPrice",
+  "grn_received_price",
+  "current_received_price",
+] as const;
+
+const LINE_AUDIT_PRICE_KEYS = [
+  "audit_price",
+  "auditPrice",
+  "audit_price_excluding_gst",
+  "auditPriceExclGst",
+] as const;
+
+/** GRN report CSV — doctrine #11: canonical `inbound_grns` + `inbound_grn_items`,
+ *  not eAutomate snapshot tables alone. */
 export async function buildGrnReportCsv(
   vendorId: number,
   poId: number
 ): Promise<{ csv: string; filename: string }> {
   await assertVendorPoSnapshot(vendorId, poId);
 
-  const r = await query(
-    `SELECT g.sort_index, g.grn_id, g.raw AS link_raw,
-            ig.grn_status, ig.vendor_invoice_number, ig.created_at,
-            ig.grn_accepted_quantity, ig.grn_rejected_quantity
-     FROM inbound_po_detail_grns g
-     LEFT JOIN inbound_grns ig ON ig.grn_id = g.grn_id
-     WHERE g.po_id = $1
-     ORDER BY g.sort_index ASC`,
+  const poR = await query(
+    `SELECT source FROM vendor_purchase_orders WHERE po_id = $1`,
+    [poId]
+  );
+  if (poR.rows.length === 0) {
+    throw new AppError("PO not found", 404);
+  }
+  const poSource = String(poR.rows[0].source ?? "eautomate");
+
+  const [snapGrnsR, zapGrnsR] = await Promise.all([
+    poSource === "zap"
+      ? Promise.resolve({ rows: [] as { sort_index: number; grn_id: number | null; raw: unknown }[] })
+      : query(
+          `SELECT sort_index, grn_id, raw FROM inbound_po_detail_grns WHERE po_id = $1 ORDER BY sort_index`,
+          [poId]
+        ),
+    query(
+      `SELECT grn_id, vendor_invoice_number, box_count_invoice, actual_box_count_received,
+              grn_sku_count, grn_status, grn_audit_status,
+              grn_accepted_quantity, grn_rejected_quantity, grn_shortage_quantity,
+              created_by, created_at, updated_at, source
+         FROM inbound_grns
+        WHERE po_id = $1`,
+      [poId]
+    ),
+  ]);
+
+  const grns = mergePoGrnSources(snapGrnsR.rows, zapGrnsR.rows);
+
+  const sourceByGrnId = new Map<number, string>();
+  for (const row of zapGrnsR.rows) {
+    const id = Number(row.grn_id);
+    if (Number.isFinite(id)) {
+      sourceByGrnId.set(id, String(row.source ?? "eautomate"));
+    }
+  }
+
+  const itemsR = await query(
+    `SELECT i.grn_id, i.line_index, i.sku_id, i.raw
+       FROM inbound_grn_items i
+       INNER JOIN inbound_grns g ON g.grn_id = i.grn_id
+      WHERE g.po_id = $1
+      ORDER BY i.grn_id, i.line_index`,
     [poId]
   );
 
+  const itemsByGrnId = new Map<number, typeof itemsR.rows>();
+  for (const item of itemsR.rows) {
+    const gid = Number(item.grn_id);
+    if (!itemsByGrnId.has(gid)) itemsByGrnId.set(gid, []);
+    itemsByGrnId.get(gid)!.push(item);
+  }
+
   const headers = [
-    "sort_index",
     "grn_id",
+    "source",
     "grn_status",
+    "grn_audit_status",
     "vendor_invoice_number",
     "created_at",
     "accepted_qty",
     "rejected_qty",
-    "link_raw_json",
+    "shortage_qty",
+    "line_index",
+    "sku_id",
+    "quantity",
+    "vendor_price",
+    "audit_price",
+    "price_diff",
   ];
 
-  function esc(v: unknown): string {
-    const s = v == null ? "" : String(v);
-    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
+  function grnSourceForRow(
+    grnId: number | null,
+    raw: Record<string, unknown>
+  ): string {
+    if (grnId != null && sourceByGrnId.has(grnId)) {
+      return sourceByGrnId.get(grnId)!;
+    }
+    if (raw.zap_origin === "zap" || raw.zap_origin === "draft") return "zap";
+    return "eautomate";
+  }
+
+  function grnHeaderCells(
+    grnId: number | null,
+    raw: Record<string, unknown>
+  ): string[] {
+    return [
+      csvEsc(grnId),
+      csvEsc(grnSourceForRow(grnId, raw)),
+      csvEsc(raw.grn_status ?? raw.status ?? ""),
+      csvEsc(raw.grn_audit_status ?? raw.audit_status ?? ""),
+      csvEsc(raw.vendor_invoice_number ?? raw.invoice ?? ""),
+      csvEsc(raw.created_at ?? raw.createdAt ?? ""),
+      csvEsc(raw.grn_accepted_quantity ?? raw.accepted_quantity ?? ""),
+      csvEsc(raw.grn_rejected_quantity ?? raw.rejected_quantity ?? ""),
+      csvEsc(raw.grn_shortage_quantity ?? raw.shortage_quantity ?? ""),
+    ];
   }
 
   const rows: string[] = [headers.join(",")];
-  for (const row of r.rows) {
-    const linkRaw =
-      typeof row.link_raw === "object"
-        ? JSON.stringify(row.link_raw)
-        : String(row.link_raw ?? "");
-    rows.push(
-      [
-        esc(row.sort_index),
-        esc(row.grn_id),
-        esc(row.grn_status),
-        esc(row.vendor_invoice_number),
-        esc(row.created_at),
-        esc(row.grn_accepted_quantity),
-        esc(row.grn_rejected_quantity),
-        esc(linkRaw),
-      ].join(",")
-    );
+
+  for (const grn of grns) {
+    const grnId = grn.grn_id;
+    const raw =
+      grn.raw && typeof grn.raw === "object"
+        ? (grn.raw as Record<string, unknown>)
+        : {};
+    const header = grnHeaderCells(grnId, raw);
+    const lineItems =
+      grnId != null ? (itemsByGrnId.get(grnId) ?? []) : [];
+
+    if (lineItems.length === 0) {
+      rows.push(
+        [...header, "", "", "", "", "", ""].join(",")
+      );
+      continue;
+    }
+
+    for (const item of lineItems) {
+      const lineRaw =
+        item.raw && typeof item.raw === "object"
+          ? (item.raw as Record<string, unknown>)
+          : {};
+      const vendorPrice = pickNumFromRaw(lineRaw, LINE_VENDOR_PRICE_KEYS);
+      const auditPrice = pickNumFromRaw(lineRaw, LINE_AUDIT_PRICE_KEYS);
+      const quantity = pickNumFromRaw(lineRaw, LINE_QTY_KEYS);
+      const priceDiff = vendorPrice - auditPrice;
+      rows.push(
+        [
+          ...header,
+          csvEsc(item.line_index),
+          csvEsc(item.sku_id),
+          csvEsc(quantity),
+          csvEsc(vendorPrice),
+          csvEsc(auditPrice),
+          csvEsc(priceDiff),
+        ].join(",")
+      );
+    }
   }
 
   const csv = rows.join("\n") + "\n";
