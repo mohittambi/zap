@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import { NextResponse } from "next/server";
+import { query } from "@/server/db";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";

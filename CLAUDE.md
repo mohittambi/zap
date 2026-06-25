@@ -30,6 +30,25 @@ Follow the 7-step checklist in `docs/zap-doctrine.md` ("How to apply this when a
 - Sync scripts live in `web/scripts/sync-eautomate-*.{mjs,ts}`. They are the only files allowed to issue eAutomate writes.
 - Zap-created drafts historically used negative ids (e.g. `inbound_grns.grn_id < 0`). Migration 060 introduces the sequence-based replacement; both patterns coexist for now (negative ids will be backfilled).
 
+## Security checklist (every code change)
+
+Before merging any change that adds or modifies an API route, file upload, external fetch, or admin action, verify these rules. They reflect the hardening applied in migration `070_security_hardening.sql` and the helpers created alongside it.
+
+1. **Auth on every route.** Every `/api/**` handler must authenticate via `verifyToken()` or `verifyApiKey()` (`src/server/auth.ts`). The global `middleware.ts` rejects unauthenticated requests, but route-level checks remain the primary gate.
+2. **RBAC with `assertPermission()`.** After authentication, call `assertPermission(user, resource, action)` (`src/server/rbac.ts`) with the narrowest resource/action pair. Never rely on `user.roles?.includes(...)` directly.
+3. **Input validation.** Validate request bodies before use. Prefer allow-lists for dynamic SQL column/table names — never interpolate user input into queries.
+4. **File uploads.** Use `assertFileSize()` / `assertBlobSize()` and `assertFileType()` from `src/server/lib/uploadGuards.ts`. Max sizes: 10 MB for single files, 5 MB for bulk CSV imports. Allowed MIME types are defined in the guards.
+5. **External fetch timeouts.** Every `fetch()` to an external service (eAutomate, Supabase Storage, Google Sheets) must include `signal: AbortSignal.timeout(30_000)` (15 s for auth/login endpoints).
+6. **No secret fallbacks.** `getJwtSecret()` throws if `JWT_SECRET` is unset. Never add `|| "default"` fallbacks for secrets. Scheduler tokens read from env vars, not hardcoded strings.
+7. **Rate limiting.** Login and other brute-forceable endpoints must call `checkRateLimit()` from `src/server/lib/rateLimiter.ts`.
+8. **Admin audit logging.** User creation, deactivation, password resets, role changes, and API key regeneration must call `logAdminAction()` from `src/server/services/adminAuditService.ts`.
+9. **IDOR prevention.** When a route accepts a user ID or email as a path/query param, verify it matches the authenticated user — or that the caller has admin privileges.
+10. **No XSS vectors.** Do not use `dangerouslySetInnerHTML`. Mermaid diagrams must use `securityLevel: "strict"`.
+11. **Security headers.** `next.config.ts` sets CSP, HSTS, X-Frame-Options, and other headers. Do not weaken them without a documented reason.
+12. **Error responses.** Use `handleApiError()` — never return raw stack traces or internal details to the client.
+
+Security tests live in `web/tests/unit/security-*.test.ts`. Add coverage when introducing new guards.
+
 ## Tests
 
 - Unit tests live in `web/tests/unit/*.test.ts` and run with `npm run test:unit`.
