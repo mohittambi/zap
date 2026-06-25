@@ -40,9 +40,11 @@ function getPool(): pg.Pool {
       ),
       idleTimeoutMillis: 30_000,
     };
-    // Supabase managed Postgres requires TLS; matches common Supabase + node-pg examples.
+    // Supabase managed Postgres requires TLS. The pooler's cert chain includes a CA not in
+    // Node's default trust store → `SELF_SIGNED_CERT_IN_CHAIN` with strict validation.
+    // rejectUnauthorized: false still encrypts traffic (TLS), it just skips CA chain verification.
     if (!isLocalDatabase(connectionString) && isSupabaseHost(connectionString)) {
-      config.ssl = true;
+      config.ssl = { rejectUnauthorized: false };
     }
     pool = new Pool(config);
   }
