@@ -536,6 +536,65 @@ type PoLineReceiptTotals = {
   shortage_quantity: number;
 };
 
+/** Per-GRN receipt row for a SKU on a PO (SKU Lines hover tooltips). */
+export type PoLineGrnReceipt = {
+  grn_id: number;
+  grn_status: string | null;
+  vendor_invoice_number: string | null;
+  grn_source: string | null;
+  received_quantity: number;
+  accepted_quantity: number;
+  rejected_quantity: number;
+  shortage_quantity: number;
+};
+
+async function fetchPoLineGrnReceiptsBySku(
+  poId: number
+): Promise<Map<string, PoLineGrnReceipt[]>> {
+  const r = await query(
+    `SELECT i.sku_id,
+            g.grn_id,
+            g.grn_status,
+            g.vendor_invoice_number,
+            g.source AS grn_source,
+            ${sqlPickQtyFromRaw("i", INVOICE_QTY_KEYS)}::int AS received_quantity,
+            ${sqlPickQtyFromRaw("i", ACCEPTED_QTY_KEYS)}::int AS accepted_quantity,
+            ${sqlPickQtyFromRaw("i", REJECTED_QTY_KEYS)}::int AS rejected_quantity,
+            ${sqlPickQtyFromRaw("i", SHORT_QTY_KEYS)}::int AS shortage_quantity
+       FROM inbound_grn_items i
+       JOIN inbound_grns g ON g.grn_id = i.grn_id
+      WHERE g.po_id = $1
+        AND i.sku_id IS NOT NULL
+        AND TRIM(i.sku_id) <> ''
+      ORDER BY g.grn_id ASC, i.line_index ASC`,
+    [poId]
+  );
+  const out = new Map<string, PoLineGrnReceipt[]>();
+  for (const row of r.rows as Record<string, unknown>[]) {
+    const sku = String(row.sku_id ?? "").trim();
+    if (!sku) continue;
+    const grnId = Number(row.grn_id);
+    if (!Number.isFinite(grnId)) continue;
+    const entry: PoLineGrnReceipt = {
+      grn_id: grnId,
+      grn_status: row.grn_status != null ? String(row.grn_status) : null,
+      vendor_invoice_number:
+        row.vendor_invoice_number != null
+          ? String(row.vendor_invoice_number)
+          : null,
+      grn_source: row.grn_source != null ? String(row.grn_source) : null,
+      received_quantity: Number(row.received_quantity ?? 0),
+      accepted_quantity: Number(row.accepted_quantity ?? 0),
+      rejected_quantity: Number(row.rejected_quantity ?? 0),
+      shortage_quantity: Number(row.shortage_quantity ?? 0),
+    };
+    const list = out.get(sku) ?? [];
+    list.push(entry);
+    out.set(sku, list);
+  }
+  return out;
+}
+
 async function fetchPoLineReceiptBySku(
   poId: number
 ): Promise<Map<string, PoLineReceiptTotals>> {
@@ -588,6 +647,58 @@ export function mergeGrnReceiptIntoPoLines(
         accepted_quantity: receipt.accepted_quantity,
         rejected_quantity: receipt.rejected_quantity,
         shortage_quantity: receipt.shortage_quantity,
+      },
+    };
+  });
+}
+
+/** Canonical listing fields (images + title + ops tag) from the zap `listings` table. */
+async function fetchListingsBySku(
+  skuIds: string[]
+): Promise<Map<string, Record<string, unknown>>> {
+  const out = new Map<string, Record<string, unknown>>();
+  const unique = Array.from(
+    new Set(skuIds.map((s) => String(s ?? "").trim()).filter(Boolean))
+  );
+  if (unique.length === 0) return out;
+  const r = await query(
+    `SELECT sku_id, description, img_hd, img_white, img_wdim, img_link1, img_link2,
+            ops_tag, available_quantity
+       FROM listings
+      WHERE sku_id = ANY($1::text[])`,
+    [unique]
+  );
+  for (const row of r.rows as Record<string, unknown>[]) {
+    const sku = String(row.sku_id ?? "").trim();
+    if (sku) out.set(sku, row);
+  }
+  return out;
+}
+
+/** Attach a `listing` object (images/title/ops tag) onto each PO line's raw so the
+ * SKU Lines table can render thumbnails and link titles even for zap-source POs
+ * (which carry no eAutomate snapshot). Existing line `listing` data is preserved. */
+export function mergeListingsIntoPoLines(
+  lines: ReadonlyArray<Record<string, unknown>>,
+  listingBySku: Map<string, Record<string, unknown>>
+): Record<string, unknown>[] {
+  return lines.map((line) => {
+    const sku = String(line.sku_id ?? "").trim();
+    const listing = sku ? listingBySku.get(sku) : undefined;
+    if (!listing) return line;
+    const base =
+      line.raw && typeof line.raw === "object" && !Array.isArray(line.raw)
+        ? (line.raw as Record<string, unknown>)
+        : {};
+    const existing =
+      base.listing && typeof base.listing === "object" && !Array.isArray(base.listing)
+        ? (base.listing as Record<string, unknown>)
+        : {};
+    return {
+      ...line,
+      raw: {
+        ...base,
+        listing: { ...listing, ...existing },
       },
     };
   });
@@ -661,10 +772,23 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
           [poId]
         );
 
-  const receiptBySku = await fetchPoLineReceiptBySku(poId);
-  const lines = mergeGrnReceiptIntoPoLines(
+  const [receiptBySku, grnReceiptsBySku] = await Promise.all([
+    fetchPoLineReceiptBySku(poId),
+    fetchPoLineGrnReceiptsBySku(poId),
+  ]);
+  const linesWithReceipt = mergeGrnReceiptIntoPoLines(
     linesR.rows as Record<string, unknown>[],
     receiptBySku
+  );
+  const listingBySku = await fetchListingsBySku(
+    linesWithReceipt.map((l) => String(l.sku_id ?? ""))
+  );
+  const lines = mergeListingsIntoPoLines(linesWithReceipt, listingBySku).map(
+    (line) => {
+      const sku = String(line.sku_id ?? "").trim();
+      const grn_receipts = sku ? grnReceiptsBySku.get(sku) ?? [] : [];
+      return { ...line, grn_receipts };
+    }
   );
 
   /** GRNs come from two zap-side tables (no eAutomate calls):

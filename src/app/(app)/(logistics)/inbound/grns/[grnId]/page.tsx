@@ -1023,17 +1023,14 @@ function buildGrnLinePatchBody(
 function closeModalDraftDiffers(line: LineRow, d: CloseGrnLineDraft): boolean {
   const r = line.raw ?? {};
   const taxN = parseLineQty(r, GRN_ITEM_KEYS.taxRate);
-  const audN = parseLineQty(r, GRN_ITEM_KEYS.auditPriceExclGst);
   const taxStr = taxN > 0 ? String(taxN) : "";
-  const audStr = audN > 0 ? String(audN) : "";
   return (
     d.inv.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.invoice)) ||
     d.acc.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.accepted)) ||
     d.rej.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.rejected)) ||
     d.short.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.shortage)) ||
     d.price.trim() !== String(parseLineQty(r, GRN_ITEM_KEYS.receivedPrice)) ||
-    d.tax.trim() !== taxStr ||
-    d.audit.trim() !== audStr
+    d.tax.trim() !== taxStr
   );
 }
 
@@ -1212,7 +1209,6 @@ function GrnSkuDetailSheet(props: {
   const [draftShort, setDraftShort] = React.useState("");
   const [draftPrice, setDraftPrice] = React.useState("");
   const [draftTax, setDraftTax] = React.useState("");
-  const [draftAudit, setDraftAudit] = React.useState("");
   const [savingGrnInput, setSavingGrnInput] = React.useState(false);
   const draftSnapshotRef = React.useRef("");
 
@@ -1224,13 +1220,11 @@ function GrnSkuDetailSheet(props: {
       setDraftShort("");
       setDraftPrice("");
       setDraftTax("");
-      setDraftAudit("");
       draftSnapshotRef.current = "";
       return;
     }
     const r = selectedLine.raw;
     const taxN = parseLineQty(r, GRN_ITEM_KEYS.taxRate);
-    const audN = parseLineQty(r, GRN_ITEM_KEYS.auditPriceExclGst);
     const ds = {
       inv: String(parseLineQty(r, GRN_ITEM_KEYS.invoice)),
       acc: String(parseLineQty(r, GRN_ITEM_KEYS.accepted)),
@@ -1238,7 +1232,6 @@ function GrnSkuDetailSheet(props: {
       short: String(parseLineQty(r, GRN_ITEM_KEYS.shortage)),
       price: String(parseLineQty(r, GRN_ITEM_KEYS.receivedPrice)),
       tax: taxN > 0 ? String(taxN) : "",
-      audit: audN > 0 ? String(audN) : "",
     };
     setDraftInv(ds.inv);
     setDraftAcc(ds.acc);
@@ -1246,7 +1239,6 @@ function GrnSkuDetailSheet(props: {
     setDraftShort(ds.short);
     setDraftPrice(ds.price);
     setDraftTax(ds.tax);
-    setDraftAudit(ds.audit);
     draftSnapshotRef.current = JSON.stringify(ds);
   }, [selectedLine?.line_index, selectedLine?.raw]);
 
@@ -1259,7 +1251,6 @@ function GrnSkuDetailSheet(props: {
       short: draftShort.trim(),
       price: draftPrice.trim(),
       tax: draftTax.trim(),
-      audit: draftAudit.trim(),
     }) !== draftSnapshotRef.current;
 
   async function saveGrnLineInput() {
@@ -1279,12 +1270,6 @@ function GrnSkuDetailSheet(props: {
       }
       return n;
     };
-    let auditPayload: number | null;
-    if (draftAudit.trim() === "") {
-      auditPayload = null;
-    } else {
-      auditPayload = parseNum(draftAudit, "Audited Price (excl. Taxes)");
-    }
     try {
       setSavingGrnInput(true);
       const invoice_quantity = parseNum(draftInv, "Quantity in Invoice");
@@ -1304,7 +1289,6 @@ function GrnSkuDetailSheet(props: {
         shortage_quantity,
         received_price: parseNum(draftPrice, "Product Price (excl. Taxes)"),
         tax_rate: parseNum(draftTax, "Tax Rate"),
-        audit_price: auditPayload,
       };
       const res = await apiFetch<{
         line_index: number;
@@ -1693,16 +1677,17 @@ function GrnSkuDetailSheet(props: {
                         disabled={savingGrnInput || isAuditClosed}
                         inputMode="decimal"
                       />
-                      <GrnInputEditableBox
-                        label="Audited Price (excl. Taxes)"
-                        value={draftAudit}
-                        onChange={setDraftAudit}
-                        disabled={savingGrnInput || isAuditClosed}
-                        className="border-amber-300/70 bg-amber-50 dark:bg-amber-950/30"
-                        inputClassName="text-amber-950 dark:text-amber-100"
-                        inputMode="decimal"
-                      />
                     </div>
+                    <p className="text-muted-foreground text-[11px] leading-snug">
+                      Audited price is set during{" "}
+                      <Link
+                        href="/inbound/pending-audits"
+                        className="text-primary underline-offset-4 hover:underline"
+                      >
+                        Pending audit
+                      </Link>
+                      , not here.
+                    </p>
                     <div className="flex justify-end pt-1">
                       <Button
                         type="button"
@@ -2180,7 +2165,7 @@ export default function InboundGrnDetailPage() {
       for (const line of bundle.grn_items) {
         const d = closeGrnDrafts[line.line_index];
         if (!d || !closeModalDraftDiffers(line, d)) continue;
-        const payload = buildGrnLinePatchBody(d, { includeAuditPrice: isAdmin });
+        const payload = buildGrnLinePatchBody(d, { includeAuditPrice: false });
         const res = await apiFetch<{
           line_index: number;
           sku_id: string | null;
@@ -3445,16 +3430,6 @@ export default function InboundGrnDetailPage() {
                             <TableHead>Current Entry By</TableHead>
                             <TableHead className="text-right">Damage Images Count</TableHead>
                             <TableHead>Created At</TableHead>
-                            {isAdmin ? (
-                              <TableHead
-                                className={cn(
-                                  "text-right bg-emerald-50/40 dark:bg-emerald-950/25",
-                                  "font-medium text-emerald-950 dark:text-emerald-100"
-                                )}
-                              >
-                                Audit Price (excl. GST)
-                              </TableHead>
-                            ) : null}
                             <TableHead>Audited By</TableHead>
                             <TableHead>Last Audited At</TableHead>
                           </TableRow>
@@ -3610,25 +3585,6 @@ export default function InboundGrnDetailPage() {
                                     pickLine(line.raw, GRN_ITEM_KEYS.lineCreatedAt)
                                   )}
                                 </TableCell>
-                                {isAdmin ? (
-                                  <TableCell
-                                    className="bg-emerald-50/40 p-1 dark:bg-emerald-950/20"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <Input
-                                      className="h-8 min-w-[4.5rem] text-right font-mono text-xs"
-                                      value={d.audit}
-                                      disabled={closeGrnBusy}
-                                      onChange={(e) =>
-                                        setCloseGrnDrafts((prev) => ({
-                                          ...prev,
-                                          [line.line_index]: { ...d, audit: e.target.value },
-                                        }))
-                                      }
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  </TableCell>
-                                ) : null}
                                 <TableCell className="text-xs">
                                   {pickLine(line.raw, GRN_ITEM_KEYS.auditedBy)}
                                 </TableCell>

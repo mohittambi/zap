@@ -81,6 +81,18 @@ type PoLineRow = {
   line_index: number;
   sku_id: string | null;
   raw: JsonRecord;
+  grn_receipts?: PoLineGrnReceipt[];
+};
+
+type PoLineGrnReceipt = {
+  grn_id: number;
+  grn_status: string | null;
+  vendor_invoice_number: string | null;
+  grn_source: string | null;
+  received_quantity: number;
+  accepted_quantity: number;
+  rejected_quantity: number;
+  shortage_quantity: number;
 };
 
 type PoGrnRow = {
@@ -179,6 +191,106 @@ function numStr(raw: JsonRecord | null | undefined, keys: string[]): string {
     }
   }
   return "—";
+}
+
+function grnReceiptQty(
+  receipts: PoLineGrnReceipt[],
+  field: keyof Pick<
+    PoLineGrnReceipt,
+    "received_quantity" | "accepted_quantity" | "rejected_quantity"
+  >
+): PoLineGrnReceipt[] {
+  return receipts.filter((r) => Number(r[field]) > 0);
+}
+
+function grnSourceForLabel(
+  source: string | null | undefined
+): "zap" | "eautomate" | "draft" {
+  if (source === "zap") return "zap";
+  return "eautomate";
+}
+
+function SkuLineQtyTooltipBody({
+  title,
+  emptyMessage,
+  receipts,
+  qtyField,
+}: {
+  title: string;
+  emptyMessage: string;
+  receipts: PoLineGrnReceipt[];
+  qtyField: keyof Pick<
+    PoLineGrnReceipt,
+    "received_quantity" | "accepted_quantity" | "rejected_quantity"
+  >;
+}) {
+  const rows = grnReceiptQty(receipts, qtyField);
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-1">
+        <p className="font-medium">{title}</p>
+        <p className="text-background/85">{emptyMessage}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      <p className="font-medium">{title}</p>
+      <ul className="space-y-1">
+        {rows.map((r) => {
+          const label = formatGrnLabel(r.grn_id, grnSourceForLabel(r.grn_source));
+          const qty = r[qtyField];
+          const status = r.grn_status?.trim();
+          const inv = r.vendor_invoice_number?.trim();
+          return (
+            <li key={r.grn_id} className="text-background/90 leading-snug">
+              <Link
+                href={`/inbound/grns/${r.grn_id}`}
+                className="font-mono font-medium underline underline-offset-2"
+              >
+                {label}
+              </Link>
+              : {qty}
+              {status ? (
+                <span className="text-background/75"> · {status}</span>
+              ) : null}
+              {inv ? (
+                <span className="text-background/75"> · inv {inv}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function SkuLineQtyCell({
+  children,
+  className,
+  tooltip,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  tooltip: React.ReactNode;
+}) {
+  return (
+    <td className={className}>
+      <Tooltip>
+        <TooltipTrigger
+          delay={150}
+          render={
+            <span className="inline-block cursor-help underline decoration-dotted decoration-muted-foreground/45 underline-offset-2">
+              {children}
+            </span>
+          }
+        />
+        <TooltipContent side="top" align="end" className="max-w-xs text-left">
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </td>
+  );
 }
 
 function asRecord(v: unknown): JsonRecord | null {
@@ -1275,6 +1387,27 @@ export default function InboundPoDetailPage() {
                             ? nameBySku.get(sku) ??
                               pick(L ?? {}, ["description", "title"])
                             : "—";
+                        const grnReceipts = line.grn_receipts ?? [];
+                        const requiredQty = numStr(line.raw, [
+                          "quantity",
+                          "ordered_quantity",
+                          "orderedQuantity",
+                          "po_quantity",
+                        ]);
+                        const receivedQty = numStr(line.raw, [
+                          "received_quantity",
+                          "receivedQuantity",
+                          "invoice_quantity",
+                          "invoiceQuantity",
+                        ]);
+                        const acceptedQty = numStr(line.raw, [
+                          "accepted_quantity",
+                          "acceptedQuantity",
+                        ]);
+                        const rejectedQty = numStr(line.raw, [
+                          "rejected_quantity",
+                          "rejectedQuantity",
+                        ]);
                         return (
                           <tr
                             key={line.line_index}
@@ -1316,34 +1449,60 @@ export default function InboundPoDetailPage() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-3 py-2.5 text-right tabular-nums">
-                              {numStr(line.raw, [
-                                "quantity",
-                                "ordered_quantity",
-                                "orderedQuantity",
-                                "po_quantity",
-                              ])}
-                            </td>
-                            <td className="px-3 py-2.5 text-right tabular-nums">
-                              {numStr(line.raw, [
-                                "received_quantity",
-                                "receivedQuantity",
-                                "invoice_quantity",
-                                "invoiceQuantity",
-                              ])}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
-                              {numStr(line.raw, [
-                                "accepted_quantity",
-                                "acceptedQuantity",
-                              ])}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-medium tabular-nums text-red-600 dark:text-red-400">
-                              {numStr(line.raw, [
-                                "rejected_quantity",
-                                "rejectedQuantity",
-                              ])}
-                            </td>
+                            <SkuLineQtyCell
+                              className="px-3 py-2.5 text-right tabular-nums"
+                              tooltip={
+                                <div className="space-y-1">
+                                  <p className="font-medium">Required quantity</p>
+                                  <p className="text-background/85 leading-snug">
+                                    From this PO order line — not allocated from a
+                                    GRN. Ordered qty is set when the PO was
+                                    created.
+                                  </p>
+                                </div>
+                              }
+                            >
+                              {requiredQty}
+                            </SkuLineQtyCell>
+                            <SkuLineQtyCell
+                              className="px-3 py-2.5 text-right tabular-nums"
+                              tooltip={
+                                <SkuLineQtyTooltipBody
+                                  title="Received (invoice qty) by GRN"
+                                  emptyMessage="No invoice quantity recorded on any GRN for this SKU yet."
+                                  receipts={grnReceipts}
+                                  qtyField="received_quantity"
+                                />
+                              }
+                            >
+                              {receivedQty}
+                            </SkuLineQtyCell>
+                            <SkuLineQtyCell
+                              className="px-3 py-2.5 text-right font-medium tabular-nums text-emerald-600 dark:text-emerald-400"
+                              tooltip={
+                                <SkuLineQtyTooltipBody
+                                  title="Accepted quantity by GRN"
+                                  emptyMessage="No accepted quantity on any GRN for this SKU yet."
+                                  receipts={grnReceipts}
+                                  qtyField="accepted_quantity"
+                                />
+                              }
+                            >
+                              {acceptedQty}
+                            </SkuLineQtyCell>
+                            <SkuLineQtyCell
+                              className="px-3 py-2.5 text-right font-medium tabular-nums text-red-600 dark:text-red-400"
+                              tooltip={
+                                <SkuLineQtyTooltipBody
+                                  title="Rejected quantity by GRN"
+                                  emptyMessage="No rejected quantity on any GRN for this SKU yet."
+                                  receipts={grnReceipts}
+                                  qtyField="rejected_quantity"
+                                />
+                              }
+                            >
+                              {rejectedQty}
+                            </SkuLineQtyCell>
                           </tr>
                         );
                       })}
