@@ -35,7 +35,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet,
@@ -70,6 +69,7 @@ import {
   Download,
   FileText,
   Files,
+  Info,
   PackageCheck,
   PanelRightOpen,
   Plus,
@@ -80,6 +80,7 @@ import {
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import { formatGrnLabel } from "@/lib/idDisplay";
+import { grnStatusDisplay } from "@/lib/inboundGrnStatus";
 import { useAuth } from "@/contexts/auth-context";
 
 type JsonRecord = Record<string, unknown>;
@@ -2485,17 +2486,47 @@ export default function InboundGrnDetailPage() {
       </div>
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <AppPageTitle
-          className="mb-0 min-w-0 flex-1"
-          title={
-            loading
-              ? "GRN"
-              : row
-                ? `GRN ${formatGrnLabel(row.grn_id, row.source ?? (row.grn_id < 0 ? "draft" : "eautomate"))}`
-                : "GRN"
-          }
-          description="Receipt details, documents, and activity for this goods receipt note."
-        />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="text-muted-foreground text-xs font-semibold uppercase tracking-[0.12em]">
+            Goods Receipt Note
+          </p>
+          {loading ? (
+            <Skeleton className="h-8 w-56" />
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <h1 className="text-primary font-mono text-3xl font-bold tracking-tight">
+                {row
+                  ? formatGrnLabel(
+                      row.grn_id,
+                      row.source ?? (row.grn_id < 0 ? "draft" : "eautomate")
+                    )
+                  : "GRN"}
+              </h1>
+              {row?.grn_status
+                ? (() => {
+                    const s = grnStatusDisplay(row.grn_status);
+                    return (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "gap-1 text-xs",
+                          s.className,
+                          s.help && "cursor-help"
+                        )}
+                        title={s.help}
+                      >
+                        {s.label}
+                        {s.help ? <Info className="size-3 opacity-70" /> : null}
+                      </Badge>
+                    );
+                  })()
+                : null}
+            </div>
+          )}
+          <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed">
+            Receipt details, documents, and activity for this goods receipt note.
+          </p>
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -2676,11 +2707,23 @@ export default function InboundGrnDetailPage() {
                 Vendor inv. {row.vendor_invoice_number}
               </Badge>
             ) : null}
-            {row.grn_status ? (
-              <Badge variant="secondary" className={statusClosedClass(row.grn_status)}>
-                GRN: {row.grn_status}
-              </Badge>
-            ) : null}
+            {row.grn_status ? (() => {
+              const s = grnStatusDisplay(row.grn_status);
+              return (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "gap-1",
+                    s.className,
+                    s.help && "cursor-help"
+                  )}
+                  title={s.help}
+                >
+                  GRN: {s.label}
+                  {s.help ? <Info className="size-3 opacity-70" /> : null}
+                </Badge>
+              );
+            })() : null}
             {row.grn_audit_status ? (
               <Badge
                 variant="secondary"

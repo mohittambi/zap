@@ -13,22 +13,16 @@ import {
   Package,
   Download,
   Plus,
-  MoreHorizontal,
+  Info,
 } from "lucide-react";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { formatGrnLabel, formatPoLabel } from "@/lib/idDisplay";
+import { grnStatusDisplay } from "@/lib/inboundGrnStatus";
 import {
   canCancelPo,
   poCancelBlockReason,
   type PoCancelGrnRow,
 } from "@/lib/inboundPoCancelGuard";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   deriveDisplayName,
   deriveFillPct,
@@ -54,7 +48,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AppPageTitle } from "@/components/layout/app-page-shell";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   AlertDialog,
@@ -248,6 +247,9 @@ function statusPublishedClass(s: string | null | undefined): string {
   if (up === "PUBLISHED" || up === "ACTIVE") {
     return "bg-emerald-600/15 text-emerald-700 dark:text-emerald-400 border-emerald-600/30";
   }
+  if (up === "PENDING") {
+    return "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30";
+  }
   return "";
 }
 
@@ -260,53 +262,120 @@ function statusClosedClass(s: string | null | undefined): string {
   return "";
 }
 
-function poStatusHelp(displayStatus: string): string | undefined {
+type PoStatusTooltip = {
+  meaning: string;
+  nextActions: string[];
+};
+
+function poStatusTooltip(
+  displayStatus: string,
+  ctx: {
+    grnCount: number;
+    poCancelAllowed: boolean;
+  }
+): PoStatusTooltip | null {
   switch (displayStatus.trim().toUpperCase()) {
+    case "PENDING":
+      return {
+        meaning:
+          "PO has been created but not yet published/issued to the vendor. GRNs can still be opened against it.",
+        nextActions:
+          ctx.grnCount === 0
+            ? [
+                "Open New GRN when goods arrive",
+                "Add internal notes for your team",
+                ...(ctx.poCancelAllowed
+                  ? ["Cancel PO only before receipt starts"]
+                  : []),
+              ]
+            : [
+                "Continue receiving in the GRN section below",
+                "Download PDF or Excel to share with the vendor",
+              ],
+      };
     case "PUBLISHED":
-      return "PO is published and active for receiving.";
+      return {
+        meaning: "PO is published and active for receiving.",
+        nextActions:
+          ctx.grnCount === 0
+            ? ["Open New GRN to start receiving goods"]
+            : [
+                "Enter quantities and prices on the GRN",
+                "Upload vendor invoice on the GRN before close",
+              ],
+      };
     case "CANCELLED":
-      return "PO has been cancelled; no further GRNs should be created.";
+      return {
+        meaning: "PO has been cancelled; no further GRNs should be created.",
+        nextActions: [],
+      };
     case "MODIFICATION":
-      return "A modification has been requested on this PO.";
+      return {
+        meaning: "A modification has been requested on this PO.",
+        nextActions: [
+          "Review updated line quantities with the vendor",
+          "Pause new receipts until changes are confirmed",
+        ],
+      };
     default:
-      return undefined;
+      return null;
   }
 }
 
-function grnStatusDisplay(raw: string): { label: string; className: string } {
-  const up = raw.trim().toUpperCase();
-  if (!up || up === "—") {
-    return { label: "—", className: "" };
-  }
-  switch (up) {
-    case "OPEN":
-      return {
-        label: "Receipt open",
-        className:
-          "bg-blue-600/15 text-blue-700 dark:text-blue-400 border-blue-600/30",
-      };
-    case "CLOSED":
-    case "DONE":
-    case "COMPLETED":
-      return {
-        label: "Fully received",
-        className:
-          "bg-violet-600/15 text-violet-700 dark:text-violet-400 border-violet-600/30",
-      };
-    case "CANCELLED":
-      return {
-        label: "Cancelled",
-        className:
-          "bg-destructive/15 text-destructive border-destructive/30",
-      };
-    case "DRAFT":
-      return {
-        label: "Draft",
-        className: "bg-muted text-muted-foreground border-border",
-      };
-    default:
-      return { label: raw.trim(), className: "" };
-  }
+function PoStatusTooltipBody({
+  meaning,
+  nextActions,
+  vendorId,
+}: PoStatusTooltip & { vendorId: string }) {
+  const listingsHref = `/inbound/vendors/${encodeURIComponent(vendorId)}?tab=listings`;
+  return (
+    <div className="space-y-2">
+      <p>{meaning}</p>
+      {nextActions.length > 0 ? (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-background/75">
+            Next steps
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {nextActions.map((action) => (
+              <li key={action} className="flex gap-1.5 text-xs leading-snug">
+                <span aria-hidden className="text-background/60">
+                  ·
+                </span>
+                <span>{action}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <Link
+        href={listingsHref}
+        className="inline-block text-xs font-medium underline underline-offset-2 hover:text-background/90"
+      >
+        View vendor SKU list →
+      </Link>
+    </div>
+  );
+}
+
+function ActionButtonTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactElement;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        delay={150}
+        render={<span className="inline-flex">{children}</span>}
+      />
+      <TooltipContent side="bottom" className="max-w-xs">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function grnIdFromRow(g: PoGrnRow): number | null {
@@ -471,7 +540,20 @@ export default function InboundPoDetailPage() {
       );
       toast.success("PO notes saved");
       setModifyOpen(false);
-      await reloadBundle();
+      setBundle((prev) =>
+        prev
+          ? {
+              ...prev,
+              snapshot: {
+                ...prev.snapshot,
+                po_raw: {
+                  ...(prev.snapshot?.po_raw ?? {}),
+                  zap_notes: notes,
+                },
+              },
+            }
+          : prev
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -570,6 +652,10 @@ export default function InboundPoDetailPage() {
   const snap = bundle?.snapshot;
   const header = bundle?.header;
   const poRaw = snap?.po_raw ?? {};
+  const poNotes =
+    typeof (poRaw as Record<string, unknown>).zap_notes === "string"
+      ? ((poRaw as Record<string, unknown>).zap_notes as string).trim()
+      : "";
   const newGrnLinePreview = React.useMemo(
     () => buildPoLinePreviewRows(bundle?.lines ?? []),
     [bundle?.lines]
@@ -620,6 +706,14 @@ export default function InboundPoDetailPage() {
   );
   const poCancelAllowed = canCancelPo(poCancelGrnRows, isZapCancelled);
   const poStatus = derivePoDisplayStatus(isZapCancelled, header?.status ?? null);
+  const poStatusTip = React.useMemo(
+    () =>
+      poStatusTooltip(poStatus, {
+        grnCount: header?.number_of_grns ?? bundle?.grns.length ?? 0,
+        poCancelAllowed,
+      }),
+    [poStatus, header?.number_of_grns, bundle?.grns.length, poCancelAllowed]
+  );
   const totalSkus = numberStringOrDash(header?.sku_count);
   const totalReq = numberStringOrDash(header?.total_quantity);
   const totalInv = numberStringOrDash(header?.total_invoice_quantity);
@@ -641,68 +735,66 @@ export default function InboundPoDetailPage() {
   const createdAtStr = header?.created_at ?? null;
 
   return (
+    <TooltipProvider>
     <div className="mx-auto max-w-[1600px] space-y-5 px-2 py-4 md:px-4">
-      {/* ── Top bar: breadcrumbs + title + actions ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}?tab=purchase-orders`}>
-              ← Purchase orders
-            </Link>
-          </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}>
-              Vendor {vendorId}
-            </Link>
-          </Button>
-        </div>
-
-        {!loading && bundle && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={actionBusy}>
-                  <MoreHorizontal className="size-4" />
-                  Actions
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={() => void downloadPoDocument("pdf")}>
-                <FileText className="mr-2 size-3.5" />
-                Download PO as PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void downloadPoDocument("xlsx")}>
-                <FileText className="mr-2 size-3.5" />
-                Download PO as Excel
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={openModify}>
-                <Pencil className="mr-2 size-3.5" />
-                Modify PO notes
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={!poCancelAllowed}
-                onClick={() => setCancelOpen(true)}
-                className="text-destructive focus:text-destructive"
-              >
-                <XCircle className="mr-2 size-3.5" />
-                Cancel PO
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+      {/* ── Top bar: breadcrumbs ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" asChild>
+          <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}?tab=purchase-orders`}>
+            ← Purchase orders
+          </Link>
+        </Button>
+        <Button type="button" variant="outline" size="sm" asChild>
+          <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}>
+            Vendor {vendorId}
+          </Link>
+        </Button>
       </div>
 
-      <AppPageTitle
-        title={
-          loading
-            ? "Purchase order"
-            : `PO ${formatPoLabel(poId, header?.source ?? null)}`
-        }
-        description="Line items, GRNs, and summary for this purchase order."
-      />
+      <div className="mb-6 space-y-1.5">
+        <p className="text-muted-foreground text-xs font-semibold uppercase tracking-[0.12em]">
+          Purchase Order
+        </p>
+        {loading ? (
+          <Skeleton className="h-8 w-56" />
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <h1 className="text-primary font-mono text-3xl font-bold tracking-tight">
+              {formatPoLabel(poId, header?.source ?? null)}
+            </h1>
+            {!loading && bundle && poStatus !== "—" ? (
+              (() => {
+                const badge = (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "gap-1 text-xs",
+                      statusPublishedClass(poStatus),
+                      poStatusTip && "cursor-help"
+                    )}
+                  >
+                    {poStatus}
+                    {poStatusTip ? <Info className="size-3 opacity-70" /> : null}
+                  </Badge>
+                );
+                return poStatusTip ? (
+                  <Tooltip>
+                    <TooltipTrigger delay={150} render={badge} />
+                    <TooltipContent side="bottom" className="max-w-xs">
+                      <PoStatusTooltipBody {...poStatusTip} vendorId={vendorId} />
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  badge
+                );
+              })()
+            ) : null}
+          </div>
+        )}
+        <p className="text-muted-foreground max-w-3xl text-sm leading-relaxed">
+          Line items, GRNs, and summary for this purchase order.
+        </p>
+      </div>
 
       {loading ? (
         <Skeleton className="h-48 w-full rounded-lg" />
@@ -721,46 +813,140 @@ export default function InboundPoDetailPage() {
 
       {!loading && bundle && snap ? (
         <>
-          {/* ── Header card: status + metadata ── */}
+          {/* ── Header card: metadata columns + actions ── */}
           <Card className="border-primary/10">
-            <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {poStatus !== "—" ? (
-                    <Badge
-                      variant="outline"
-                      className={cn("text-xs", statusPublishedClass(poStatus))}
-                      title={poStatusHelp(poStatus)}
-                    >
-                      {poStatus}
-                    </Badge>
+            <CardContent className="flex flex-col gap-4 py-4">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4 lg:flex lg:flex-wrap lg:gap-x-12">
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                    Vendor
+                  </p>
+                  <p className="text-sm font-medium leading-snug">{vendorName}</p>
+                  {location !== "—" ? (
+                    <p className="text-muted-foreground text-xs">{location}</p>
                   ) : null}
-                  <span className="font-mono text-sm font-medium">PO {poId}</span>
-                  <span className="text-muted-foreground text-sm">·</span>
                   <Link
                     href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}
-                    className="text-primary text-sm font-medium underline-offset-4 hover:underline"
+                    className="text-primary inline-block text-xs font-medium underline-offset-4 hover:underline"
                   >
-                    Vendor {vendorId}
+                    Vendor {vendorId} →
                   </Link>
                 </div>
-                <p className="text-sm">
-                  <span className="font-medium">{vendorName}</span>
-                  {location !== "—" && (
-                    <span className="text-muted-foreground"> · {location}</span>
-                  )}
-                </p>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground w-16 shrink-0">Expiry</span>
-                  <span className="font-medium">{formatDt(expiryStr)}</span>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                    Expiry
+                  </p>
+                  <p className="text-sm font-medium leading-snug">
+                    {formatDt(expiryStr)}
+                  </p>
                 </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                    Created by
+                  </p>
+                  <p className="text-sm font-medium leading-snug">{createdBy}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {formatDt(createdAtStr)}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                    GRNs
+                  </p>
+                  <p className="text-sm font-medium leading-snug">
+                    {numberStringOrDash(header?.number_of_grns)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 flex-col gap-2">
+                <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                  Actions
+                </p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-muted-foreground w-16 shrink-0">Created</span>
-                  <span>{createdBy}</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span>{formatDt(createdAtStr)}</span>
+                <div className="inline-flex items-center overflow-hidden rounded-md border">
+                  <ActionButtonTooltip label="Download PO as PDF">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 rounded-none px-2.5"
+                      disabled={actionBusy}
+                      onClick={() => void downloadPoDocument("pdf")}
+                    >
+                      <FileText className="size-3.5" />
+                      PDF
+                    </Button>
+                  </ActionButtonTooltip>
+                  <span className="bg-border h-5 w-px" aria-hidden />
+                  <ActionButtonTooltip label="Download PO as Excel">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 rounded-none px-2.5"
+                      disabled={actionBusy}
+                      onClick={() => void downloadPoDocument("xlsx")}
+                    >
+                      <FileText className="size-3.5" />
+                      Excel
+                    </Button>
+                  </ActionButtonTooltip>
+                </div>
+                <ActionButtonTooltip label="Add or edit internal team notes">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    disabled={actionBusy}
+                    onClick={openModify}
+                  >
+                    <Pencil className="size-3.5" />
+                    Notes
+                  </Button>
+                </ActionButtonTooltip>
+                <ActionButtonTooltip
+                  label={
+                    !poCancelAllowed
+                      ? poCancelBlock?.reason ??
+                        (isZapCancelled
+                          ? "PO is already cancelled."
+                          : "Cannot cancel this PO.")
+                      : "Cancel this purchase order before goods receipt starts"
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive h-8 gap-1.5"
+                    disabled={actionBusy || !poCancelAllowed}
+                    onClick={() => setCancelOpen(true)}
+                  >
+                    <XCircle className="size-3.5" />
+                    Cancel PO
+                  </Button>
+                </ActionButtonTooltip>
+                </div>
+              </div>
+              </div>
+
+              <div className="border-t pt-3">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                    Internal notes
+                  </p>
+                  {poNotes ? (
+                    <p className="text-foreground whitespace-pre-wrap text-sm leading-snug">
+                      {poNotes}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground text-sm">
+                      No internal notes yet — visible to your team only.
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -939,7 +1125,12 @@ export default function InboundPoDetailPage() {
                         {grnStatus.label !== "—" ? (
                           <Badge
                             variant="outline"
-                            className={cn("w-fit text-[10px]", grnStatus.className)}
+                            className={cn(
+                              "w-fit text-[10px]",
+                              grnStatus.className,
+                              grnStatus.help && "cursor-help"
+                            )}
+                            title={grnStatus.help}
                           >
                             {grnStatus.label}
                           </Badge>
@@ -1003,13 +1194,21 @@ export default function InboundPoDetailPage() {
 
           {/* ── SKU lines (full width) ── */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-foreground text-sm font-semibold">
-                SKU Lines
-              </h2>
-              <Badge variant="secondary" className="text-xs">
-                {bundle.lines.length}
-              </Badge>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-foreground text-sm font-semibold">
+                  SKU Lines
+                </h2>
+                <Badge variant="secondary" className="text-xs">
+                  {bundle.lines.length}
+                </Badge>
+              </div>
+              <Link
+                href={`/inbound/vendors/${encodeURIComponent(vendorId)}?tab=listings`}
+                className="text-primary text-xs font-medium underline-offset-4 hover:underline"
+              >
+                Vendor SKU list →
+              </Link>
             </div>
 
             {bundle.lines.length === 0 ? (
@@ -1017,97 +1216,125 @@ export default function InboundPoDetailPage() {
                 No line items ingested for this PO.
               </p>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {bundle.lines.map((line) => {
-                  const sku =
-                    line.sku_id ??
-                    (pick(line.raw, ["sku_id", "skuId"]) !== "—"
-                      ? pick(line.raw, ["sku_id", "skuId"])
-                      : "—");
-                  const L =
-                    sku !== "—" ? listingBySku.get(sku) ?? null : null;
-                  const img = listingImageUrl(L);
-                  const title =
-                    sku !== "—"
-                      ? nameBySku.get(sku) ??
-                        pick(L ?? {}, ["description", "title"])
-                      : "—";
-                  return (
-                    <Card
-                      key={line.line_index}
-                      className="border-primary/10 overflow-hidden"
-                    >
-                      <div className="flex gap-3 p-3">
-                        <div className="bg-muted relative size-16 shrink-0 overflow-hidden rounded-md">
-                          {img ? (
-                            <img
-                              src={img}
-                              alt=""
-                              className="size-full object-cover"
-                            />
-                          ) : (
-                            <div className="text-muted-foreground flex size-full items-center justify-center">
-                              <Package className="size-6 opacity-40" />
-                            </div>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1 space-y-1 text-sm">
-                          <p className="font-mono text-xs font-medium truncate">
-                            {sku}
-                          </p>
-                          {title !== "—" ? (
-                            <p className="text-muted-foreground line-clamp-1 text-xs">
-                              {title}
-                            </p>
-                          ) : null}
-                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
-                            <span className="text-muted-foreground">
-                              Required
-                            </span>
-                            <span>
+              <Card className="overflow-hidden p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-muted-foreground text-[11px] uppercase tracking-wide">
+                        <th className="px-3 py-2.5 text-left font-medium">
+                          SKU
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          Required
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          Received
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          Accepted
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          Rejected
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {bundle.lines.map((line) => {
+                        const sku =
+                          line.sku_id ??
+                          (pick(line.raw, ["sku_id", "skuId"]) !== "—"
+                            ? pick(line.raw, ["sku_id", "skuId"])
+                            : "—");
+                        const lineListing = asRecord(
+                          (line.raw as JsonRecord | undefined)?.listing
+                        );
+                        const L =
+                          (sku !== "—" ? listingBySku.get(sku) ?? null : null) ??
+                          lineListing ??
+                          (line.raw as JsonRecord | undefined) ??
+                          null;
+                        const img = listingImageUrl(L);
+                        const title =
+                          sku !== "—"
+                            ? nameBySku.get(sku) ??
+                              pick(L ?? {}, ["description", "title"])
+                            : "—";
+                        return (
+                          <tr
+                            key={line.line_index}
+                            className="hover:bg-muted/30 transition-colors"
+                          >
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-3">
+                                <div className="bg-muted relative size-10 shrink-0 overflow-hidden rounded-md">
+                                  {img ? (
+                                    <img
+                                      src={img}
+                                      alt=""
+                                      className="size-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="text-muted-foreground flex size-full items-center justify-center">
+                                      <Package className="size-5 opacity-40" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  {sku !== "—" ? (
+                                    <Link
+                                      href={`/listings/${encodeURIComponent(sku)}`}
+                                      className="text-primary font-mono text-xs font-medium truncate underline-offset-2 hover:underline"
+                                    >
+                                      {sku}
+                                    </Link>
+                                  ) : (
+                                    <p className="font-mono text-xs font-medium truncate">
+                                      {sku}
+                                    </p>
+                                  )}
+                                  {title !== "—" ? (
+                                    <p className="text-muted-foreground line-clamp-1 text-xs">
+                                      {title}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums">
                               {numStr(line.raw, [
                                 "quantity",
                                 "ordered_quantity",
                                 "orderedQuantity",
                                 "po_quantity",
                               ])}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Received
-                            </span>
-                            <span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right tabular-nums">
                               {numStr(line.raw, [
                                 "received_quantity",
                                 "receivedQuantity",
                                 "invoice_quantity",
                                 "invoiceQuantity",
                               ])}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Accepted
-                            </span>
-                            <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
                               {numStr(line.raw, [
                                 "accepted_quantity",
                                 "acceptedQuantity",
                               ])}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Rejected
-                            </span>
-                            <span className="font-medium text-red-600 dark:text-red-400">
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-medium tabular-nums text-red-600 dark:text-red-400">
                               {numStr(line.raw, [
                                 "rejected_quantity",
                                 "rejectedQuantity",
                               ])}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             )}
           </div>
 
@@ -1343,5 +1570,6 @@ export default function InboundPoDetailPage() {
         </>
       ) : null}
     </div>
+    </TooltipProvider>
   );
 }
