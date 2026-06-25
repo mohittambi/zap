@@ -56,11 +56,17 @@ import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   CircleHelp,
+  ClipboardList,
   Download,
   FileText,
+  Files,
+  PackageCheck,
   PanelRightOpen,
   Plus,
+  ReceiptText,
+  ScrollText,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import { formatGrnLabel } from "@/lib/idDisplay";
@@ -2773,25 +2779,54 @@ export default function InboundGrnDetailPage() {
               initReceiptItems(bundle.grn_items);
             }}
           >
-            <TabsList
-              variant="line"
-              className="mb-2 w-full flex-wrap justify-start sm:w-auto"
-            >
-              <TabsTrigger value="details">GRN Details</TabsTrigger>
-              <TabsTrigger value="documents">GRN Documents</TabsTrigger>
-              <TabsTrigger value="logs">GRN Logs</TabsTrigger>
+            <TabsList className="mb-4 flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1.5 [scrollbar-width:none] sm:w-fit [&::-webkit-scrollbar]:hidden">
+              <TabsTrigger
+                value="details"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+              >
+                <ClipboardList />
+                GRN Details
+              </TabsTrigger>
+              <TabsTrigger
+                value="documents"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+              >
+                <Files />
+                GRN Documents
+              </TabsTrigger>
+              <TabsTrigger
+                value="logs"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+              >
+                <ScrollText />
+                GRN Logs
+              </TabsTrigger>
               <TabsTrigger
                 value="audit"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
                 onClick={() => {
                   if (!row) return;
                   if (!auditLines) loadAuditPreview(row.grn_id);
                   void loadDebitNote(row.grn_id);
                 }}
               >
+                <ReceiptText />
                 Audit &amp; Debit Note
               </TabsTrigger>
-              <TabsTrigger value="accounts">Accounts</TabsTrigger>
-              <TabsTrigger value="inventory">Inventory Receipt</TabsTrigger>
+              <TabsTrigger
+                value="accounts"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+              >
+                <Wallet />
+                Accounts
+              </TabsTrigger>
+              <TabsTrigger
+                value="inventory"
+                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+              >
+                <PackageCheck />
+                Inventory Receipt
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="details" className="mt-4 space-y-6">
