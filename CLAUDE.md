@@ -4,7 +4,9 @@
 
 ## Hard rule
 
-**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, the PO/GRN id allocator, or the GRN pending-queue tables, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes 10 rules learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, ambiguous vendor names, and GRNs that never reach the right queue page.
+**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, the PO/GRN id allocator, GRN pending-queue tables, or inbound quantity rollups, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes **13 rules** learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, ambiguous vendor names, GRNs that never reach the right queue page, and PO summary cards stuck at zero.
+
+For inbound PO/GRN calibration specifically, also read [`.cursor/skills/inbound-workflow-calibration/SKILL.md`](.cursor/skills/inbound-workflow-calibration/SKILL.md).
 
 ## Doctrine TL;DR
 
@@ -18,6 +20,9 @@
 8. **Zap UI never writes to eAutomate** — except outbound consignment creation. One exception, no more.
 9. **Optimistic UI updates.** Render local state immediately; persist follows; roll back on failure.
 10. **Workflow ownership.** Once a record exists in zap, its state transitions and pending-queue membership are owned by zap. Status mutators must INSERT into the next queue + DELETE from the previous one in the same transaction; sync scripts scope queue writes to `source = 'eautomate'`.
+11. **Reports/exports use canonical tables.** CSV/Excel/PDF must read `inbound_grns`, `inbound_grn_items`, `vendor_purchase_orders` — not snapshot-only for Zap POs.
+12. **GRN header aggregates match line items.** Call `recalculateGrnAndPoHeaderTotals` after line writes; migration `071` backfills.
+13. **PO summary totals roll up from GRNs (Zap source).** `recalculatePoHeaderTotals` for `source='zap'` only; migration `072` backfills; sync must not clobber Zap rollups.
 
 ## When you add a new entity that ops can create in zap AND that exists in eAutomate
 
@@ -49,6 +54,8 @@ Before merging any change that adds or modifies an API route, file upload, exter
 
 Security tests live in `web/tests/unit/security-*.test.ts`. Add coverage when introducing new guards.
 
+**Inbound calibration tests** (doctrine #12–#13): `grn-header-totals.test.ts`, `po-header-totals.test.ts`, `inbound-po-cancel-guard.test.ts`, `migrations-parity.test.mjs`. See the inbound skill for the full test bar.
+
 ## Tests
 
 - Unit tests live in `web/tests/unit/*.test.ts` and run with `npm run test:unit`.
@@ -57,6 +64,7 @@ Security tests live in `web/tests/unit/security-*.test.ts`. Add coverage when in
 
 ## See also
 
-- [docs/zap-doctrine.md](../docs/zap-doctrine.md) — the canonical doctrine
+- [docs/zap-doctrine.md](../docs/zap-doctrine.md) — the canonical doctrine (13 rules)
+- [.cursor/skills/inbound-workflow-calibration/SKILL.md](.cursor/skills/inbound-workflow-calibration/SKILL.md) — inbound PO/GRN calibration, rollups, cancel guard
 - [web/docs/architecture/hld.md](docs/architecture/hld.md) — high-level design
 - [web/docs/current-system/workflows.md](docs/current-system/workflows.md) — runtime flow diagrams

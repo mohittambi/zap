@@ -2,7 +2,7 @@
 
 ## Location
 
-Ordered SQL files: `web/migrations/*.sql` (numbered `001_` … `071_` as of 2026-06-25).
+Ordered SQL files: `web/migrations/*.sql` (numbered `001_` … `072_` as of 2026-06-25).
 
 The canonical runner is [`web/scripts/run_migrations.sh`](../../scripts/run_migrations.sh). **Every** new `NNN_*.sql` file must be appended to that script in order.
 
@@ -42,7 +42,7 @@ Included in `npm run test:unit`.
 
 ### Adding migration `072+`
 
-1. Create `web/migrations/071_your_change.sql`.
+1. Create `web/migrations/072_your_change.sql`.
 2. Append the path to the `for f in …` loop in `run_migrations.sh`.
 3. Run `npm run verify:migrations` — it must pass before merge.
 4. Run `npm run migrate` against dev/staging.
@@ -60,6 +60,15 @@ Included in `npm run test:unit`.
 | `admin_audit_log` | Admin action audit trail |
 
 Application code for these features lives under `web/src/server/auth.ts`, `web/src/middleware.ts`, `web/src/server/services/adminAuditService.ts`, etc. Security unit tests: `web/tests/unit/security-*.test.ts`.
+
+## Inbound calibration migrations `071` / `072`
+
+| Migration | Rule | What it backfills |
+|-----------|------|-------------------|
+| `071_recalculate_grn_header_totals.sql` | Doctrine #12 | `inbound_grns` quantity columns from `inbound_grn_items` |
+| `072_recalculate_po_header_totals.sql` | Doctrine #13 | Zap `vendor_purchase_orders` summary totals from `inbound_grns` |
+
+Runtime: `recalculateGrnAndPoHeaderTotals` in `grnHeaderTotalsService.ts`. Documented in [business/workflows/inbound-field-calibration.md](../business/workflows/inbound-field-calibration.md) and the [inbound-workflow-calibration skill](../../.cursor/skills/inbound-workflow-calibration/SKILL.md).
 
 ## Rules
 

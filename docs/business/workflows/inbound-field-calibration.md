@@ -2,6 +2,32 @@
 
 **Purpose:** For every displayed inbound field, define source of truth, writer, recompute trigger, and UI location.
 
+**Doctrine:** rules #12 (GRN headers) and #13 (PO summary rollups) in [docs/zap-doctrine.md](../../../../docs/zap-doctrine.md).  
+**AI skill:** [`.cursor/skills/inbound-workflow-calibration/SKILL.md`](../../../.cursor/skills/inbound-workflow-calibration/SKILL.md).  
+**Visual flow:** [/flows](/flows) → GRN Totals & PO Calibration.
+
+---
+
+## Data calibration stack
+
+```mermaid
+flowchart TD
+    items["inbound_grn_items.raw"] --> grnRecalc["recalculateGrnHeaderTotals"]
+    grnRecalc --> grnHeader["inbound_grns header totals"]
+    grnHeader --> poRecalc["recalculatePoHeaderTotals"]
+    poRecalc --> poHeader["vendor_purchase_orders summary"]
+    poHeader --> poCards["PO detail summary cards"]
+    grnHeader --> grnCards["PO detail GRN cards"]
+```
+
+| Layer | Table | Zap PO | eAutomate PO |
+|-------|-------|--------|--------------|
+| Lines | `inbound_grn_items` | Warehouse PATCH | Same + sync seed |
+| GRN header | `inbound_grns` | Derived from lines | Derived from lines; sync may seed |
+| PO summary | `vendor_purchase_orders` | Derived from GRNs | From `sync-eautomate-vendor-pos.mjs` |
+
+**Orchestrator:** `recalculateGrnAndPoHeaderTotals(grnId)` — call after every line write.
+
 ---
 
 ## GRN header (`inbound_grns`)
@@ -41,12 +67,27 @@ Line seed: `seedGrnItemsFromPoDetailLinesIfEmpty` — from `vendor_purchase_orde
 
 | Field | Zap PO | eAutomate PO |
 |-------|--------|--------------|
-| `sku_count`, `total_quantity` | Canonical PO lines | Canonical + snapshot |
-| `total_invoice_quantity`, fill rates | Snapshot/sync | Often from sync |
+| `sku_count`, `total_quantity` | Canonical PO lines | Canonical + sync |
+| `number_of_grns`, `total_invoice_quantity`, `total_accepted_quantity`, `total_rejected_quantity` | Rollup from `inbound_grns` via `recalculatePoHeaderTotals` | From eAutomate sync |
+| `quantity_fill_rate` | `accepted ÷ ordered × 100` (0–100%) | From sync |
+| `sku_fill_rate` | SKUs with any accepted qty ÷ `sku_count` × 100 | From sync |
 | `source` | `zap` | `eautomate` |
 | `zap_status` | Cancel overlay in `po_raw` | Optional |
 
-**Known gap:** PO summary cards (`total_received_qty`, fill rates) may not roll up from Zap GRNs until a future PO-level rollup. GRN cards on the PO page use recalibrated `inbound_grns` headers.
+**Rule (doctrine #13):** Zap PO summary cards must match Σ linked GRN headers after every GRN write. eAutomate sync must not overwrite Zap rollups (`WHERE source = 'eautomate'` on PO list UPSERT).
+
+### PO summary card UI (`/inbound/vendors/[id]/purchase-orders/[poId]`)
+
+| Card label | Header field |
+|------------|--------------|
+| Total SKUs | `sku_count` (ordered; not rolled up) |
+| Total required qty | `total_quantity` (ordered; not rolled up) |
+| Total received qty | `total_invoice_quantity` |
+| Total rejected qty | `total_rejected_quantity` |
+| SKU fill rate | `sku_fill_rate` |
+| Quantity fill rate | `quantity_fill_rate` |
+
+Fill rates: 0–100% stored values; `quantity_fill_rate = accepted ÷ ordered`; `sku_fill_rate = SKUs with any acceptance ÷ sku_count`.
 
 ---
 
@@ -65,12 +106,15 @@ Reads merged bundle from `getPoDetailsBundle` → `mergePoGrnSources`:
 | Path | Header quantities |
 |------|-------------------|
 | `sync-eautomate-grns.mjs` | Upserts from upstream API |
-| Zap line edit | `recalculateGrnHeaderTotals` overwrites from items |
-| Migration `071` | One-time backfill for existing rows |
+| Zap line edit | `recalculateGrnAndPoHeaderTotals` overwrites GRN + Zap PO headers |
+| Migration `071` | One-time GRN header backfill |
+| Migration `072` | One-time Zap PO summary backfill |
 
 ---
 
 ## Related
 
 - [inbound-po-grn-workflow.md](inbound-po-grn-workflow.md)
-- [docs/zap-doctrine.md](../../../../docs/zap-doctrine.md)
+- [inbound-activity-log.md](inbound-activity-log.md)
+- [docs/zap-doctrine.md](../../../../docs/zap-doctrine.md) (rules #12–#13)
+- [inbound-workflow-calibration skill](../../../.cursor/skills/inbound-workflow-calibration/SKILL.md)

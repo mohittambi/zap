@@ -65,9 +65,32 @@ eAutomate-imported GRNs may arrive with statuses already set; Zap still drives f
 
 ## Confirmations (standard)
 
-Destructive or terminal actions use an explicit confirmation dialog in the web UI. The API enforces the same business rules server-side.
+Destructive or terminal actions use an explicit confirmation dialog (`AlertDialog` or dedicated confirm UI) — not `window.confirm`. The API enforces the same business rules server-side.
+
+| Action | Who | UI | Server |
+|--------|-----|-----|--------|
+| Close GRN | Warehouse | Confirm on GRN detail | Invoice required; status OPEN |
+| Mark audit closed | Admin | Confirm on pending audits / GRN | Lines locked after |
+| Accounts approve/reject | Admin | Confirm | Queue transition |
+| Cancel PO | Procurement | Confirm; disabled when blocked | `assertPoCancellable` → 409 |
+| Force regenerate debit note | Accounts | `AlertDialog` on GRN detail | Validation |
+| Register operational GRN id | Warehouse | `AlertDialog` on GRN detail | DRAFT_ZAP only |
 
 See also: [inbound-activity-log.md](inbound-activity-log.md), [inbound-field-calibration.md](inbound-field-calibration.md).
+
+---
+
+## Data calibration (Zap POs)
+
+Warehouse line edits on a GRN flow through Postgres in this order:
+
+1. `inbound_grn_items` — canonical line quantities
+2. `inbound_grns` — GRN card totals (`recalculateGrnHeaderTotals`)
+3. `vendor_purchase_orders` — PO summary KPIs (`recalculatePoHeaderTotals`, Zap source only)
+
+**KPI definitions:** `quantity_fill_rate` = accepted qty ÷ ordered qty (percentage). `sku_fill_rate` = count of SKUs with any accepted qty ÷ total SKUs on the PO (percentage). Values match eAutomate semantics.
+
+Visual flow: [Process flows UI](/flows) → **GRN Totals & PO Calibration**.
 
 ---
 

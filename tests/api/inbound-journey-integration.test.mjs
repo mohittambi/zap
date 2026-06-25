@@ -759,6 +759,27 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     assert.ok(r.status === 200 || r.status === 422, `expected 200 or 422, got ${r.status}`);
   });
 
+  it("Zap PO details header shows rollup totals from linked GRNs", async () => {
+    if (!(await requireFixture())) return;
+    const r = await api(
+      `/api/inbound/vendors/${INBOUND_JOURNEY_VENDOR_ID}/purchase-orders/${INBOUND_JOURNEY_ZAP_REPORT_PO_ID}/details`
+    );
+    if (r.status === 503) return skip("server unreachable");
+    if (r.status !== 200) {
+      skip(`Zap report PO ${INBOUND_JOURNEY_ZAP_REPORT_PO_ID} missing — re-run fixture`);
+      return;
+    }
+    const bundle = await r.json();
+    const header = bundle?.header;
+    assert.ok(header, "details bundle should include header");
+    assert.equal(header.source, "zap");
+    assert.ok(Number(header.total_invoice_quantity) >= 12, "total_invoice_quantity should roll up from GRN");
+    assert.ok(Number(header.total_accepted_quantity) >= 10, "total_accepted_quantity should roll up from GRN");
+    assert.ok(Number(header.number_of_grns) >= 1, "number_of_grns should reflect linked GRNs");
+    assert.ok(Number(header.quantity_fill_rate) > 0, "quantity_fill_rate should be non-zero when accepted qty exists");
+    assert.ok(Number(header.sku_fill_rate) > 0, "sku_fill_rate should be non-zero when SKUs have acceptance");
+  });
+
   it("PATCH cancel PO returns 409 when a CLOSED GRN exists on the PO", async () => {
     if (!(await requireFixture())) return;
     const probe = await api(

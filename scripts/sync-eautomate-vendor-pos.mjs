@@ -143,7 +143,8 @@ async function upsertPo(client, row) {
       total_accepted_quantity = EXCLUDED.total_accepted_quantity,
       total_rejected_quantity = EXCLUDED.total_rejected_quantity,
       sku_fill_rate = EXCLUDED.sku_fill_rate,
-      quantity_fill_rate = EXCLUDED.quantity_fill_rate`,
+      quantity_fill_rate = EXCLUDED.quantity_fill_rate
+    WHERE vendor_purchase_orders.source = 'eautomate'`,
     [
       poId,
       vendorId,

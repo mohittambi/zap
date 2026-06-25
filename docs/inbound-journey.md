@@ -95,7 +95,7 @@ Automated coverage map: [inbound-journey-api-test-matrix.md](inbound-journey-api
 - [business/workflows/inbound-field-calibration.md](business/workflows/inbound-field-calibration.md)
 - [business/workflows/inbound-activity-log.md](business/workflows/inbound-activity-log.md)
 
-**GRN header totals:** quantity fields on `inbound_grns` are derived from `inbound_grn_items` on every write (migration `071` backfills existing rows). PO cancel is blocked once receipt has started.
+**GRN header totals:** quantity fields on `inbound_grns` are derived from `inbound_grn_items` on every write (migration `071` backfills existing rows). **PO summary KPIs** on Zap POs roll up from those GRN headers (migration `072`). PO cancel is blocked once receipt has started. Visual calibration flow: [/flows](/flows).
 
 ```bash
 cd web
@@ -118,3 +118,6 @@ npx tsx --test tests/api/inbound-journey-integration.test.mjs
 | End-to-end narrative | [business/workflows/end-to-end-flows.md](business/workflows/end-to-end-flows.md) (Workflow 1) |
 | Mobile parity | [mobile/inbound-grn-flow-parity.md](mobile/inbound-grn-flow-parity.md) |
 | Documentation index | [README.md](README.md) |
+| Doctrine (rules #12–#13) | [docs/zap-doctrine.md](../../../docs/zap-doctrine.md) |
+| Inbound calibration skill | [.cursor/skills/inbound-workflow-calibration/SKILL.md](../../.cursor/skills/inbound-workflow-calibration/SKILL.md) |
+| Process flows UI | [/flows](/flows) |

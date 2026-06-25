@@ -7,6 +7,7 @@ import {
   SHORT_QTY_KEYS,
   sqlPickQtyFromRaw,
 } from "@/lib/inboundGrnQuantities";
+import { recalculatePoHeaderTotals } from "@/server/services/poHeaderTotalsService";
 
 export { computeGrnHeaderTotalsFromItems } from "@/lib/inboundGrnQuantities";
 export type { GrnHeaderTotals } from "@/lib/inboundGrnQuantities";
@@ -56,6 +57,31 @@ export async function recalculateGrnHeaderTotals(
     await runner.query(RECALC_SQL, [grnId]);
   } else {
     await query(RECALC_SQL, [grnId]);
+  }
+}
+
+async function poIdForGrn(grnId: number, client?: PoolClient): Promise<number | null> {
+  const sql = `SELECT po_id FROM inbound_grns WHERE grn_id = $1`;
+  const r = client
+    ? await client.query(sql, [grnId])
+    : await query(sql, [grnId]);
+  if (r.rows.length === 0) return null;
+  const poId = Number(r.rows[0].po_id);
+  return Number.isFinite(poId) && poId > 0 ? poId : null;
+}
+
+/** Recompute GRN header totals, then roll up to the parent Zap PO summary cards. */
+export async function recalculateGrnAndPoHeaderTotals(
+  grnIdRaw: unknown,
+  client?: PoolClient
+): Promise<void> {
+  const grnId = Number(grnIdRaw);
+  if (!Number.isFinite(grnId) || grnId === 0) return;
+
+  await recalculateGrnHeaderTotals(grnId, client);
+  const poId = await poIdForGrn(grnId, client);
+  if (poId != null) {
+    await recalculatePoHeaderTotals(poId, client);
   }
 }
 

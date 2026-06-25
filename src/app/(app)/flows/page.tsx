@@ -160,6 +160,29 @@ Reverse copy uploaded"]
     REV_NOTE --> SETTLED
 `;
 
+const GRN_PO_CALIBRATION = `
+flowchart TD
+    grnLineEdit["Warehouse edits GRN line quantities"] --> grnItems["inbound_grn_items"]
+    grnItems --> grnRecalc["recalculateGrnHeaderTotals"]
+    grnRecalc --> grnHeader["inbound_grns header totals"]
+    grnHeader --> poRecalc["recalculatePoHeaderTotals"]
+    poRecalc --> poHeader["vendor_purchase_orders summary totals"]
+    poHeader --> poPage["PO detail summary cards"]
+    grnHeader --> grnCards["GRN cards on PO detail"]
+`;
+
+const PO_CANCEL_GUARD = `
+flowchart TD
+    cancelClick["User clicks Cancel PO"] --> loadGrns["Load GRNs linked to PO"]
+    loadGrns --> anyGrn{Any GRN OPEN or CLOSED?}
+    anyGrn -->|Yes| blockReceipt["Block: receipt started"]
+    anyGrn -->|No| auditCheck{Audit or accounts progressed?}
+    auditCheck -->|Yes| blockWorkflow["Block: workflow progressed"]
+    auditCheck -->|No| qtyCheck{Any receipt quantities recorded?}
+    qtyCheck -->|Yes| blockQty["Block: quantities on file"]
+    qtyCheck -->|No| allowCancel["Allow cancel — API + UI"]
+`;
+
 const INVOICE_COLLECT_FLOW = `
 flowchart TD
     AUDIT_DONE["Audit closed
@@ -787,8 +810,9 @@ export default function InboundFlowsPage() {
       <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
         <span className="font-medium">PO cancel &amp; GRN totals:</span> cancel a PO only before goods receipt
         starts (no OPEN/CLOSED GRN). GRN header quantities (SKU count, accepted, rejected, shortage) are always
-        derived from line items in <code className="text-[11px]">inbound_grn_items</code>. Modify PO updates
-        internal notes only. Confirm before close GRN, close audit, accounts decision, or PO cancel.
+        derived from line items in <code className="text-[11px]">inbound_grn_items</code>; Zap PO summary cards
+        (received qty, fill rates) roll up from those GRN headers. Modify PO updates internal notes only.
+        Confirm before close GRN, close audit, accounts decision, or PO cancel.
       </div>
 
       <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
@@ -809,6 +833,32 @@ export default function InboundFlowsPage() {
           defaultOpen
         >
           <MermaidDiagram chart={GRN_LIFECYCLE} />
+        </AccordionSection>
+
+        <AccordionSection
+          group="inbound"
+          title="GRN Totals & PO Calibration"
+          description="How warehouse line edits flow into GRN cards and PO summary KPIs on the purchase order page. Zap PO totals are derived in Postgres; eAutomate PO totals stay on sync."
+          badge="recalculateGrnHeaderTotals · recalculatePoHeaderTotals"
+          badgeVariant="outline"
+        >
+          <MermaidDiagram chart={GRN_PO_CALIBRATION} />
+          <p className="text-muted-foreground mt-4 text-xs leading-relaxed">
+            <span className="font-medium text-foreground">KPI definitions (Zap POs):</span>{" "}
+            <code className="text-[11px]">quantity_fill_rate</code> = accepted qty ÷ ordered qty (0–100%).
+            <code className="text-[11px]"> sku_fill_rate</code> = SKUs with any accepted qty ÷ total SKUs on the PO.
+            Fill rates match eAutomate semantics; values are stored as percentages for the UI bars.
+          </p>
+        </AccordionSection>
+
+        <AccordionSection
+          group="inbound"
+          title="PO Cancel Guard"
+          description="Business checks before a PO can be cancelled. Enforced in the API (409) and disabled in the UI with a tooltip reason."
+          badge="assertPoCancellable"
+          badgeVariant="outline"
+        >
+          <MermaidDiagram chart={PO_CANCEL_GUARD} />
         </AccordionSection>
 
         <AccordionSection

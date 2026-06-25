@@ -90,6 +90,8 @@ Step 7: Records closed in Zap
 
 ### GRN totals on the PO page
 - SKU count and accepted/rejected/shortage on each GRN card are rolled up from line items and kept in sync whenever quantities change
+- **PO summary cards** (total received, rejected, fill rates) roll up from linked GRN headers for Zap-created POs; see [/flows](/flows) for the calibration diagram
+- Full field map: [inbound-field-calibration.md](../../business/workflows/inbound-field-calibration.md) · engineer skill: [inbound-workflow-calibration](../../../.cursor/skills/inbound-workflow-calibration/SKILL.md)
 
 ### Upload documents
 - Attach vendor invoices directly to a GRN
