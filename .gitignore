@@ -23,6 +23,9 @@
 # outbound PO uploads (created at runtime)
 /uploads
 
+# listing image migration logs (migrate-listing-images-to-storage.mjs)
+/logs/listing-image-migrate-*
+
 # misc
 .DS_Store
 *.pem

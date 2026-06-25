@@ -73,8 +73,8 @@ Zap tracks inventory across multiple warehouses. For each SKU you can see:
 - Linked inbound and outbound POs
 
 ### Edit product details
-- Update dimensions, pricing, images, bin location, or other fields
-- Changes are logged with the user and timestamp
+- Update dimensions, pricing, bin location, or other fields where the API allows
+- Product images: five URL slots per SKU (`img_hd`, `img_white`, etc.). **Today** these are synced from eAutomate/CDN. **Planned:** all images hosted in Zap Storage (see [listing-image-storage skill](../../.cursor/skills/listing-image-storage/SKILL.md) — built, not yet activated).
 
 ### Export listings
 - Download a filtered set of listings to Excel

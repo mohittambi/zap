@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mergePoGrnSources } from "../../src/server/services/eautomatePoDetailsIngestService";
+import { mergePoGrnSources, mergeGrnReceiptIntoPoLines } from "../../src/server/services/eautomatePoDetailsIngestService";
 
 /**
  * mergePoGrnSources combines two zap-side tables into the unified GRN list
@@ -176,5 +176,41 @@ describe("mergePoGrnSources", () => {
     );
     assert.strictEqual(out.length, 1);
     assert.strictEqual(out[0].grn_id, 42);
+  });
+});
+
+describe("mergeGrnReceiptIntoPoLines", () => {
+  it("merges canonical GRN receipt totals into zap PO line raw", () => {
+    const lines = [
+      {
+        sku_id: "CTEALIGHT_LEMON_SO10",
+        raw: { sku_id: "CTEALIGHT_LEMON_SO10", quantity: 2000 },
+      },
+    ];
+    const receipt = new Map([
+      [
+        "CTEALIGHT_LEMON_SO10",
+        {
+          received_quantity: 2000,
+          accepted_quantity: 1800,
+          rejected_quantity: 200,
+          shortage_quantity: 0,
+        },
+      ],
+    ]);
+    const out = mergeGrnReceiptIntoPoLines(lines, receipt);
+    assert.strictEqual(out.length, 1);
+    const raw = out[0].raw as Record<string, unknown>;
+    assert.strictEqual(raw.quantity, 2000);
+    assert.strictEqual(raw.invoice_quantity, 2000);
+    assert.strictEqual(raw.received_quantity, 2000);
+    assert.strictEqual(raw.accepted_quantity, 1800);
+    assert.strictEqual(raw.rejected_quantity, 200);
+  });
+
+  it("leaves lines unchanged when no receipt exists for sku", () => {
+    const lines = [{ sku_id: "UNKNOWN", raw: { quantity: 5 } }];
+    const out = mergeGrnReceiptIntoPoLines(lines, new Map());
+    assert.deepStrictEqual(out, lines);
   });
 });

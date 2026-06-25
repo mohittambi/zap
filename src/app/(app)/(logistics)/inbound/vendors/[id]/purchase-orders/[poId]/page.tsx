@@ -13,6 +13,7 @@ import {
   Package,
   Download,
   Plus,
+  MoreHorizontal,
 } from "lucide-react";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { formatGrnLabel, formatPoLabel } from "@/lib/idDisplay";
@@ -25,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -35,6 +37,12 @@ import {
   isZapCancelled as deriveIsZapCancelled,
   numberStringOrDash,
 } from "@/lib/inboundPoDetailUi";
+import {
+  applyInvoiceBoxCountChange,
+  buildPoLinePreviewRows,
+  initialNewGrnBoxFieldState,
+  mergeActualBoxCountChange,
+} from "@/lib/inboundNewGrnModal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FillRateBar } from "@/components/ui/fill-rate-bar";
@@ -276,6 +284,7 @@ export default function InboundPoDetailPage() {
   const [newGrnInvoice, setNewGrnInvoice] = React.useState("");
   const [newGrnBoxInvoice, setNewGrnBoxInvoice] = React.useState("");
   const [newGrnActualBox, setNewGrnActualBox] = React.useState("");
+  const [newGrnActualBoxManual, setNewGrnActualBoxManual] = React.useState(false);
   const [newGrnBusy, setNewGrnBusy] = React.useState(false);
 
   const newGrnCanSubmit =
@@ -432,10 +441,38 @@ export default function InboundPoDetailPage() {
   };
 
   const openNewGrn = () => {
+    const initial = initialNewGrnBoxFieldState();
     setNewGrnInvoice("");
-    setNewGrnBoxInvoice("");
-    setNewGrnActualBox("");
+    setNewGrnBoxInvoice(initial.boxInvoice);
+    setNewGrnActualBox(initial.boxActual);
+    setNewGrnActualBoxManual(initial.actualBoxManuallyEdited);
     setNewGrnOpen(true);
+  };
+
+  const onNewGrnInvoiceBoxChange = (value: string) => {
+    const next = applyInvoiceBoxCountChange(value, {
+      boxActual: newGrnActualBox,
+      actualBoxManuallyEdited: newGrnActualBoxManual,
+    });
+    setNewGrnBoxInvoice(next.boxInvoice);
+    setNewGrnActualBox(next.boxActual);
+  };
+
+  const onNewGrnActualBoxChange = (value: string) => {
+    const next = mergeActualBoxCountChange(value, {
+      boxInvoice: newGrnBoxInvoice,
+      actualBoxManuallyEdited: newGrnActualBoxManual,
+    });
+    setNewGrnActualBox(next.boxActual);
+    setNewGrnActualBoxManual(next.actualBoxManuallyEdited);
+  };
+
+  const resetNewGrnModal = () => {
+    const initial = initialNewGrnBoxFieldState();
+    setNewGrnInvoice("");
+    setNewGrnBoxInvoice(initial.boxInvoice);
+    setNewGrnActualBox(initial.boxActual);
+    setNewGrnActualBoxManual(initial.actualBoxManuallyEdited);
   };
 
   const submitNewGrn = async () => {
@@ -477,6 +514,10 @@ export default function InboundPoDetailPage() {
   const snap = bundle?.snapshot;
   const header = bundle?.header;
   const poRaw = snap?.po_raw ?? {};
+  const newGrnLinePreview = React.useMemo(
+    () => buildPoLinePreviewRows(bundle?.lines ?? []),
+    [bundle?.lines]
+  );
   const nameBySku = React.useMemo(
     () => buildSkuNameMap(snap?.sku_names_raw),
     [snap?.sku_names_raw]
@@ -544,18 +585,58 @@ export default function InboundPoDetailPage() {
   const createdAtStr = header?.created_at ?? null;
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" asChild>
-          <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}?tab=purchase-orders`}>
-            ← Purchase orders
-          </Link>
-        </Button>
-        <Button type="button" variant="outline" size="sm" asChild>
-          <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}>
-            Vendor {vendorId}
-          </Link>
-        </Button>
+    <div className="mx-auto max-w-[1600px] space-y-5 px-2 py-4 md:px-4">
+      {/* ── Top bar: breadcrumbs + title + actions ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" asChild>
+            <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}?tab=purchase-orders`}>
+              ← Purchase orders
+            </Link>
+          </Button>
+          <Button type="button" variant="outline" size="sm" asChild>
+            <Link href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}>
+              Vendor {vendorId}
+            </Link>
+          </Button>
+        </div>
+
+        {!loading && bundle && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={actionBusy}>
+                  <MoreHorizontal className="size-4" />
+                  Actions
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={() => void downloadPoDocument("pdf")}>
+                <FileText className="mr-2 size-3.5" />
+                Download PO as PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void downloadPoDocument("xlsx")}>
+                <FileText className="mr-2 size-3.5" />
+                Download PO as Excel
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={openModify}>
+                <Pencil className="mr-2 size-3.5" />
+                Modify PO notes
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!poCancelAllowed}
+                onClick={() => setCancelOpen(true)}
+                className="text-destructive focus:text-destructive"
+              >
+                <XCircle className="mr-2 size-3.5" />
+                Cancel PO
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <AppPageTitle
@@ -584,171 +665,295 @@ export default function InboundPoDetailPage() {
 
       {!loading && bundle && snap ? (
         <>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-2">
-              {poStatus !== "—" ? (
-                <Badge
-                  variant="outline"
-                  className={cn("text-xs", statusPublishedClass(poStatus))}
-                >
-                  {poStatus}
-                </Badge>
-              ) : null}
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                <span>
-                  <span className="text-muted-foreground">PO ID:</span>{" "}
-                  <span className="font-mono font-medium">{poId}</span>
-                </span>
-                <span>
-                  <span className="text-muted-foreground">Vendor ID:</span>{" "}
+          {/* ── Header card: status + metadata ── */}
+          <Card className="border-primary/10">
+            <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {poStatus !== "—" ? (
+                    <Badge
+                      variant="outline"
+                      className={cn("text-xs", statusPublishedClass(poStatus))}
+                    >
+                      {poStatus}
+                    </Badge>
+                  ) : null}
+                  <span className="font-mono text-sm font-medium">PO {poId}</span>
+                  <span className="text-muted-foreground text-sm">·</span>
                   <Link
                     href={`/inbound/vendors/${encodeURIComponent(vendorId)}`}
-                    className="text-primary font-mono font-medium underline-offset-4 hover:underline"
+                    className="text-primary text-sm font-medium underline-offset-4 hover:underline"
                   >
-                    {vendorId}
+                    Vendor {vendorId}
                   </Link>
-                </span>
+                </div>
+                <p className="text-sm">
+                  <span className="font-medium">{vendorName}</span>
+                  {location !== "—" && (
+                    <span className="text-muted-foreground"> · {location}</span>
+                  )}
+                </p>
               </div>
+              <div className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs sm:text-right sm:grid-cols-1">
+                <span className="sm:hidden">Expiry</span>
+                <span>Expiry: {formatDt(expiryStr)}</span>
+                <span className="sm:hidden">Created by</span>
+                <span>By {createdBy} · {formatDt(createdAtStr)}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Metric strip ── */}
+          <div>
+            <h2 className="text-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
+              PO Summary
+            </h2>
+            <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-4 xl:grid-cols-8">
+              {[
+                { label: "Total SKUs", value: totalSkus },
+                { label: "Required qty", value: totalReq },
+                { label: "Received qty", value: totalInv },
+                { label: "Rejected qty", value: totalRej },
+              ].map((m) => (
+                <Card key={m.label} className="border-primary/10">
+                  <CardHeader className="px-3 pb-1 pt-2.5">
+                    <CardDescription className="text-[10px] uppercase tracking-wider">
+                      {m.label}
+                    </CardDescription>
+                    <CardTitle className="text-lg font-semibold leading-tight">
+                      {m.value}
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+              ))}
+              {[
+                { label: "SKU fill", value: skuFill },
+                { label: "Qty fill", value: qtyFill },
+              ].map((m) => (
+                <Card key={m.label} className="border-primary/10">
+                  <CardHeader className="px-3 pb-1 pt-2.5">
+                    <CardDescription className="text-[10px] uppercase tracking-wider">
+                      {m.label}
+                    </CardDescription>
+                    <CardTitle className="pt-0.5">
+                      <FillRateBar value={m.value === "—" ? null : Number(m.value)} />
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+              ))}
+              {acceptPct != null && (
+                <Card className="border-primary/10">
+                  <CardHeader className="px-3 pb-1 pt-2.5">
+                    <CardDescription className="text-[10px] uppercase tracking-wider">
+                      Acceptance %
+                    </CardDescription>
+                    <CardTitle className="text-lg font-semibold leading-tight text-emerald-600 dark:text-emerald-400">
+                      {acceptPct}%
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+              )}
+              {rejectPct != null && (
+                <Card className="border-primary/10">
+                  <CardHeader className="px-3 pb-1 pt-2.5">
+                    <CardDescription className="text-[10px] uppercase tracking-wider">
+                      Rejection %
+                    </CardDescription>
+                    <CardTitle className="text-lg font-semibold leading-tight text-red-600 dark:text-red-400">
+                      {rejectPct}%
+                    </CardTitle>
+                  </CardHeader>
+                </Card>
+              )}
+            </div>
+          </div>
+
+          {/* ── GRN section (full width, above SKU lines) ── */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-foreground text-sm font-semibold">
+                  Goods Receipt Notes
+                </h2>
+                <Badge variant="secondary" className="text-xs">
+                  {bundle.grns.length}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="default"
+                  className="gap-1.5"
+                  disabled={actionBusy || newGrnBusy}
+                  onClick={openNewGrn}
+                >
+                  <Plus className="size-3.5" />
+                  Open new GRN
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={actionBusy}
+                  onClick={() => void downloadGrnReport()}
+                >
+                  <Download className="size-3.5" />
+                  GRN report
+                </Button>
+              </div>
+            </div>
+            <p className="text-muted-foreground text-[11px] leading-snug">
+              {header?.source === "zap" ? (
+                <span>GRNs are managed in Zap.</span>
+              ) : (
+                <>
+                  <span>GRN data is supplemented by eAutomate sync via </span>
+                  <code className="text-[10px]">npm run sync:po:details*</code>
+                  <span>.</span>
+                </>
+              )}
+              {latestGrnActivityIso ? (
+                <>
+                  <span> Last activity: </span>
+                  <span className="text-foreground font-medium">
+                    {formatDt(latestGrnActivityIso)}
+                  </span>
+                  <span>.</span>
+                </>
+              ) : (
+                <span> No GRN activity yet.</span>
+              )}
+              {" "}
+              <Link href="/flows" className="text-primary underline-offset-4 hover:underline">
+                Workflow guide
+              </Link>
+            </p>
+
+            {bundle.grns.length === 0 ? (
               <p className="text-muted-foreground text-sm">
-                <span className="text-foreground font-medium">
-                  Vendor name:
-                </span>{" "}
-                {vendorName}
-                {location !== "—" ? (
-                  <>
-                    {" "}
-                    <span className="text-muted-foreground">| Location:</span>{" "}
-                    {location}
-                  </>
-                ) : null}
+                No GRNs linked to this PO yet.
               </p>
-              <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                <span>PO expiry: {formatDt(expiryStr)}</span>
-                <span>PO created by: {createdBy}</span>
-                <span>Creation time: {formatDt(createdAtStr)}</span>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {bundle.grns.map((g) => {
+                  const r = g.raw;
+                  const gid = grnIdFromRow(g);
+                  const isZapBacked = r.zap_origin === "zap" || r.zap_origin === "draft";
+                  const href = gid != null && isZapBacked ? `/inbound/grns/${gid}` : null;
+                  const grnSource: "zap" | "draft" | "eautomate" = isZapBacked
+                    ? (r.zap_origin as "zap" | "draft")
+                    : "eautomate";
+                  const grnLabel =
+                    gid != null ? formatGrnLabel(gid, grnSource) : "—";
+                  return (
+                    <Card key={g.sort_index} className="border-primary/20">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center justify-between text-sm">
+                          {href ? (
+                            <Link
+                              href={href}
+                              className="text-primary underline-offset-4 hover:underline"
+                            >
+                              GRN {grnLabel}
+                            </Link>
+                          ) : (
+                            <span
+                              className="text-foreground"
+                              title={
+                                gid != null
+                                  ? "This GRN exists upstream but has not been imported into zap. Run `npm run sync:grns:all` to enable navigation."
+                                  : "GRN id not available"
+                              }
+                            >
+                              GRN {grnLabel}
+                            </span>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px]",
+                              statusClosedClass(pick(r, ["grn_status", "status"]))
+                            )}
+                          >
+                            {pick(r, ["grn_status", "status"])}
+                          </Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-1.5 text-xs">
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <div>
+                            <p className="text-muted-foreground text-[10px]">Accepted</p>
+                            <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                              {pick(r, ["grn_accepted_quantity", "accepted_quantity"])}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-[10px]">Rejected</p>
+                            <p className="font-medium text-red-600 dark:text-red-400">
+                              {pick(r, ["grn_rejected_quantity", "rejected_quantity"])}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-[10px]">Shortage</p>
+                            <p className="font-medium">
+                              {pick(r, ["grn_shortage_quantity", "shortage_quantity"])}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="border-t pt-1.5 text-muted-foreground space-y-0.5">
+                          <p>
+                            Audit: <span className={statusClosedClass(pick(r, ["grn_audit_status", "audit_status"]))}>{pick(r, ["grn_audit_status", "audit_status"])}</span>
+                          </p>
+                          <p>SKUs: {pick(r, ["grn_sku_count", "sku_count"])}</p>
+                          {pick(r, ["grn_sku_count", "sku_count"]) === "0" &&
+                          ["OPEN", "CLOSED"].includes(
+                            pick(r, ["grn_status", "status"]).toUpperCase()
+                          ) ? (
+                            <p className="text-[10px]">
+                              Totals are derived from GRN line items; run migrate or
+                              re-save lines if this looks stale.
+                            </p>
+                          ) : null}
+                          <p>
+                            Boxes: {pick(r, ["box_count_invoice", "box_count"])} inv / {pick(r, [
+                              "actual_box_count_received",
+                              "actual_box_count_recieved",
+                            ])} actual
+                          </p>
+                          <p>Invoice: {pick(r, ["vendor_invoice_number", "invoice"])}</p>
+                          <p>
+                            {pick(r, ["created_by", "createdBy"])} · {formatDt(
+                              String(r.created_at ?? r.createdAt ?? "") || null
+                            )}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-            </div>
+            )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="gap-2"
-                    disabled={actionBusy}
-                  >
-                    <FileText className="size-4" />
-                    Generate PO document
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="start" className="w-44">
-                <DropdownMenuItem onClick={() => void downloadPoDocument("pdf")}>
-                  Download as PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void downloadPoDocument("xlsx")}>
-                  Download as Excel (.xlsx)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              type="button"
-              variant="default"
-              className="gap-2"
-              disabled={actionBusy}
-              onClick={openModify}
-              title="Updates internal PO notes only; does not change SKU lines or quantities."
-            >
-              <Pencil className="size-4" />
-              Modify PO notes
-            </Button>
-            <Button
-              type="button"
-              variant="default"
-              className="gap-2"
-              disabled={actionBusy || !poCancelAllowed}
-              title={
-                poCancelBlock?.reason ??
-                (isZapCancelled
-                  ? "This purchase order is already cancelled."
-                  : undefined)
-              }
-              onClick={() => setCancelOpen(true)}
-            >
-              <XCircle className="size-4" />
-              Cancel PO
-            </Button>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-            {[
-              { label: "Total SKUs", value: totalSkus },
-              { label: "Total required qty", value: totalReq },
-              { label: "Total received qty", value: totalInv },
-              { label: "Total rejected qty", value: totalRej },
-            ].map((m) => (
-              <Card key={m.label} className="border-primary/10">
-                <CardHeader className="pb-1 pt-3">
-                  <CardDescription className="text-xs uppercase">
-                    {m.label}
-                  </CardDescription>
-                  <CardTitle className="text-lg font-semibold">
-                    {m.value}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            ))}
-            {[
-              { label: "SKU fill rate", value: skuFill },
-              { label: "Quantity fill rate", value: qtyFill },
-            ].map((m) => (
-              <Card key={m.label} className="border-primary/10">
-                <CardHeader className="pb-1 pt-3">
-                  <CardDescription className="text-xs uppercase">
-                    {m.label}
-                  </CardDescription>
-                  <CardTitle className="pt-1">
-                    <FillRateBar value={m.value === "—" ? null : Number(m.value)} />
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
-
-          {(acceptPct != null || rejectPct != null) && (
-            <div className="grid gap-3 sm:grid-cols-2 lg:max-w-md">
-              <Card className="border-primary/10">
-                <CardHeader className="pb-1 pt-3">
-                  <CardDescription className="text-xs uppercase">
-                    Acceptance rate
-                  </CardDescription>
-                  <CardTitle className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                    {acceptPct != null ? `${acceptPct}%` : "—"}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="border-primary/10">
-                <CardHeader className="pb-1 pt-3">
-                  <CardDescription className="text-xs uppercase">
-                    Rejection rate
-                  </CardDescription>
-                  <CardTitle className="text-lg font-semibold text-red-600 dark:text-red-400">
-                    {rejectPct != null ? `${rejectPct}%` : "—"}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-            <div className="min-w-0 flex-1 space-y-4">
+          {/* ── SKU lines (full width) ── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
               <h2 className="text-foreground text-sm font-semibold">
-                SKU lines
+                SKU Lines
               </h2>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <Badge variant="secondary" className="text-xs">
+                {bundle.lines.length}
+              </Badge>
+            </div>
+
+            {bundle.lines.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No line items ingested for this PO.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {bundle.lines.map((line) => {
                   const sku =
                     line.sku_id ??
@@ -769,7 +974,7 @@ export default function InboundPoDetailPage() {
                       className="border-primary/10 overflow-hidden"
                     >
                       <div className="flex gap-3 p-3">
-                        <div className="bg-muted relative size-20 shrink-0 overflow-hidden rounded-md">
+                        <div className="bg-muted relative size-16 shrink-0 overflow-hidden rounded-md">
                           {img ? (
                             <img
                               src={img}
@@ -778,16 +983,16 @@ export default function InboundPoDetailPage() {
                             />
                           ) : (
                             <div className="text-muted-foreground flex size-full items-center justify-center">
-                              <Package className="size-8 opacity-40" />
+                              <Package className="size-6 opacity-40" />
                             </div>
                           )}
                         </div>
                         <div className="min-w-0 flex-1 space-y-1 text-sm">
-                          <p className="font-mono text-xs font-medium">
-                            SKU: {sku}
+                          <p className="font-mono text-xs font-medium truncate">
+                            {sku}
                           </p>
                           {title !== "—" ? (
-                            <p className="text-muted-foreground line-clamp-2 text-xs">
+                            <p className="text-muted-foreground line-clamp-1 text-xs">
                               {title}
                             </p>
                           ) : null}
@@ -839,178 +1044,90 @@ export default function InboundPoDetailPage() {
                   );
                 })}
               </div>
-              {bundle.lines.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No line items ingested for this PO.
-                </p>
-              ) : null}
-            </div>
-
-            <div className="w-full shrink-0 space-y-4 lg:w-80 xl:w-96">
-              <div className="bg-primary text-primary-foreground rounded-md px-3 py-2 text-sm font-semibold">
-                GRN section
-              </div>
-              <p className="text-muted-foreground text-[11px] leading-snug">
-                {header?.source === "zap" ? (
-                  <span>GRNs are managed in Zap.</span>
-                ) : (
-                  <>
-                    <span>GRN data is supplemented by eAutomate sync via </span>
-                    <code className="text-[10px]">npm run sync:po:details*</code>
-                    <span>.</span>
-                  </>
-                )}
-                {latestGrnActivityIso ? (
-                  <>
-                    <span> Last GRN activity: </span>
-                    <span className="text-foreground font-medium">
-                      {formatDt(latestGrnActivityIso)}
-                    </span>
-                    <span>.</span>
-                  </>
-                ) : (
-                  <span> No GRN activity yet for this PO.</span>
-                )}
-                {" "}
-                <Link href="/flows" className="text-primary underline-offset-4 hover:underline">
-                  Workflow guide
-                </Link>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1"
-                  disabled={actionBusy || newGrnBusy}
-                  onClick={openNewGrn}
-                >
-                  <Plus className="size-3.5" />
-                  Open new GRN
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="gap-1"
-                  disabled={actionBusy}
-                  onClick={() => void downloadGrnReport()}
-                >
-                  <Download className="size-3.5" />
-                  Download GRN report
-                </Button>
-              </div>
-              <div className="space-y-3">
-                {bundle.grns.map((g) => {
-                  const r = g.raw;
-                  const gid = grnIdFromRow(g);
-                  /** zap_origin is set by mergePoGrnSources for rows that came
-                   * from inbound_grns (zap-canonical). Snapshot-only rows
-                   * (positive grn_id without a matching inbound_grns row) 404
-                   * on click — render as a non-link with a tooltip instead. */
-                  const isZapBacked = r.zap_origin === "zap" || r.zap_origin === "draft";
-                  const href = gid != null && isZapBacked ? `/inbound/grns/${gid}` : null;
-                  const grnSource: "zap" | "draft" | "eautomate" = isZapBacked
-                    ? (r.zap_origin as "zap" | "draft")
-                    : "eautomate";
-                  const grnLabel =
-                    gid != null ? formatGrnLabel(gid, grnSource) : "—";
-                  return (
-                    <Card key={g.sort_index} className="border-primary/20">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">
-                          {href ? (
-                            <Link
-                              href={href}
-                              className="text-primary underline-offset-4 hover:underline"
-                            >
-                              GRN {grnLabel}
-                            </Link>
-                          ) : (
-                            <span
-                              className="text-foreground"
-                              title={
-                                gid != null
-                                  ? "This GRN exists upstream but has not been imported into zap. Run `npm run sync:grns:all` to enable navigation."
-                                  : "GRN id not available"
-                              }
-                            >
-                              GRN {grnLabel}
-                            </span>
-                          )}
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-1 text-xs">
-                        <p>
-                          <span className="text-muted-foreground">Accepted</span>{" "}
-                          {pick(r, ["grn_accepted_quantity", "accepted_quantity"])}
-                          {" · "}
-                          <span className="text-muted-foreground">Rejected</span>{" "}
-                          {pick(r, ["grn_rejected_quantity", "rejected_quantity"])}
-                          {" · "}
-                          <span className="text-muted-foreground">Shortage</span>{" "}
-                          {pick(r, ["grn_shortage_quantity", "shortage_quantity"])}
-                        </p>
-                        <p className={statusClosedClass(pick(r, ["grn_status", "status"]))}>
-                          GRN status: {pick(r, ["grn_status", "status"])}
-                        </p>
-                        <p className={statusClosedClass(pick(r, ["grn_audit_status", "audit_status"]))}>
-                          Audit: {pick(r, ["grn_audit_status", "audit_status"])}
-                        </p>
-                        <p>SKU count: {pick(r, ["grn_sku_count", "sku_count"])}</p>
-                        {pick(r, ["grn_sku_count", "sku_count"]) === "0" &&
-                        ["OPEN", "CLOSED"].includes(
-                          pick(r, ["grn_status", "status"]).toUpperCase()
-                        ) ? (
-                          <p className="text-muted-foreground text-[10px]">
-                            Totals are derived from GRN line items; run migrate or
-                            re-save lines if this looks stale.
-                          </p>
-                        ) : null}
-                        <p>Box count: {pick(r, ["box_count_invoice", "box_count"])}</p>
-                        <p>
-                          Actual boxes:{" "}
-                          {pick(r, [
-                            "actual_box_count_received",
-                            "actual_box_count_recieved",
-                          ])}
-                        </p>
-                        <p>Invoice: {pick(r, ["vendor_invoice_number", "invoice"])}</p>
-                        <p>Created by: {pick(r, ["created_by", "createdBy"])}</p>
-                        <p>
-                          Created at:{" "}
-                          {formatDt(
-                            String(r.created_at ?? r.createdAt ?? "") || null
-                          )}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-              {bundle.grns.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No GRNs linked to this PO.
-                </p>
-              ) : null}
-            </div>
+            )}
           </div>
 
           <Dialog
             open={newGrnOpen}
             onOpenChange={(open) => {
               setNewGrnOpen(open);
-              if (!open) {
-                setNewGrnInvoice("");
-                setNewGrnBoxInvoice("");
-                setNewGrnActualBox("");
-              }
+              if (!open) resetNewGrnModal();
             }}
           >
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Open New GRN</DialogTitle>
               </DialogHeader>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                Creates a draft GRN on this PO. Line items are seeded from the PO
+                when you open the GRN — enter the vendor invoice and box counts
+                for this receipt.
+              </p>
+              {header ? (
+                <div className="bg-muted/50 space-y-1 rounded-md border px-3 py-2 text-xs">
+                  <p>
+                    <span className="text-muted-foreground">PO </span>
+                    <span className="font-medium">
+                      {formatPoLabel(poId, header.source)}
+                    </span>
+                    <span className="text-muted-foreground"> · </span>
+                    <span>{deriveDisplayName(header.vendor_name)}</span>
+                  </p>
+                  <p className="text-muted-foreground">
+                    Ordered {numberStringOrDash(header.sku_count)} SKUs ·{" "}
+                    {numberStringOrDash(header.total_quantity)} qty ·{" "}
+                    {numberStringOrDash(header.number_of_grns)} existing GRN
+                    {header.number_of_grns === 1 ? "" : "s"} · source{" "}
+                    {header.source}
+                  </p>
+                  <p className="text-muted-foreground">
+                    This will be GRN #
+                    {header.number_of_grns + 1} on this purchase order.
+                  </p>
+                </div>
+              ) : null}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  What will be seeded
+                </p>
+                {newGrnLinePreview.total === 0 ? (
+                  <p className="text-amber-700 dark:text-amber-400 text-xs leading-relaxed">
+                    No PO lines are loaded. The draft GRN may open without line
+                    items until PO detail data is available (sync or open this PO
+                    once if lines were recently added).
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-muted-foreground text-xs">
+                      {newGrnLinePreview.total} line
+                      {newGrnLinePreview.total === 1 ? "" : "s"} will be copied
+                      to the new GRN:
+                    </p>
+                    <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md border px-2 py-1.5 text-xs">
+                      {newGrnLinePreview.rows.map((row) => (
+                        <li
+                          key={row.line_index}
+                          className="flex justify-between gap-2 font-mono"
+                        >
+                          <span className="truncate">{row.sku_id}</span>
+                          <span className="text-muted-foreground shrink-0">
+                            qty{" "}
+                            {row.ordered_qty != null
+                              ? String(row.ordered_qty)
+                              : "—"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {newGrnLinePreview.remaining > 0 ? (
+                      <p className="text-muted-foreground text-[11px]">
+                        +{newGrnLinePreview.remaining} more line
+                        {newGrnLinePreview.remaining === 1 ? "" : "s"}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
               <div className="grid gap-4 py-2">
                 <div className="space-y-2">
                   <Label
@@ -1043,7 +1160,7 @@ export default function InboundPoDetailPage() {
                     step={1}
                     placeholder="Enter box count"
                     value={newGrnBoxInvoice}
-                    onChange={(e) => setNewGrnBoxInvoice(e.target.value)}
+                    onChange={(e) => onNewGrnInvoiceBoxChange(e.target.value)}
                     disabled={newGrnBusy}
                   />
                 </div>
@@ -1062,9 +1179,14 @@ export default function InboundPoDetailPage() {
                     step={1}
                     placeholder="Enter actual box count"
                     value={newGrnActualBox}
-                    onChange={(e) => setNewGrnActualBox(e.target.value)}
+                    onChange={(e) => onNewGrnActualBoxChange(e.target.value)}
                     disabled={newGrnBusy}
                   />
+                  {!newGrnActualBoxManual && newGrnBoxInvoice.trim() !== "" ? (
+                    <p className="text-muted-foreground text-[11px]">
+                      Matches invoice box count until you change this field.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <DialogFooter className="gap-2 sm:gap-0">

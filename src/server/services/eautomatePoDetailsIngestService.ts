@@ -5,6 +5,13 @@ import {
   fetchEautomate,
   getEautomateBaseUrl,
 } from "@/server/eautomate-proxy";
+import {
+  ACCEPTED_QTY_KEYS,
+  INVOICE_QTY_KEYS,
+  REJECTED_QTY_KEYS,
+  SHORT_QTY_KEYS,
+  sqlPickQtyFromRaw,
+} from "@/lib/inboundGrnQuantities";
 
 /** JSON text for Postgres jsonb (BigInt + non-finite numbers; avoids driver/json edge cases). */
 function toJsonbString(value: unknown): string {
@@ -372,6 +379,70 @@ export function rowToHeader(r: Record<string, unknown>): PoDetailHeader {
   };
 }
 
+type PoLineReceiptTotals = {
+  received_quantity: number;
+  accepted_quantity: number;
+  rejected_quantity: number;
+  shortage_quantity: number;
+};
+
+async function fetchPoLineReceiptBySku(
+  poId: number
+): Promise<Map<string, PoLineReceiptTotals>> {
+  const r = await query(
+    `SELECT i.sku_id,
+            COALESCE(SUM(${sqlPickQtyFromRaw("i", INVOICE_QTY_KEYS)}), 0)::int AS received_quantity,
+            COALESCE(SUM(${sqlPickQtyFromRaw("i", ACCEPTED_QTY_KEYS)}), 0)::int AS accepted_quantity,
+            COALESCE(SUM(${sqlPickQtyFromRaw("i", REJECTED_QTY_KEYS)}), 0)::int AS rejected_quantity,
+            COALESCE(SUM(${sqlPickQtyFromRaw("i", SHORT_QTY_KEYS)}), 0)::int AS shortage_quantity
+       FROM inbound_grn_items i
+       JOIN inbound_grns g ON g.grn_id = i.grn_id
+      WHERE g.po_id = $1
+        AND i.sku_id IS NOT NULL
+        AND TRIM(i.sku_id) <> ''
+      GROUP BY i.sku_id`,
+    [poId]
+  );
+  const out = new Map<string, PoLineReceiptTotals>();
+  for (const row of r.rows) {
+    const sku = String(row.sku_id ?? "").trim();
+    if (!sku) continue;
+    out.set(sku, {
+      received_quantity: Number(row.received_quantity ?? 0),
+      accepted_quantity: Number(row.accepted_quantity ?? 0),
+      rejected_quantity: Number(row.rejected_quantity ?? 0),
+      shortage_quantity: Number(row.shortage_quantity ?? 0),
+    });
+  }
+  return out;
+}
+
+export function mergeGrnReceiptIntoPoLines(
+  lines: ReadonlyArray<Record<string, unknown>>,
+  receiptBySku: Map<string, PoLineReceiptTotals>
+): Record<string, unknown>[] {
+  return lines.map((line) => {
+    const sku = String(line.sku_id ?? "").trim();
+    const base =
+      line.raw && typeof line.raw === "object" && !Array.isArray(line.raw)
+        ? { ...(line.raw as Record<string, unknown>) }
+        : {};
+    const receipt = sku ? receiptBySku.get(sku) : undefined;
+    if (!receipt) return line;
+    return {
+      ...line,
+      raw: {
+        ...base,
+        invoice_quantity: receipt.received_quantity,
+        received_quantity: receipt.received_quantity,
+        accepted_quantity: receipt.accepted_quantity,
+        rejected_quantity: receipt.rejected_quantity,
+        shortage_quantity: receipt.shortage_quantity,
+      },
+    };
+  });
+}
+
 export async function getPoDetailsBundle(vendorId: number, poId: number) {
   if (!Number.isFinite(vendorId) || vendorId < 1) {
     throw new AppError("Invalid vendor id", 400);
@@ -440,6 +511,12 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
           [poId]
         );
 
+  const receiptBySku = await fetchPoLineReceiptBySku(poId);
+  const lines = mergeGrnReceiptIntoPoLines(
+    linesR.rows as Record<string, unknown>[],
+    receiptBySku
+  );
+
   /** GRNs come from two zap-side tables (no eAutomate calls):
    *   - inbound_po_detail_grns: rich raw JSONB mirrored by sync:po:details*
    *   - inbound_grns:           canonical GRN rows (zap-created drafts have negative grn_ids,
@@ -471,7 +548,7 @@ export async function getPoDetailsBundle(vendorId: number, poId: number) {
   return {
     header,
     snapshot: snap,
-    lines: linesR.rows,
+    lines,
     grns,
   };
 }

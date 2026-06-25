@@ -2,6 +2,8 @@ const BUCKET_OUTBOUND =
   process.env.ZAP_STORAGE_BUCKET_OUTBOUND ?? "outbound-po-files";
 const BUCKET_INBOUND =
   process.env.ZAP_STORAGE_BUCKET_INBOUND ?? "inbound-grn-files";
+const BUCKET_LISTINGS =
+  process.env.ZAP_STORAGE_BUCKET_LISTINGS ?? "listing-images";
 
 function storageBase(): string {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
@@ -29,6 +31,17 @@ export function getOutboundBucket(): string {
 
 export function getInboundBucket(): string {
   return BUCKET_INBOUND;
+}
+
+export function getListingsBucket(): string {
+  return BUCKET_LISTINGS;
+}
+
+/** Public object URL for a file in Supabase Storage (bucket must be public). */
+export function buildPublicStorageUrl(bucket: string, objectPath: string): string {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()?.replace(/\/$/, "") ?? "";
+  const path = objectPath.replace(/^\/+/, "");
+  return `${base}/storage/v1/object/public/${bucket}/${path}`;
 }
 
 export async function uploadBufferToBucket(

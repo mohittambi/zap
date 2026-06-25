@@ -20,18 +20,18 @@ Both follow the **same workflow** once the record exists in Zap. Zap owns all st
 
 ## End-to-end steps
 
-| Step | Team | Action | Confirmation required? |
-|------|------|--------|------------------------|
-| 1 | Procurement | Raise or monitor PO | No |
-| 2 | Warehouse | Open GRN on PO (invoice #, box counts) | No |
-| 3 | Warehouse | Enter quantities per SKU line | No |
-| 4 | Warehouse | Upload vendor invoice (JPG/PDF) | No |
-| 5 | Warehouse | **Close GRN** | **Yes** |
-| 6 | Audit (admin) | Enter audit prices; **mark audit closed** | **Yes** |
-| 7 | Accounts | Mark physical invoice **collected** | **Yes** |
-| 8 | Accounts (admin) | **Approve or reject** accounts | **Yes** |
-| 9 | Finance | Debit/credit note if rate or receipt issue | Regenerate: **Yes** |
-| 10 | Warehouse | Receive into inventory (after accounts approved) | Per UI |
+| Step | Team | Action | Notes | Confirmation |
+|------|------|--------|-------|--------------|
+| 1 | Procurement | Raise or monitor PO | — | No |
+| 2 | Warehouse | Open GRN on PO (invoice #, box counts) | Modal shows PO context and lines to be seeded; invoice # is not copied from prior GRNs | No |
+| 3 | Warehouse | Enter quantities per SKU line | — | No |
+| 4 | Warehouse | Upload vendor invoice (JPG/PDF) | — | No |
+| 5 | Warehouse | **Close GRN** | — | **Yes** |
+| 6 | Audit (admin) | Enter audit prices; **mark audit closed** | — | **Yes** |
+| 7 | Accounts | Mark physical invoice **collected** | — | **Yes** |
+| 8 | Accounts (admin) | **Approve or reject** accounts | — | **Yes** |
+| 9 | Finance | Debit/credit note if rate or receipt issue | Regenerate | **Yes** |
+| 10 | Warehouse | Receive into inventory (after accounts approved) | Per UI | Per UI |
 
 **Invoice before close:** `POST …/close` fails until at least one vendor invoice file is on the GRN.
 

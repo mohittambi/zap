@@ -4,9 +4,11 @@
 
 ## Hard rule
 
-**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, the PO/GRN id allocator, GRN pending-queue tables, or inbound quantity rollups, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes **13 rules** learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, ambiguous vendor names, GRNs that never reach the right queue page, and PO summary cards stuck at zero.
+**Before proposing any change that touches eAutomate sync, the `source` column on `vendor_purchase_orders` / `inbound_grns`, the PO/GRN id allocator, GRN pending-queue tables, inbound quantity rollups, or listing image mirroring, re-read [docs/zap-doctrine.md](../docs/zap-doctrine.md).** The doctrine encodes **14 rules** learned from production incidents. Skipping it produces phantom records, broken cross-screen joins, ambiguous vendor names, GRNs that never reach the right queue page, PO summary cards stuck at zero, and CDN URLs persisted without a successful mirror.
 
 For inbound PO/GRN calibration specifically, also read [`.cursor/skills/inbound-workflow-calibration/SKILL.md`](.cursor/skills/inbound-workflow-calibration/SKILL.md).
+
+For listing image storage (target Zap Storage; **built, not activated**), read [`.cursor/skills/listing-image-storage/SKILL.md`](.cursor/skills/listing-image-storage/SKILL.md).
 
 ## Doctrine TL;DR
 
@@ -23,6 +25,7 @@ For inbound PO/GRN calibration specifically, also read [`.cursor/skills/inbound-
 11. **Reports/exports use canonical tables.** CSV/Excel/PDF must read `inbound_grns`, `inbound_grn_items`, `vendor_purchase_orders` — not snapshot-only for Zap POs.
 12. **GRN header aggregates match line items.** Call `recalculateGrnAndPoHeaderTotals` after line writes; migration `071` backfills.
 13. **PO summary totals roll up from GRNs (Zap source).** `recalculatePoHeaderTotals` for `source='zap'` only; migration `072` backfills; sync must not clobber Zap rollups.
+14. **Listing images target Zap Storage only (not activated).** When enabled: `listings.img_*` = public Zap URLs after successful mirror; never write CDN URL unless download+upload succeeded. Tooling: `migrate:listing-images` + [listing-image-storage skill](.cursor/skills/listing-image-storage/SKILL.md). Production still uses sync CDN URLs until activation.
 
 ## When you add a new entity that ops can create in zap AND that exists in eAutomate
 
@@ -64,7 +67,8 @@ Security tests live in `web/tests/unit/security-*.test.ts`. Add coverage when in
 
 ## See also
 
-- [docs/zap-doctrine.md](../docs/zap-doctrine.md) — the canonical doctrine (13 rules)
+- [docs/zap-doctrine.md](../docs/zap-doctrine.md) — the canonical doctrine (14 rules)
 - [.cursor/skills/inbound-workflow-calibration/SKILL.md](.cursor/skills/inbound-workflow-calibration/SKILL.md) — inbound PO/GRN calibration, rollups, cancel guard
+- [.cursor/skills/listing-image-storage/SKILL.md](.cursor/skills/listing-image-storage/SKILL.md) — listing images → Zap Storage (built, not activated)
 - [web/docs/architecture/hld.md](docs/architecture/hld.md) — high-level design
 - [web/docs/current-system/workflows.md](docs/current-system/workflows.md) — runtime flow diagrams

@@ -74,9 +74,10 @@ Step 7: Records closed in Zap
 - Click any PO to see its full details, line items, and associated documents
 
 ### Manage GRNs
-- Create a new GRN against an existing PO
-- Enter received quantities SKU by SKU
-- Flag damaged, missing, or excess items
+- Create a new GRN against an existing PO via **Open new GRN** on the PO page
+- The modal shows PO context (ordered SKUs/qty, existing GRN count) and a preview of line items that will be seeded into the draft GRN
+- Vendor invoice number is entered fresh for each receipt; prior GRN invoice numbers are not copied automatically
+- Box count in invoice can auto-fill actual boxes until the user overrides actual box count
 
 ### Audit controls
 - Completing the audit (marking a GRN as audited) is an **administrator-only** action with a confirmation step in the web UI

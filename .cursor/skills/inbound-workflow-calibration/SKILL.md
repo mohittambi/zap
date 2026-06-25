@@ -126,6 +126,7 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 | PO bundle | `src/server/services/eautomatePoDetailsIngestService.ts` |
 | PO sync guard | `scripts/sync-eautomate-vendor-pos.mjs` |
 | PO detail UI | `src/app/(app)/(logistics)/inbound/vendors/[id]/purchase-orders/[poId]/page.tsx` |
+| Open New GRN modal helpers | `src/lib/inboundNewGrnModal.ts` |
 | Business flow UI | `src/app/(app)/flows/page.tsx` |
 
 ---
@@ -138,6 +139,7 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 | PO detail GRN cards | `inbound_grns.grn_*` via `mergePoGrnSources` |
 | PO / vendor PO lists | Same header columns on list rows |
 | GRN detail | Line items from `inbound_grn_items`; header from `inbound_grns` |
+| Open New GRN modal | Read-only PO context + seeded-line preview from `bundle`; invoice # stays blank; actual boxes mirror invoice boxes until user edits actual field |
 
 ---
 
@@ -160,6 +162,7 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 |-------|------|
 | GRN header rollup | `tests/unit/grn-header-totals.test.ts` |
 | PO header rollup | `tests/unit/po-header-totals.test.ts` |
+| Open New GRN modal | `tests/unit/inbound-new-grn-modal.test.ts` |
 | PO cancel guard | `tests/unit/inbound-po-cancel-guard.test.ts` |
 | Migration parity | `tests/unit/migrations-parity.test.mjs` (latest = `072`) |
 | API integration | `tests/api/inbound-journey-integration.test.mjs` (PO rollup header + cancel 409) |
