@@ -324,6 +324,156 @@ export function toNumberOrZero(v: unknown): number {
 
 export type PoSource = "zap" | "eautomate";
 
+export type PoDetailsIngestNeed = {
+  needed: boolean;
+  reason: string;
+};
+
+/** Pure rule: eAutomate POs need detail ingest when snapshot/lines are missing. */
+export function poDetailsIngestNeededFromCounts(
+  source: PoSource,
+  skuCount: number,
+  hasSnapshot: boolean,
+  lineCount: number
+): PoDetailsIngestNeed {
+  if (source === "zap") {
+    return {
+      needed: false,
+      reason: "zap-source PO (lines live in vendor_purchase_order_lines)",
+    };
+  }
+  if (!hasSnapshot) {
+    return { needed: true, reason: "no inbound_po_detail_snapshot" };
+  }
+  if (lineCount === 0 && skuCount > 0) {
+    return {
+      needed: true,
+      reason: "no inbound_po_detail_lines (header reports SKUs)",
+    };
+  }
+  return { needed: false, reason: "snapshot and lines present" };
+}
+
+/** DB check for a single PO (used by sync:if-needed scripts). */
+export async function checkPoDetailsIngestNeeded(poId: number): Promise<
+  PoDetailsIngestNeed & {
+    vendor_id: number | null;
+    source: PoSource | null;
+  }
+> {
+  const h = await query(
+    `SELECT vendor_id, source, sku_count FROM vendor_purchase_orders WHERE po_id = $1`,
+    [poId]
+  );
+  if (h.rows.length === 0) {
+    return { needed: false, reason: "PO not found", vendor_id: null, source: null };
+  }
+  const row = h.rows[0] as Record<string, unknown>;
+  const source: PoSource = row.source === "zap" ? "zap" : "eautomate";
+  const skuCount = toNumberOrZero(row.sku_count);
+  const vendor_id = toNullableNumber(row.vendor_id);
+
+  const [snapR, linesR] = await Promise.all([
+    query(
+      `SELECT 1 FROM inbound_po_detail_snapshot WHERE po_id = $1 LIMIT 1`,
+      [poId]
+    ),
+    source === "zap"
+      ? query(
+          `SELECT count(*)::int AS n FROM vendor_purchase_order_lines WHERE po_id = $1`,
+          [poId]
+        )
+      : query(
+          `SELECT count(*)::int AS n FROM inbound_po_detail_lines WHERE po_id = $1`,
+          [poId]
+        ),
+  ]);
+  const hasSnapshot = snapR.rows.length > 0;
+  const lineCount = Number((linesR.rows[0] as { n?: number })?.n ?? 0);
+  const need = poDetailsIngestNeededFromCounts(
+    source,
+    skuCount,
+    hasSnapshot,
+    lineCount
+  );
+  return { ...need, vendor_id, source };
+}
+
+export type PoDetailIngestPair = {
+  vendor_id: number;
+  po_id: number;
+  reason: string;
+};
+
+/**
+ * eAutomate POs missing snapshot and/or line rows (vital for PO detail SKU lines).
+ * Used by sync:po:details* --missing-only and sync:po:details:if-needed.
+ */
+export async function listPoIdsNeedingDetailIngest(options?: {
+  vendorId?: number;
+  poId?: number;
+}): Promise<PoDetailIngestPair[]> {
+  const params: unknown[] = [];
+  const filters: string[] = [`po.source = 'eautomate'`];
+  if (options?.vendorId != null && Number.isFinite(options.vendorId)) {
+    params.push(options.vendorId);
+    filters.push(`po.vendor_id = $${params.length}`);
+  }
+  if (options?.poId != null && Number.isFinite(options.poId)) {
+    params.push(options.poId);
+    filters.push(`po.po_id = $${params.length}`);
+  }
+  filters.push(`(
+    NOT EXISTS (
+      SELECT 1 FROM inbound_po_detail_snapshot s WHERE s.po_id = po.po_id
+    )
+    OR (
+      po.sku_count > 0
+      AND NOT EXISTS (
+        SELECT 1 FROM inbound_po_detail_lines l WHERE l.po_id = po.po_id
+      )
+    )
+  )`);
+
+  const r = await query(
+    `SELECT po.vendor_id,
+            po.po_id,
+            po.sku_count,
+            EXISTS (
+              SELECT 1 FROM inbound_po_detail_snapshot s WHERE s.po_id = po.po_id
+            ) AS has_snapshot,
+            (
+              SELECT count(*)::int
+                FROM inbound_po_detail_lines l
+               WHERE l.po_id = po.po_id
+            ) AS line_count
+       FROM vendor_purchase_orders po
+      WHERE ${filters.join(" AND ")}
+      ORDER BY po.po_id ASC`,
+    params
+  );
+
+  const out: PoDetailIngestPair[] = [];
+  for (const row of r.rows as Record<string, unknown>[]) {
+    const skuCount = toNumberOrZero(row.sku_count);
+    const hasSnapshot = Boolean(row.has_snapshot);
+    const lineCount = Number(row.line_count ?? 0);
+    const need = poDetailsIngestNeededFromCounts(
+      "eautomate",
+      skuCount,
+      hasSnapshot,
+      lineCount
+    );
+    if (!need.needed) continue;
+    out.push({
+      vendor_id: Number(row.vendor_id),
+      po_id: Number(row.po_id),
+      reason: need.reason,
+    });
+  }
+  return out;
+}
+
 export type PoDetailHeader = {
   po_id: number;
   vendor_id: number;

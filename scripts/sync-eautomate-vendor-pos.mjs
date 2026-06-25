@@ -23,6 +23,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import pg from "pg";
 import { fetchEautomate } from "./lib/eautomateAuthFetch.mjs";
@@ -218,6 +219,7 @@ function parseArgs(argv) {
   let useStdin = false;
   let skipMissingVendors = false;
   let strictVendors = false;
+  let withPoDetails = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -225,6 +227,7 @@ function parseArgs(argv) {
     else if (a === "--stdin") useStdin = true;
     else if (a === "--strict-vendors") strictVendors = true;
     else if (a === "--skip-missing-vendors") skipMissingVendors = true;
+    else if (a === "--with-po-details") withPoDetails = true;
     else if (a === "--file") {
       const next = argv[i + 1];
       if (!next) throw new Error("--file requires a path");
@@ -233,7 +236,7 @@ function parseArgs(argv) {
     } else if (a && /^\d+$/.test(a)) vendorId = Number(a);
   }
 
-  return { vendorId, filePath, syncAll, useStdin, skipMissingVendors, strictVendors };
+  return { vendorId, filePath, syncAll, useStdin, skipMissingVendors, strictVendors, withPoDetails };
 }
 
 async function main() {
@@ -257,7 +260,7 @@ async function main() {
     process.exit(1);
   }
 
-  const { vendorId, filePath, syncAll, useStdin, skipMissingVendors, strictVendors } = opts;
+  const { vendorId, filePath, syncAll, useStdin, skipMissingVendors, strictVendors, withPoDetails } = opts;
 
   const modeCount = [syncAll, filePath != null, useStdin, vendorId != null].filter(Boolean).length;
   if (modeCount !== 1) {
@@ -343,6 +346,26 @@ async function main() {
       parts.push("no vendor_id skips (all PO vendors exist in vendors)");
     }
     console.log(parts.join("; "));
+    console.log(
+      "Reminder: vendor PO sync is headers only — SKU lines/listings need sync:po:details:missing or sync:po:details:if-needed."
+    );
+    if (withPoDetails) {
+      const webRoot = path.join(__dirname, "..");
+      const args =
+        vendorId != null
+          ? `--vendor ${vendorId}`
+          : syncAll
+            ? "--all-missing"
+            : "";
+      if (args) {
+        console.log(`Running PO detail ingest (${args})…`);
+        execSync(`npx tsx scripts/sync-eautomate-po-details-if-needed.ts ${args}`, {
+          cwd: webRoot,
+          stdio: "inherit",
+          env: process.env,
+        });
+      }
+    }
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;

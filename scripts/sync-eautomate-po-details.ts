@@ -4,6 +4,8 @@
  * Usage:
  *   npm run sync:po:details -- --vendor <id> --po <id>
  *   npm run sync:po:details:from-db
+ *   npm run sync:po:details:missing
+ *   npm run sync:po:details:if-needed -- --po <id>
  *
  * Env: DATABASE_URL, EAUTOMATE_COOKIE or EAUTOMATE_BEARER_TOKEN
  */
@@ -11,7 +13,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { query } from "../src/server/db";
-import { ingestPoDetailsByVendorAndPo } from "../src/server/services/eautomatePoDetailsIngestService";
+import {
+  ingestPoDetailsByVendorAndPo,
+  listPoIdsNeedingDetailIngest,
+} from "../src/server/services/eautomatePoDetailsIngestService";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -47,33 +52,41 @@ async function main() {
     process.exit(1);
   }
 
-  const pairs: { vendor_id: number; po_id: number }[] = [];
+  const pairs: { vendor_id: number; po_id: number; reason?: string }[] = [];
   if (fromDb) {
-    const missingSql = missingOnly
-      ? `WHERE NOT EXISTS (
-           SELECT 1 FROM inbound_po_detail_snapshot s WHERE s.po_id = vendor_purchase_orders.po_id
-         )`
-      : "";
-    const r = await query(
-      `SELECT vendor_id, po_id FROM vendor_purchase_orders ${missingSql} ORDER BY po_id ASC`
-    );
-    for (const row of r.rows as { vendor_id: string | number; po_id: string | number }[]) {
-      pairs.push({
-        vendor_id: Number(row.vendor_id),
-        po_id: Number(row.po_id),
-      });
-    }
-    if (pairs.length === 0) {
-      if (missingOnly) {
-        console.log("All vendor POs already have inbound_po_detail_snapshot rows.");
+    if (missingOnly) {
+      const missing = await listPoIdsNeedingDetailIngest();
+      for (const row of missing) {
+        pairs.push(row);
+      }
+      if (pairs.length === 0) {
+        console.log(
+          "All eAutomate POs have inbound_po_detail_snapshot and line rows."
+        );
         return;
       }
-      console.error("No rows in vendor_purchase_orders. Sync vendor POs first.");
-      process.exit(1);
+      console.log(
+        `Ingesting PO details for ${pairs.length} PO(s) missing snapshot/lines...`
+      );
+    } else {
+      const r = await query(
+        `SELECT vendor_id, po_id FROM vendor_purchase_orders WHERE source = 'eautomate' ORDER BY po_id ASC`
+      );
+      for (const row of r.rows as {
+        vendor_id: string | number;
+        po_id: string | number;
+      }[]) {
+        pairs.push({
+          vendor_id: Number(row.vendor_id),
+          po_id: Number(row.po_id),
+        });
+      }
+      if (pairs.length === 0) {
+        console.error("No eAutomate rows in vendor_purchase_orders. Sync vendor POs first.");
+        process.exit(1);
+      }
+      console.log(`Ingesting PO details for ${pairs.length} PO(s) (full refresh)...`);
     }
-    console.log(
-      `Ingesting PO details for ${pairs.length} PO(s)${missingOnly ? " (missing only)" : ""}...`
-    );
   } else if (
     vendor != null &&
     Number.isFinite(vendor) &&
@@ -86,16 +99,19 @@ async function main() {
   } else {
     console.error(
       "Usage: npm run sync:po:details -- --vendor <id> --po <id>\n" +
-        "   or: npm run sync:po:details:from-db"
+        "   or: npm run sync:po:details:from-db\n" +
+        "   or: npm run sync:po:details:missing\n" +
+        "   or: npm run sync:po:details:if-needed -- --po <id>"
     );
     process.exit(1);
   }
 
   let ok = 0;
   let fail = 0;
-  for (const { vendor_id, po_id } of pairs) {
+  for (const { vendor_id, po_id, reason } of pairs) {
     try {
-      process.stdout.write(`PO ${po_id} (vendor ${vendor_id})... `);
+      const suffix = reason ? ` [${reason}]` : "";
+      process.stdout.write(`PO ${po_id} (vendor ${vendor_id})${suffix}... `);
       await ingestPoDetailsByVendorAndPo(vendor_id, po_id);
       console.log("ok");
       ok += 1;

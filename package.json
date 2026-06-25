@@ -49,6 +49,8 @@
     "sync:grn:details:if-needed": "tsx scripts/sync-eautomate-grn-details-if-needed.ts",
     "sync:po:details": "tsx scripts/sync-eautomate-po-details.ts",
     "sync:po:details:from-db": "tsx scripts/sync-eautomate-po-details.ts --from-vendor-pos",
+    "sync:po:details:missing": "tsx scripts/sync-eautomate-po-details.ts --from-vendor-pos --missing-only",
+    "sync:po:details:if-needed": "tsx scripts/sync-eautomate-po-details-if-needed.ts",
     "sync:eautomate:all": "bash scripts/sync-all-eautomate.sh",
     "sync:eautomate:all:dry": "bash scripts/sync-all-eautomate.sh --dry-run",
     "sync:eautomate:fresh": "node scripts/run-reset-and-sync-eautomate.mjs",

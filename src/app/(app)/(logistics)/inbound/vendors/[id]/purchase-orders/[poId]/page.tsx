@@ -1212,9 +1212,25 @@ export default function InboundPoDetailPage() {
             </div>
 
             {bundle.lines.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                No line items ingested for this PO.
-              </p>
+              <div className="text-muted-foreground space-y-1 text-sm">
+                <p>No line items ingested for this PO.</p>
+                {header?.source === "eautomate" &&
+                (header.sku_count ?? 0) > 0 ? (
+                  <p className="text-xs leading-relaxed">
+                    Header reports {header.sku_count} SKU
+                    {header.sku_count === 1 ? "" : "s"} — run{" "}
+                    <code className="text-[11px]">
+                      npm run sync:po:details -- --vendor {vendorId} --po{" "}
+                      {poId}
+                    </code>{" "}
+                    or{" "}
+                    <code className="text-[11px]">
+                      npm run sync:po:details:if-needed -- --po {poId}
+                    </code>
+                    .
+                  </p>
+                ) : null}
+              </div>
             ) : (
               <Card className="overflow-hidden p-0">
                 <div className="overflow-x-auto">
@@ -1345,15 +1361,16 @@ export default function InboundPoDetailPage() {
               if (!open) resetNewGrnModal();
             }}
           >
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
+            <DialogContent className="flex max-h-[85dvh] flex-col gap-0 p-0 sm:max-w-lg">
+              <DialogHeader className="shrink-0 border-b px-6 py-4">
                 <DialogTitle>Open New GRN</DialogTitle>
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  Creates a draft GRN on this PO. Line items are seeded from the
+                  PO when you open the GRN — enter the vendor invoice and box
+                  counts for this receipt.
+                </p>
               </DialogHeader>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Creates a draft GRN on this PO. Line items are seeded from the PO
-                when you open the GRN — enter the vendor invoice and box counts
-                for this receipt.
-              </p>
+              <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
               {header ? (
                 <div className="bg-muted/50 rounded-md border px-3 py-2.5 text-xs">
                   <div className="flex items-center justify-between gap-2 border-b pb-2">
@@ -1396,11 +1413,11 @@ export default function InboundPoDetailPage() {
                       {newGrnLinePreview.total === 1 ? "" : "s"} will be copied
                       to the new GRN:
                     </p>
-                    <ul className="max-h-32 divide-y overflow-y-auto rounded-md border text-xs">
+                    <ul className="max-h-44 divide-y overflow-y-auto rounded-md border text-xs">
                       {newGrnLinePreview.rows.map((row) => (
                         <li
                           key={row.line_index}
-                          className="flex justify-between gap-2 px-2.5 py-1.5 font-mono"
+                          className="bg-background flex justify-between gap-2 px-2.5 py-1.5 font-mono"
                         >
                           <span className="truncate">{row.sku_id}</span>
                           <span className="text-muted-foreground shrink-0">
@@ -1421,7 +1438,7 @@ export default function InboundPoDetailPage() {
                   </>
                 )}
               </div>
-              <div className="grid gap-4 py-2">
+              <div className="grid gap-4">
                 <div className="space-y-2">
                   <Label
                     htmlFor="new-grn-vendor-invoice"
@@ -1482,7 +1499,8 @@ export default function InboundPoDetailPage() {
                   ) : null}
                 </div>
               </div>
-              <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch sm:gap-2">
+              </div>
+              <DialogFooter className="shrink-0 flex-col items-stretch gap-2 border-t px-6 py-4 sm:flex-col sm:items-stretch sm:gap-2">
                 {!newGrnCanSubmit && !newGrnBusy ? (
                   <p className="text-muted-foreground text-[11px] sm:text-right">
                     Enter {newGrnMissingFields.join(", ")} to enable Submit.

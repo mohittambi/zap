@@ -182,15 +182,17 @@ else
   log "Skipping outbound phase"
 fi
 
-if [[ "$SKIP_PO_DETAILS" -eq 0 ]]; then
-  if [[ "$SKIP_VENDOR_POS" -eq 0 ]]; then
-    log "Phase 5a: PO detail ingest (uses vendor_purchase_orders)"
+if [[ "$SKIP_VENDOR_POS" -eq 0 ]]; then
+  if [[ "$SKIP_PO_DETAILS" -eq 0 ]]; then
+    log "Phase 5a: PO detail ingest (full refresh for all eAutomate POs)"
     run_npm sync:po:details:from-db
   else
-    log "Skipping sync:po:details:from-db (vendor PO list was skipped)"
+    log "Skipping sync:po:details:from-db (--skip-po-details)"
   fi
+  log "Phase 5a-catchup: PO detail ingest for POs missing snapshot/lines (vital for SKU lines)"
+  run_npm sync:po:details:missing
 else
-  log "Skipping sync:po:details:from-db"
+  log "Skipping PO detail phases (vendor PO list was skipped)"
 fi
 
 if [[ "$SKIP_GRN_DETAILS" -eq 0 ]]; then

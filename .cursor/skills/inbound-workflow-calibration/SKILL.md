@@ -40,7 +40,8 @@ vendor_purchase_orders.total_* ← PO summary cards (received, fill rates)
 9. Audit close locks line edits; destructive actions need `AlertDialog` confirmation + server validation.
 10. Reports/exports use canonical tables (doctrine #11) — not snapshot-only queries for Zap POs.
 11. eAutomate sync must not overwrite Zap rollups — PO list UPSERT in `sync-eautomate-vendor-pos.mjs` scoped to `WHERE vendor_purchase_orders.source = 'eautomate'` (doctrine #10).
-12. Update `/flows`, business workflow docs, and this skill when calibration or guard behavior changes.
+12. **PO header sync ≠ PO detail sync** — `sync:vendor-pos*` only upserts `vendor_purchase_orders` (headers). SKU lines, listings, and GRN snapshot for eAutomate POs require `sync:po:details*` (`inbound_po_detail_snapshot`, `inbound_po_detail_lines`). After vendor-pos, always run `sync:po:details:missing` or `sync:po:details:if-needed -- --po <id>`. Missing = no snapshot **or** `sku_count > 0` with zero `inbound_po_detail_lines`.
+13. Update `/flows`, business workflow docs, and this skill when calibration or guard behavior changes.
 
 ---
 
@@ -124,7 +125,9 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 | PO cancel guard | `src/lib/inboundPoCancelGuard.ts`, `assertPoCancellable` in `inboundPoZapActionsService.ts` |
 | GRN lifecycle | `src/server/services/inboundGrnsService.ts` |
 | PO bundle | `src/server/services/eautomatePoDetailsIngestService.ts` |
+| PO detail ingest guard | `poDetailsIngestNeededFromCounts`, `listPoIdsNeedingDetailIngest` |
 | PO sync guard | `scripts/sync-eautomate-vendor-pos.mjs` |
+| PO detail sync | `scripts/sync-eautomate-po-details.ts`, `scripts/sync-eautomate-po-details-if-needed.ts` |
 | PO detail UI | `src/app/(app)/(logistics)/inbound/vendors/[id]/purchase-orders/[poId]/page.tsx` |
 | Open New GRN modal helpers | `src/lib/inboundNewGrnModal.ts` |
 | Business flow UI | `src/app/(app)/flows/page.tsx` |
