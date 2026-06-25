@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CircleHelp, ListFilter } from "lucide-react";
+import { CircleHelp, ListFilter, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,20 @@ type GrnListResponse = {
   per_page_count: number;
   curr_page_count: number;
   content: GrnRow[];
+};
+
+type AuditLine = {
+  line_index: number;
+  sku_id: string | null;
+  sku_description: string | null;
+  quantity: number;
+  rejected_quantity: number;
+  short_quantity: number;
+  vendor_price: number;
+  audit_price: number;
+  price_diff: number;
+  debit_amount: number;
+  has_discrepancy: boolean;
 };
 
 const PENDING_AUDITS_WORKFLOW = `
@@ -146,6 +160,9 @@ export default function InboundPendingAuditsPage() {
   const [loading, setLoading] = React.useState(true);
   const [markingId, setMarkingId] = React.useState<number | null>(null);
   const [confirmRow, setConfirmRow] = React.useState<GrnRow | null>(null);
+  const [auditLines, setAuditLines] = React.useState<AuditLine[]>([]);
+  const [auditLinesLoading, setAuditLinesLoading] = React.useState(false);
+  const [auditPriceEdits, setAuditPriceEdits] = React.useState<Record<number, string>>({});
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] =
     React.useState(false);
@@ -181,9 +198,58 @@ export default function InboundPendingAuditsPage() {
     setSearchApplied(searchDraft.trim());
   };
 
-  async function markAudited(grnId: number) {
+  function openConfirmDialog(row: GrnRow) {
+    setConfirmRow(row);
+    setAuditLines([]);
+    setAuditPriceEdits({});
+    setAuditLinesLoading(true);
+    apiFetch<{ lines: AuditLine[] }>(
+      `/api/inbound/grns/${row.grn_id}/debit-note?preview=1`
+    )
+      .then((d) => {
+        const lines = d.lines ?? [];
+        setAuditLines(lines);
+        const edits: Record<number, string> = {};
+        for (const l of lines) {
+          edits[l.line_index] = l.audit_price > 0 ? String(l.audit_price) : "";
+        }
+        setAuditPriceEdits(edits);
+      })
+      .catch(() => toast.error("Failed to load GRN line items"))
+      .finally(() => setAuditLinesLoading(false));
+  }
+
+  function computedLines(): (AuditLine & { edited_audit_price: number; edited_diff: number; edited_debit: number })[] {
+    return auditLines.map((l) => {
+      const raw = auditPriceEdits[l.line_index] ?? "";
+      const editedAudit = raw === "" ? 0 : Number(raw);
+      const ap = Number.isFinite(editedAudit) && editedAudit >= 0 ? editedAudit : l.audit_price;
+      const diff = l.vendor_price - ap;
+      return {
+        ...l,
+        edited_audit_price: ap,
+        edited_diff: diff,
+        edited_debit: l.quantity * diff,
+      };
+    });
+  }
+
+  async function confirmMarkAudited() {
+    if (!confirmRow) return;
+    const grnId = confirmRow.grn_id;
     setMarkingId(grnId);
     try {
+      const lines = computedLines();
+      const priceSaves = lines.filter(
+        (l) => l.edited_audit_price !== l.audit_price && l.edited_audit_price > 0
+      );
+      for (const l of priceSaves) {
+        await apiFetch(`/api/inbound/grns/${grnId}/items/${l.line_index}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audit_price: l.edited_audit_price }),
+        });
+      }
       await apiFetch(`/api/inbound/grns/${grnId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -197,11 +263,6 @@ export default function InboundPendingAuditsPage() {
     } finally {
       setMarkingId(null);
     }
-  }
-
-  async function confirmMarkAudited() {
-    if (!confirmRow) return;
-    await markAudited(confirmRow.grn_id);
   }
 
   const totalPages =
@@ -279,16 +340,23 @@ export default function InboundPendingAuditsPage() {
           if (!open && markingId === null) setConfirmRow(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Confirm Audit</DialogTitle>
             <DialogDescription>
-              Review the GRN details before marking it as audited.
+              Review line-level quantities and set audited prices before marking this GRN as audited.
             </DialogDescription>
           </DialogHeader>
-          {confirmRow ? (
-            <div className="space-y-3 text-sm">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+          {confirmRow ? (() => {
+            const lines = computedLines();
+            const totalAccepted = lines.reduce((s, l) => s + l.quantity, 0);
+            const totalRejected = lines.reduce((s, l) => s + l.rejected_quantity, 0);
+            const totalShortage = lines.reduce((s, l) => s + l.short_quantity, 0);
+            const totalDebit = lines.reduce((s, l) => s + (l.edited_diff > 0 ? l.edited_debit : 0), 0);
+            const discrepancyCount = lines.filter((l) => l.edited_diff > 0 && l.quantity > 0).length;
+            return (
+            <div className="space-y-3 text-sm min-h-0 flex flex-col">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
                 <div>
                   <dt className="text-muted-foreground text-xs">GRN Id</dt>
                   <dd className="font-mono font-medium">{confirmRow.grn_id}</dd>
@@ -306,12 +374,112 @@ export default function InboundPendingAuditsPage() {
                   <dd className="font-mono">{confirmRow.grn_shortage_quantity}</dd>
                 </div>
               </dl>
+
+              {auditLinesLoading ? (
+                <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading line items…
+                </div>
+              ) : auditLines.length === 0 ? (
+                <p className="text-muted-foreground py-4 text-center text-xs">
+                  No line items found for this GRN.
+                </p>
+              ) : (
+                <div className="overflow-auto border rounded-md min-h-0 flex-1">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/60 hover:bg-muted/60">
+                        <TableHead className="whitespace-nowrap text-xs">SKU</TableHead>
+                        <TableHead className="whitespace-nowrap text-xs min-w-[120px]">Description</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Accepted</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Rejected</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Shortage</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Vendor Price</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs min-w-[110px]">Audited Price</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Diff</TableHead>
+                        <TableHead className="text-right whitespace-nowrap text-xs">Debit Amt</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lines.map((l, idx) => (
+                        <TableRow key={l.line_index} className={cn(idx % 2 === 1 ? "bg-muted/20" : "")}>
+                          <TableCell className="font-mono text-xs">{l.sku_id ?? "—"}</TableCell>
+                          <TableCell className="text-xs max-w-[160px] truncate" title={l.sku_description ?? undefined}>
+                            {l.sku_description ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs tabular-nums">{l.quantity}</TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs tabular-nums", l.rejected_quantity > 0 && "text-red-600 dark:text-red-400")}>
+                            {l.rejected_quantity}
+                          </TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs tabular-nums", l.short_quantity > 0 && "text-amber-600 dark:text-amber-400")}>
+                            {l.short_quantity}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs tabular-nums">
+                            {l.vendor_price > 0 ? `₹${l.vendor_price.toFixed(2)}` : "—"}
+                          </TableCell>
+                          <TableCell className="text-right p-1">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              className="h-7 w-[100px] ml-auto text-right font-mono text-xs tabular-nums"
+                              value={auditPriceEdits[l.line_index] ?? ""}
+                              onChange={(e) =>
+                                setAuditPriceEdits((prev) => ({
+                                  ...prev,
+                                  [l.line_index]: e.target.value,
+                                }))
+                              }
+                              disabled={markingId !== null}
+                            />
+                          </TableCell>
+                          <TableCell className={cn(
+                            "text-right font-mono text-xs tabular-nums font-semibold",
+                            l.edited_diff > 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"
+                          )}>
+                            {l.edited_diff !== 0 ? `₹${l.edited_diff.toFixed(2)}` : "—"}
+                          </TableCell>
+                          <TableCell className={cn(
+                            "text-right font-mono text-xs tabular-nums",
+                            l.edited_diff > 0 && "text-red-600 dark:text-red-400 font-semibold"
+                          )}>
+                            {l.edited_diff > 0 && l.quantity > 0 ? `₹${l.edited_debit.toFixed(2)}` : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {lines.length > 0 && (
+                        <TableRow className="bg-muted/40 font-semibold">
+                          <TableCell className="text-xs" colSpan={2}>Total ({lines.length} lines)</TableCell>
+                          <TableCell className="text-right font-mono text-xs tabular-nums">{totalAccepted}</TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs tabular-nums", totalRejected > 0 && "text-red-600 dark:text-red-400")}>{totalRejected}</TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs tabular-nums", totalShortage > 0 && "text-amber-600 dark:text-amber-400")}>{totalShortage}</TableCell>
+                          <TableCell colSpan={2} />
+                          <TableCell className="text-right text-xs">Debit →</TableCell>
+                          <TableCell className={cn("text-right font-mono text-xs tabular-nums", totalDebit > 0 && "text-red-600 dark:text-red-400")}>
+                            {totalDebit > 0 ? `₹${totalDebit.toFixed(2)}` : "—"}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {!auditLinesLoading && discrepancyCount > 0 && (
+                <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                  A rate-diff Debit Note will be auto-generated for{" "}
+                  <strong>{discrepancyCount} line(s)</strong>, total{" "}
+                  <strong>₹{totalDebit.toFixed(2)}</strong>. It will appear in the
+                  Pending Debit & Credit Notes section.
+                </p>
+              )}
+
               <p className="text-muted-foreground rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed dark:border-amber-900/50 dark:bg-amber-950/30">
-                This action is irreversible. GRN lines will be locked. A Debit/Credit
-                Note will be auto-generated if a price discrepancy exists.
+                This action is irreversible. GRN lines will be locked after audit.
               </p>
             </div>
-          ) : null}
+            );
+          })() : null}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"
@@ -324,7 +492,7 @@ export default function InboundPendingAuditsPage() {
             <Button
               type="button"
               variant="destructive"
-              disabled={markingId !== null}
+              disabled={markingId !== null || auditLinesLoading}
               onClick={() => void confirmMarkAudited()}
             >
               {markingId !== null ? "Saving…" : "Confirm & Mark Audited"}
@@ -555,7 +723,7 @@ export default function InboundPendingAuditsPage() {
                                 ? "Only admins can mark a GRN as audited"
                                 : undefined
                             }
-                            onClick={() => setConfirmRow(row)}
+                            onClick={() => openConfirmDialog(row)}
                           >
                             {actionLabel}
                           </Button>
