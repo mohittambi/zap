@@ -42,7 +42,7 @@ function getPool(): pg.Pool {
     };
     // Supabase managed Postgres requires TLS; matches common Supabase + node-pg examples.
     if (!isLocalDatabase(connectionString) && isSupabaseHost(connectionString)) {
-      config.ssl = { rejectUnauthorized: false };
+      config.ssl = true;
     }
     pool = new Pool(config);
   }

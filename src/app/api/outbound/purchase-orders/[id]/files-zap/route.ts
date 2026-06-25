@@ -8,6 +8,9 @@ import {
   isZapStorageConfigured,
   uploadBufferToBucket,
 } from "@/server/zapStorage";
+import { assertFileSize } from "@/server/lib/uploadGuards";
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -64,6 +67,7 @@ export async function POST(request: Request, context: Ctx) {
     if (!(file instanceof File) || file.size < 1) {
       return NextResponse.json({ error: "file is required" }, { status: 400 });
     }
+    assertFileSize(file, MAX_UPLOAD_BYTES);
 
     const buf = Buffer.from(await file.arrayBuffer());
     const objectPath = `outbound-po/${poId}/${Date.now()}-${safeObjectSegment(file.name)}`;

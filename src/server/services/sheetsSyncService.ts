@@ -207,6 +207,7 @@ async function sheetsRequest(
       'Content-Type': 'application/json',
     },
     body: body != null ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!res.ok) {

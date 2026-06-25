@@ -55,7 +55,7 @@ const VALID_OPS = new Set<string>([
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "bins", "read");
+    assertPermission(user, "query_builder", "read");
 
     const body = (await request.json()) as QuerySpec;
     const mod = MODULE_MAP.get(body.module ?? "");

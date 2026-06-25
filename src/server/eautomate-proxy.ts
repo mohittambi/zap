@@ -59,6 +59,7 @@ export async function fetchEautomate(
     fetch(input, {
       ...init,
       headers: mergeProxyHeaders(init),
+      signal: init?.signal ?? AbortSignal.timeout(30_000),
     });
 
   let res = await exec();

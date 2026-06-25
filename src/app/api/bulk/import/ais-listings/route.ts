@@ -3,6 +3,9 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as bulkService from "@/server/services/bulkService";
+import { assertBlobSize } from "@/server/lib/uploadGuards";
+
+const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
 
 /**
  * @swagger
@@ -35,6 +38,7 @@ export async function POST(request: Request) {
     if (!file || !(file instanceof Blob)) {
       return NextResponse.json({ error: "file required" }, { status: 400 });
     }
+    assertBlobSize(file, MAX_BULK_IMPORT_BYTES);
     const buf = Buffer.from(await file.arrayBuffer());
     const data = await bulkService.importAisListingsFromBuffer(buf);
     return NextResponse.json(data);

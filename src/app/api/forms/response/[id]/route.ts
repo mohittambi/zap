@@ -44,6 +44,16 @@ export async function GET(
     if (!submittedBy) {
       throw new AppError("submitted_by query parameter required", 400);
     }
+    const isAdmin = user.permissions.some(
+      (p) => p.resource === "*" && p.action === "*"
+    );
+    if (
+      submittedBy !== String(user.id) &&
+      submittedBy !== user.email &&
+      !isAdmin
+    ) {
+      throw new AppError("Forbidden", 403);
+    }
     const data = await formsService.getFormResponse(formId, submittedBy);
     if (data === null) {
       throw new AppError("No response found", 404);

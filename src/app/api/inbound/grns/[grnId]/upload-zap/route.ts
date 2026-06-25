@@ -9,6 +9,9 @@ import {
   uploadBufferToBucket,
 } from "@/server/zapStorage";
 import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
+import {
+  assertInvoiceLikeFile,
+} from "@/server/lib/uploadGuards";
 
 type Ctx = { params: Promise<{ grnId: string }> };
 
@@ -20,27 +23,7 @@ const MAX_VENDOR_INVOICE_BYTES = 4 * 1024 * 1024;
 
 /** Zap-close workflow: vendor invoice is JPG / JPEG / PDF only, max 4MB. */
 function assertVendorInvoiceFileAllowed(file: File) {
-  if (file.size > MAX_VENDOR_INVOICE_BYTES) {
-    throw new AppError("Vendor invoice must be 4MB or smaller", 400);
-  }
-  const name = file.name.toLowerCase();
-  const ext = name.match(/\.([^.]+)$/)?.[1] ?? "";
-  const extOk = ext === "jpg" || ext === "jpeg" || ext === "pdf";
-  if (!extOk) {
-    throw new AppError("Vendor invoice must be .jpg, .jpeg, or .pdf", 400);
-  }
-  const mt = (file.type || "").toLowerCase();
-  if (mt === "") {
-    return;
-  }
-  const mimeOk =
-    mt === "image/jpeg" ||
-    mt === "application/pdf" ||
-    mt === "image/jpg" ||
-    mt === "image/pjpeg";
-  if (!mimeOk) {
-    throw new AppError("Vendor invoice must be JPG, JPEG, or PDF", 400);
-  }
+  assertInvoiceLikeFile(file, MAX_VENDOR_INVOICE_BYTES);
 }
 
 /**
@@ -159,6 +142,8 @@ export async function POST(request: Request, context: Ctx) {
       });
       return NextResponse.json({ ok: true, kind: "invoice", file_id: fileId });
     }
+
+    assertVendorInvoiceFileAllowed(file);
 
     const noteIdRaw = formData.get("noteId");
     const noteIdText =

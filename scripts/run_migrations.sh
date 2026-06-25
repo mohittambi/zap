@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Create database (if missing) and run migrations 001-069 in order.
+# Create database (if missing) and run migrations 001-070 in order.
 # Requires DATABASE_URL (e.g. from .env). Use: npm run migrate
 #
+# Pre/post: scripts/verify_migrations.sh ensures every migrations/*.sql is listed
+# here and (after apply) that 070 security objects exist in the database.
 # Migrations use CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS so
 # re-running is safe: already-applied steps no-op; remaining steps apply.
 set -e
 cd "$(dirname "$0")/.."
+
+bash scripts/verify_migrations.sh
 
 if [ -z "${DATABASE_URL}" ]; then
   echo "DATABASE_URL is not set. Set it in .env or the environment."
@@ -99,7 +103,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/066_ops_master_sku_po_metrics.sql \
          migrations/067_outbound_consignments_zap_id_seq.sql \
          migrations/068_outbound_consignment_invoice_type.sql \
-         migrations/069_inbound_grn_original_invoice_date.sql; do
+         migrations/069_inbound_grn_original_invoice_date.sql \
+         migrations/070_security_hardening.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"
@@ -110,3 +115,4 @@ for f in migrations/001_create_warehouses.sql \
 done
 
 echo "Migrations done."
+bash scripts/verify_migrations.sh --db

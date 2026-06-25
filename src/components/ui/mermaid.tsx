@@ -13,7 +13,7 @@ async function renderChart(id: string, chart: string): Promise<string> {
       theme: "neutral",
       fontFamily: "ui-sans-serif, system-ui, sans-serif",
       flowchart: { curve: "basis", padding: 16 },
-      securityLevel: "loose",
+      securityLevel: "strict",
     });
     initialized = true;
   }
@@ -79,7 +79,7 @@ export function MermaidDiagram({
         "overflow-x-auto rounded-xl border bg-white p-4 dark:bg-zinc-950 [&_svg]:max-w-full [&_svg]:h-auto",
         className
       )}
-      // mermaid returns sanitised SVG — securityLevel:loose is intentional for labels
+      // mermaid returns SVG — securityLevel:strict limits script injection
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: svg ?? "" }}
     />

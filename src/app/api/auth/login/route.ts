@@ -2,11 +2,19 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { NextResponse } from "next/server";
 import { query } from "@/server/db";
-import { loadUserWithRoles } from "@/server/auth";
+import { getJwtSecret, loadUserWithRoles } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
+import { checkRateLimit } from "@/server/lib/rateLimiter";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
+const LOGIN_RATE_LIMIT = 5;
+const LOGIN_RATE_WINDOW_MS = 60_000;
+
+function clientIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown";
+  return request.headers.get("x-real-ip")?.trim() || "unknown";
+}
 
 /**
  * @swagger
@@ -44,9 +52,22 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
  *                     permissions: { type: array, items: { type: string } }
  *       400: { description: Email and password required }
  *       401: { description: Invalid credentials }
+ *       429: { description: Too many login attempts }
  */
 export async function POST(request: Request) {
   try {
+    const ip = clientIp(request);
+    const rate = checkRateLimit(`login:${ip}`, LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_MS);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Too many login attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSec) },
+        }
+      );
+    }
+
     const body = (await request.json().catch(() => ({}))) as {
       email?: string;
       password?: string;
@@ -92,7 +113,7 @@ export async function POST(request: Request) {
 
     const token = jwt.sign(
       { userId: user.id, email: user.email },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRY } as jwt.SignOptions
     );
 

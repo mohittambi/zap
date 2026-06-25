@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
+import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 
 /**
@@ -11,10 +12,12 @@ import { handleApiError } from "@/server/errors";
  *     responses:
  *       200: { description: OK }
  *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
  */
 export async function GET(request: Request) {
   try {
-    await requireAuth(request);
+    const user = await requireAuth(request);
+    assertPermission(user, "*", "*");
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ?? "";
@@ -24,8 +27,6 @@ export async function GET(request: Request) {
       : "(not set)";
     const urlPreview = url || "(not set)";
 
-    // Attempt a direct HTTP call to list the storage buckets — same credential path
-    // as uploadBufferToBucket but without the supabase-js wrapper.
     let directResult: unknown = null;
     if (url && key) {
       try {
@@ -34,6 +35,7 @@ export async function GET(request: Request) {
             Authorization: `Bearer ${key}`,
             apikey: key,
           },
+          signal: AbortSignal.timeout(30_000),
         });
         const body = await res.text();
         directResult = { status: res.status, body: body.slice(0, 500) };

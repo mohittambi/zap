@@ -4,7 +4,59 @@ import { query } from "./db";
 import { AppError } from "./errors";
 import type { AuthUser, Permission } from "./rbac";
 
-const JWT_SECRET = process.env.JWT_SECRET || "change-me-in-production";
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) {
+    throw new Error("FATAL: JWT_SECRET environment variable is not set");
+  }
+  return secret;
+}
+
+export function apiKeyPrefixFromToken(token: string): string | null {
+  if (!token.startsWith("zap_") || token.length < 12) return null;
+  return token.slice(0, 12);
+}
+
+async function isJwtInvalidated(userId: number, issuedAtSec: number): Promise<boolean> {
+  const res = await query(
+    `SELECT token_invalidated_at FROM users WHERE id = $1`,
+    [userId]
+  );
+  if (res.rows.length === 0) return true;
+  const invalidatedAt = res.rows[0].token_invalidated_at as Date | null;
+  if (!invalidatedAt) return false;
+  return issuedAtSec * 1000 < invalidatedAt.getTime();
+}
+
+async function resolveUserIdFromApiKey(token: string): Promise<number | null> {
+  const prefix = apiKeyPrefixFromToken(token);
+  if (prefix) {
+    const keyResult = await query(
+      `SELECT id, api_key_hash FROM users
+       WHERE api_key_prefix = $1 AND api_key_hash IS NOT NULL AND COALESCE(is_active, true) = true`,
+      [prefix]
+    );
+    for (const row of keyResult.rows as { id: number; api_key_hash: string }[]) {
+      const match = await bcrypt.compare(token, row.api_key_hash);
+      if (match) return row.id;
+    }
+    return null;
+  }
+
+  console.warn(
+    "[auth] API key without prefix lookup — falling back to full-table scan; regenerate key via POST /api/auth/refresh-api-key"
+  );
+  const keyResult = await query(
+    `SELECT id, api_key_hash FROM users
+     WHERE api_key_hash IS NOT NULL AND COALESCE(is_active, true) = true
+       AND (api_key_prefix IS NULL OR api_key_prefix = '')`
+  );
+  for (const row of keyResult.rows as { id: number; api_key_hash: string }[]) {
+    const match = await bcrypt.compare(token, row.api_key_hash);
+    if (match) return row.id;
+  }
+  return null;
+}
 
 export async function loadUserWithRoles(
   userId: number
@@ -68,25 +120,22 @@ export async function resolveAuthUser(
     let userId: number | null = null;
 
     if (token.includes(".") && token.split(".").length === 3) {
-      const decoded = jwt.verify(token, JWT_SECRET) as {
+      const decoded = jwt.verify(token, getJwtSecret()) as {
         userId?: number;
         sub?: string | number;
+        iat?: number;
       };
       const rawId = decoded.userId ?? decoded.sub;
       userId =
         rawId == null ? null : typeof rawId === "number" ? rawId : Number(rawId);
       if (userId != null && Number.isNaN(userId)) userId = null;
-    } else {
-      const keyResult = await query(
-        `SELECT id, api_key_hash FROM users WHERE api_key_hash IS NOT NULL AND COALESCE(is_active, true) = true`
-      );
-      for (const row of keyResult.rows as { id: number; api_key_hash: string }[]) {
-        const match = await bcrypt.compare(token, row.api_key_hash);
-        if (match) {
-          userId = row.id;
-          break;
-        }
+
+      if (userId != null && decoded.iat != null) {
+        const invalidated = await isJwtInvalidated(userId, decoded.iat);
+        if (invalidated) return null;
       }
+    } else {
+      userId = await resolveUserIdFromApiKey(token);
     }
 
     if (userId == null) return null;
@@ -112,5 +161,3 @@ export async function requireAuth(request: Request): Promise<AuthUser> {
   }
   return user;
 }
-
-export { JWT_SECRET };

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
-import { query } from "@/server/db";
+import { logAdminAction } from "@/server/services/adminAuditService";
 
 export type AdminUserRow = {
   id: number;
@@ -140,6 +140,8 @@ export async function POST(request: Request) {
         [newId, row.id]
       );
     }
+
+    await logAdminAction(admin.id, "user_created", newId, { email });
 
     return NextResponse.json(
       {

@@ -317,10 +317,17 @@ flowchart TD
   noteEnter --> vendorInv(["4 Vendor invoice Documents or Close GRN"])
   vendorInv --> closeGate(["5 Close GRN"])
   closeGate --> closed["CLOSED lines frozen"]
-  closed --> accountsGate(["6 Accounts if required"])
-  accountsGate --> inventoryStep(["7 Inventory to bins"])
-  inventoryStep --> auditStep(["8 Audit and Debit Note"])
+  closed --> auditStep(["6 Audit and Debit Note"])
+  auditStep --> accountsGate(["7 Accounts if required"])
+  accountsGate --> inventoryStep(["8 Inventory to bins"])
 `;
+
+const GRN_TAB_TRIGGER_CLASS = cn(
+  "h-11 min-w-[9rem] gap-2 rounded-none border-0 px-3 shadow-none",
+  "text-foreground/70 hover:bg-primary/10 hover:text-foreground",
+  "data-active:!bg-card/90 data-active:!text-foreground data-active:shadow-none",
+  "data-active:after:!bottom-0 data-active:after:!h-0.5 data-active:after:!bg-primary data-active:after:!opacity-100"
+);
 
 const displayFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "numeric",
@@ -2551,6 +2558,13 @@ export default function InboundGrnDetailPage() {
                   fixed for this receipt.
                 </li>
                 <li>
+                  <strong className="text-foreground">Audit and debit note.</strong> On{" "}
+                  <strong className="text-foreground">Audit &amp; Debit Note</strong>: generate the note,
+                  assign the <strong className="text-foreground">DN number</strong>, upload the vendor{" "}
+                  <strong className="text-foreground">CN copy</strong> when issued, and{" "}
+                  <strong className="text-foreground">Export Tally CSV</strong> when finance needs it.
+                </li>
+                <li>
                   <strong className="text-foreground">Accounts (if your policy uses it).</strong> On the{" "}
                   <strong className="text-foreground">Accounts</strong> tab, approve or reject. Inventory
                   booking usually expects <strong className="text-foreground">APPROVED</strong> first.
@@ -2563,11 +2577,9 @@ export default function InboundGrnDetailPage() {
                   Bins for that SKU.
                 </li>
                 <li>
-                  <strong className="text-foreground">Audit and debit note.</strong> On{" "}
-                  <strong className="text-foreground">Audit &amp; Debit Note</strong>: generate the note,
-                  assign the <strong className="text-foreground">DN number</strong>, upload the vendor{" "}
-                  <strong className="text-foreground">CN copy</strong> when issued, and{" "}
-                  <strong className="text-foreground">Export Tally CSV</strong> when finance needs it.
+                  <strong className="text-foreground">Review activity (anytime).</strong> On{" "}
+                  <strong className="text-foreground">GRN Logs</strong>, see the timeline of line updates,
+                  close, accounts, inventory, debit note, and uploads.
                 </li>
               </ol>
               <p className="text-muted-foreground border-border mt-4 rounded-lg border bg-muted/20 px-3 py-2.5 text-sm leading-relaxed">
@@ -2584,13 +2596,14 @@ export default function InboundGrnDetailPage() {
               </h3>
               <ul className="text-muted-foreground list-disc space-y-2 pl-5 text-sm leading-relaxed marker:text-foreground/70">
                 <li>
-                  <strong className="text-foreground">Logs</strong> — timeline of actions Zap records on this
-                  GRN (line updates, close, accounts, inventory, debit note, uploads).
-                </li>
-                <li>
                   <strong className="text-foreground">Documents</strong> — vendor invoice and other GRN
                   files: upload here while <strong className="text-foreground">OPEN</strong> or in the Close
                   GRN dialog; view and download anytime.
+                </li>
+                <li>
+                  <strong className="text-foreground">Logs</strong> — timeline of actions Zap records on this
+                  GRN (line updates, close, accounts, inventory, debit note, uploads). Tab order matches the
+                  workflow above; logs are last for reference.
                 </li>
                 <li>
                   <strong className="text-foreground">Mobile</strong> — same sequence on{" "}
@@ -2772,64 +2785,59 @@ export default function InboundGrnDetailPage() {
 
           <Tabs
             defaultValue="details"
-            className="w-full"
+            className="w-full gap-0"
             onValueChange={(v) => {
               if (v !== "inventory" || !bundle?.grn_items?.length) return;
               if (row?.inventory_receipt_status === "DONE") return;
               initReceiptItems(bundle.grn_items);
             }}
           >
-            <TabsList className="mb-4 flex h-auto w-full flex-nowrap justify-start gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1.5 [scrollbar-width:none] sm:w-fit [&::-webkit-scrollbar]:hidden">
-              <TabsTrigger
-                value="details"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
+            <div className="overflow-hidden rounded-xl border border-primary/15 bg-card shadow-sm">
+              <TabsList
+                variant="line"
+                className={cn(
+                  "mb-0 grid h-11 w-full grid-flow-col auto-cols-[minmax(9rem,1fr)] gap-0",
+                  "overflow-x-auto rounded-none border-0 bg-primary/10 p-0",
+                  "sm:grid-cols-6 sm:overflow-visible",
+                  "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                )}
               >
-                <ClipboardList />
-                GRN Details
-              </TabsTrigger>
-              <TabsTrigger
-                value="documents"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
-              >
-                <Files />
-                GRN Documents
-              </TabsTrigger>
-              <TabsTrigger
-                value="logs"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
-              >
-                <ScrollText />
-                GRN Logs
-              </TabsTrigger>
-              <TabsTrigger
-                value="audit"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
-                onClick={() => {
-                  if (!row) return;
-                  if (!auditLines) loadAuditPreview(row.grn_id);
-                  void loadDebitNote(row.grn_id);
-                }}
-              >
-                <ReceiptText />
-                Audit &amp; Debit Note
-              </TabsTrigger>
-              <TabsTrigger
-                value="accounts"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
-              >
-                <Wallet />
-                Accounts
-              </TabsTrigger>
-              <TabsTrigger
-                value="inventory"
-                className="h-9 flex-none gap-2 px-3 data-active:shadow-sm"
-              >
-                <PackageCheck />
-                Inventory Receipt
-              </TabsTrigger>
-            </TabsList>
+                <TabsTrigger value="details" className={GRN_TAB_TRIGGER_CLASS}>
+                  <ClipboardList />
+                  GRN Details
+                </TabsTrigger>
+                <TabsTrigger value="documents" className={GRN_TAB_TRIGGER_CLASS}>
+                  <Files />
+                  GRN Documents
+                </TabsTrigger>
+                <TabsTrigger
+                  value="audit"
+                  className={GRN_TAB_TRIGGER_CLASS}
+                  onClick={() => {
+                    if (!row) return;
+                    if (!auditLines) loadAuditPreview(row.grn_id);
+                    void loadDebitNote(row.grn_id);
+                  }}
+                >
+                  <ReceiptText />
+                  Audit &amp; Debit Note
+                </TabsTrigger>
+                <TabsTrigger value="accounts" className={GRN_TAB_TRIGGER_CLASS}>
+                  <Wallet />
+                  Accounts
+                </TabsTrigger>
+                <TabsTrigger value="inventory" className={GRN_TAB_TRIGGER_CLASS}>
+                  <PackageCheck />
+                  Inventory Receipt
+                </TabsTrigger>
+                <TabsTrigger value="logs" className={GRN_TAB_TRIGGER_CLASS}>
+                  <ScrollText />
+                  GRN Logs
+                </TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="details" className="mt-4 space-y-6">
+              <div className="border-t border-primary/10 p-4 sm:p-6">
+            <TabsContent value="details" className="mt-0 space-y-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <Card className="border-primary/10 shadow-sm">
               <CardHeader className="pb-2">
@@ -3630,7 +3638,7 @@ export default function InboundGrnDetailPage() {
           ) : null}
             </TabsContent>
 
-            <TabsContent value="documents" className="mt-4 space-y-6">
+            <TabsContent value="documents" className="mt-0 space-y-6">
               <Card className="overflow-hidden border-primary/15 shadow-sm">
                 <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <CardTitle className="text-base">GRN summary</CardTitle>
@@ -4071,7 +4079,7 @@ export default function InboundGrnDetailPage() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="logs" className="mt-4 space-y-4">
+            <TabsContent value="logs" className="mt-0 space-y-4">
               <Card className="overflow-hidden border-primary/15 shadow-sm">
                 <CardHeader className="border-b bg-muted/25">
                   <CardTitle className="text-base">GRN activity log</CardTitle>
@@ -4249,7 +4257,7 @@ export default function InboundGrnDetailPage() {
             </TabsContent>
 
             {/* ── Audit & Debit Note ─────────────────────────────────────────────── */}
-            <TabsContent value="audit" className="mt-4 space-y-6">
+            <TabsContent value="audit" className="mt-0 space-y-6">
               <Card className="overflow-hidden border-primary/15 shadow-sm">
                 <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <CardTitle className="text-base">Price audit — vendor vs. audit price</CardTitle>
@@ -4546,7 +4554,7 @@ export default function InboundGrnDetailPage() {
             </TabsContent>
 
             {/* ── Accounts approval ───────────────────────────────────────────── */}
-            <TabsContent value="accounts" className="mt-4 space-y-4">
+            <TabsContent value="accounts" className="mt-0 space-y-4">
               <Card className="overflow-hidden border-primary/15 shadow-sm">
                 <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <CardTitle className="text-base">Accounts approval</CardTitle>
@@ -4694,7 +4702,7 @@ export default function InboundGrnDetailPage() {
             </TabsContent>
 
             {/* ── Inventory receipt ───────────────────────────────────────────── */}
-            <TabsContent value="inventory" className="mt-4 space-y-4">
+            <TabsContent value="inventory" className="mt-0 space-y-4">
               <Card className="overflow-hidden border-primary/15 shadow-sm">
                 <CardHeader className="border-b bg-gradient-to-r from-primary/8 via-muted/40 to-transparent pb-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -4943,6 +4951,8 @@ export default function InboundGrnDetailPage() {
               </Card>
             </TabsContent>
 
+              </div>
+            </div>
           </Tabs>
         </>
       ) : null}

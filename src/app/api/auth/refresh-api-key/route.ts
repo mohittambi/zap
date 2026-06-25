@@ -2,39 +2,38 @@ import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { query } from "@/server/db";
-import { requireAuth } from "@/server/auth";
+import { apiKeyPrefixFromToken, requireAuth } from "@/server/auth";
+import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
+import { logAdminAction } from "@/server/services/adminAuditService";
 
 /**
  * @swagger
  * /auth/refresh-api-key:
  *   post:
  *     summary: Generate a new API key for the current admin user
- *     description: Admin role required. The new key is returned exactly once.
+ *     description: Admin (*:*) required. The new key is returned exactly once.
  *     tags: [Auth]
  *     responses:
  *       200: { description: OK }
  *       401: { description: Unauthorized }
- *       403: { description: Admin role required }
+ *       403: { description: Forbidden }
  */
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    const adminRole = user.roles?.includes("admin");
-    if (!adminRole) {
-      return NextResponse.json(
-        { error: "Admin role required" },
-        { status: 403 }
-      );
-    }
+    assertPermission(user, "*", "*");
 
     const rawKey = `zap_${crypto.randomBytes(24).toString("hex")}`;
     const hash = await bcrypt.hash(rawKey, 10);
+    const prefix = apiKeyPrefixFromToken(rawKey);
 
     await query(
-      `UPDATE users SET api_key_hash = $1, updated_at = NOW() WHERE id = $2`,
-      [hash, user.id]
+      `UPDATE users SET api_key_hash = $1, api_key_prefix = $2, updated_at = NOW() WHERE id = $3`,
+      [hash, prefix, user.id]
     );
+
+    await logAdminAction(user.id, "api_key_regenerated", user.id);
 
     return NextResponse.json({
       api_key: rawKey,

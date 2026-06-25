@@ -31,6 +31,6 @@ describe("handleApiError", () => {
     console.error = orig;
     assert.strictEqual(res.status, 500);
     const j = (await res.json()) as { error: string };
-    assert.strictEqual(j.error, "boom");
+    assert.strictEqual(j.error, "Internal server error");
   });
 });

@@ -8,6 +8,9 @@ import {
   uploadBufferToBucket,
 } from "@/server/zapStorage";
 import { attachConsignmentInvoice } from "@/server/services/outboundConsignmentsService";
+import { assertFileSize } from "@/server/lib/uploadGuards";
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -64,6 +67,7 @@ export async function POST(request: Request, context: Ctx) {
     if (!(file instanceof File) || file.size < 1) {
       throw new AppError("file is required", 400);
     }
+    assertFileSize(file, MAX_UPLOAD_BYTES);
 
     const buf = Buffer.from(await file.arrayBuffer());
     const ct = file.type && file.type !== "" ? file.type : "application/octet-stream";

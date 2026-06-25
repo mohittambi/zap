@@ -66,6 +66,7 @@ export async function refreshEautomateSessionFromLogin(): Promise<boolean> {
     },
     body: JSON.stringify({ userId, password }),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
 
   const text = await res.text();

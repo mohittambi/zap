@@ -46,6 +46,7 @@ export async function uploadBufferToBucket(
       "x-upsert": "true",
     },
     body: new Uint8Array(body),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     let msg = `Storage upload failed (${res.status})`;
@@ -67,6 +68,7 @@ export async function createSignedDownloadUrl(
     method: "POST",
     headers: { ...storageHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ expiresIn: expiresSec }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     let msg = `Could not create signed URL (${res.status})`;
@@ -88,7 +90,10 @@ export async function downloadBufferFromBucket(
   objectPath: string
 ): Promise<{ buffer: Buffer; contentType: string | null }> {
   const url = `${storageBase()}/object/${bucket}/${objectPath}`;
-  const res = await fetch(url, { headers: storageHeaders() });
+  const res = await fetch(url, {
+    headers: storageHeaders(),
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!res.ok) {
     let msg = `Download failed (${res.status})`;
     try {

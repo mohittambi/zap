@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
+import { logAdminAction } from "@/server/services/adminAuditService";
 import { query } from "@/server/db";
 
 type PatchBody = {
@@ -69,10 +70,13 @@ export async function PATCH(
       if (body.is_active === false && userId === admin.id) {
         throw new AppError("You cannot deactivate your own account.", 400);
       }
-      await query(`UPDATE users SET is_active = $1, updated_at = NOW() WHERE id = $2`, [
-        body.is_active,
-        userId,
-      ]);
+      await query(
+        `UPDATE users SET is_active = $1,
+          token_invalidated_at = CASE WHEN $1 = false THEN NOW() ELSE token_invalidated_at END,
+          updated_at = NOW()
+         WHERE id = $2`,
+        [body.is_active, userId]
+      );
     }
 
     if (typeof body.password === "string" && body.password.length > 0) {
@@ -138,6 +142,12 @@ export async function PATCH(
         );
       }
     }
+
+    await logAdminAction(admin.id, "user_updated", userId, {
+      is_active: body.is_active,
+      roles: body.roles,
+      password_changed: typeof body.password === "string" && body.password.length > 0,
+    });
 
     return NextResponse.json({ ok: true, message: "User updated." });
   } catch (err) {

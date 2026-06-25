@@ -64,6 +64,7 @@ export async function getAccessToken(): Promise<string> {
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
       assertion,
     }),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {

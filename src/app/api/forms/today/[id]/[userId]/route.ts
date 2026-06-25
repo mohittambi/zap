@@ -34,6 +34,16 @@ export async function GET(
     const user = await requireAuth(request);
     assertPermission(user, "forms", "read");
     const { id, userId } = await context.params;
+    const isAdmin =
+      user.roles.includes("admin") ||
+      user.permissions.some((p) => p.resource === "*" && p.action === "*");
+    if (
+      userId !== String(user.id) &&
+      userId !== user.email &&
+      !isAdmin
+    ) {
+      throw new AppError("Forbidden", 403);
+    }
     const formId = Number.parseInt(id, 10);
     if (!formId || formId < 1) {
       throw new AppError("invalid id provided.", 400);
