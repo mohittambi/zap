@@ -87,6 +87,66 @@ type AuditLine = {
   has_discrepancy: boolean;
 };
 
+type LineRow = { line_index: number; sku_id: string | null; raw: Record<string, unknown> | null };
+type GrnDetailsBundle = {
+  header: GrnRow & Record<string, unknown>;
+  grn_items: LineRow[];
+  added_items: LineRow[];
+  [k: string]: unknown;
+};
+
+const NUM_KEYS = {
+  accepted: ["accepted_quantity", "acceptedQuantity", "grn_accepted_quantity", "current_grn_accepted_quantity", "currentGrnAcceptedQuantity"],
+  rejected: ["rejected_quantity", "rejectedQuantity", "grn_rejected_quantity", "current_grn_rejected_quantity", "currentGrnRejectedQuantity"],
+  shortage: ["shortage_quantity", "shortageQuantity", "grn_shortage_quantity", "current_grn_short_quantity", "currentGrnShortQuantity", "short_quantity"],
+  receivedPrice: ["received_price", "receivedPrice", "grn_received_price", "current_received_price"],
+  auditPrice: ["audit_price", "auditPrice", "audit_price_excluding_gst", "auditPriceExclGst", "audit_price_exclusive_gst"],
+  description: ["title", "name", "description", "sku_name", "listing_title", "product_name", "display_name"],
+};
+
+function pickNum(raw: Record<string, unknown> | null, keys: string[]): number {
+  if (!raw) return 0;
+  for (const k of keys) {
+    const v = raw[k];
+    if (v != null && v !== "") { const n = Number(v); if (!Number.isNaN(n)) return n; }
+  }
+  return 0;
+}
+
+function pickStr(raw: Record<string, unknown> | null, keys: string[]): string {
+  if (!raw) return "";
+  for (const k of keys) {
+    const v = raw[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function linesToAuditLines(rows: LineRow[]): AuditLine[] {
+  return rows.map((item) => {
+    const r = item.raw ?? {};
+    const qty = pickNum(r, NUM_KEYS.accepted);
+    const rej = pickNum(r, NUM_KEYS.rejected);
+    const short = pickNum(r, NUM_KEYS.shortage);
+    const vp = pickNum(r, NUM_KEYS.receivedPrice);
+    const ap = pickNum(r, NUM_KEYS.auditPrice);
+    const diff = vp - ap;
+    return {
+      line_index: item.line_index,
+      sku_id: item.sku_id ?? null,
+      sku_description: pickStr(r, NUM_KEYS.description) || null,
+      quantity: qty,
+      rejected_quantity: rej,
+      short_quantity: short,
+      vendor_price: vp,
+      audit_price: ap,
+      price_diff: diff,
+      debit_amount: qty * diff,
+      has_discrepancy: diff > 0 && qty > 0,
+    };
+  });
+}
+
 const PENDING_AUDITS_WORKFLOW = `
 flowchart TD
   openPage["Open this pending list"] --> seeList["Each row is one GRN waiting for audit"]
@@ -203,11 +263,12 @@ export default function InboundPendingAuditsPage() {
     setAuditLines([]);
     setAuditPriceEdits({});
     setAuditLinesLoading(true);
-    apiFetch<{ lines: AuditLine[] }>(
-      `/api/inbound/grns/${row.grn_id}/debit-note?preview=1`
+    apiFetch<GrnDetailsBundle>(
+      `/api/inbound/grns/${row.grn_id}/details`
     )
-      .then((d) => {
-        const lines = d.lines ?? [];
+      .then((bundle) => {
+        const source = bundle.grn_items?.length > 0 ? bundle.grn_items : bundle.added_items ?? [];
+        const lines = linesToAuditLines(source);
         setAuditLines(lines);
         const edits: Record<number, string> = {};
         for (const l of lines) {
@@ -243,12 +304,16 @@ export default function InboundPendingAuditsPage() {
       const priceSaves = lines.filter(
         (l) => l.edited_audit_price !== l.audit_price && l.edited_audit_price > 0
       );
-      for (const l of priceSaves) {
-        await apiFetch(`/api/inbound/grns/${grnId}/items/${l.line_index}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ audit_price: l.edited_audit_price }),
-        });
+      if (priceSaves.length > 0) {
+        // Ensure inbound_grn_items rows exist (seeds from PO detail lines if empty)
+        await apiFetch(`/api/inbound/grns/${grnId}/debit-note?preview=1`);
+        for (const l of priceSaves) {
+          await apiFetch(`/api/inbound/grns/${grnId}/items/${l.line_index}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audit_price: l.edited_audit_price }),
+          });
+        }
       }
       await apiFetch(`/api/inbound/grns/${grnId}`, {
         method: "PATCH",
