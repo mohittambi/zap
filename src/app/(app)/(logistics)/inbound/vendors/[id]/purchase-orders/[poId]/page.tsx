@@ -260,6 +260,55 @@ function statusClosedClass(s: string | null | undefined): string {
   return "";
 }
 
+function poStatusHelp(displayStatus: string): string | undefined {
+  switch (displayStatus.trim().toUpperCase()) {
+    case "PUBLISHED":
+      return "PO is published and active for receiving.";
+    case "CANCELLED":
+      return "PO has been cancelled; no further GRNs should be created.";
+    case "MODIFICATION":
+      return "A modification has been requested on this PO.";
+    default:
+      return undefined;
+  }
+}
+
+function grnStatusDisplay(raw: string): { label: string; className: string } {
+  const up = raw.trim().toUpperCase();
+  if (!up || up === "—") {
+    return { label: "—", className: "" };
+  }
+  switch (up) {
+    case "OPEN":
+      return {
+        label: "Receipt open",
+        className:
+          "bg-blue-600/15 text-blue-700 dark:text-blue-400 border-blue-600/30",
+      };
+    case "CLOSED":
+    case "DONE":
+    case "COMPLETED":
+      return {
+        label: "Fully received",
+        className:
+          "bg-violet-600/15 text-violet-700 dark:text-violet-400 border-violet-600/30",
+      };
+    case "CANCELLED":
+      return {
+        label: "Cancelled",
+        className:
+          "bg-destructive/15 text-destructive border-destructive/30",
+      };
+    case "DRAFT":
+      return {
+        label: "Draft",
+        className: "bg-muted text-muted-foreground border-border",
+      };
+    default:
+      return { label: raw.trim(), className: "" };
+  }
+}
+
 function grnIdFromRow(g: PoGrnRow): number | null {
   if (g.grn_id != null && Number.isFinite(Number(g.grn_id))) return Number(g.grn_id);
   const p = pick(g.raw, ["grn_id", "grnId"]);
@@ -287,10 +336,17 @@ export default function InboundPoDetailPage() {
   const [newGrnActualBoxManual, setNewGrnActualBoxManual] = React.useState(false);
   const [newGrnBusy, setNewGrnBusy] = React.useState(false);
 
-  const newGrnCanSubmit =
-    newGrnInvoice.trim() !== "" &&
-    parseNonNegativeInt(newGrnBoxInvoice) !== null &&
-    parseNonNegativeInt(newGrnActualBox) !== null;
+  const newGrnMissingFields = React.useMemo(() => {
+    const missing: string[] = [];
+    if (newGrnInvoice.trim() === "") missing.push("vendor invoice number");
+    if (parseNonNegativeInt(newGrnBoxInvoice) === null)
+      missing.push("box count in invoice");
+    if (parseNonNegativeInt(newGrnActualBox) === null)
+      missing.push("actual box count received");
+    return missing;
+  }, [newGrnInvoice, newGrnBoxInvoice, newGrnActualBox]);
+
+  const newGrnCanSubmit = newGrnMissingFields.length === 0;
 
   const reloadBundle = React.useCallback(async () => {
     if (!vendorId || !poId) return;
@@ -674,6 +730,7 @@ export default function InboundPoDetailPage() {
                     <Badge
                       variant="outline"
                       className={cn("text-xs", statusPublishedClass(poStatus))}
+                      title={poStatusHelp(poStatus)}
                     >
                       {poStatus}
                     </Badge>
@@ -694,11 +751,17 @@ export default function InboundPoDetailPage() {
                   )}
                 </p>
               </div>
-              <div className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs sm:text-right sm:grid-cols-1">
-                <span className="sm:hidden">Expiry</span>
-                <span>Expiry: {formatDt(expiryStr)}</span>
-                <span className="sm:hidden">Created by</span>
-                <span>By {createdBy} · {formatDt(createdAtStr)}</span>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground w-16 shrink-0">Expiry</span>
+                  <span className="font-medium">{formatDt(expiryStr)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-muted-foreground w-16 shrink-0">Created</span>
+                  <span>{createdBy}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span>{formatDt(createdAtStr)}</span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -847,10 +910,12 @@ export default function InboundPoDetailPage() {
                     : "eautomate";
                   const grnLabel =
                     gid != null ? formatGrnLabel(gid, grnSource) : "—";
+                  const grnStatusRaw = pick(r, ["grn_status", "status"]);
+                  const grnStatus = grnStatusDisplay(grnStatusRaw);
                   return (
                     <Card key={g.sort_index} className="border-primary/20">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="flex items-center justify-between text-sm">
+                      <CardHeader className="space-y-1.5 pb-2">
+                        <CardTitle className="text-sm">
                           {href ? (
                             <Link
                               href={href}
@@ -870,16 +935,15 @@ export default function InboundPoDetailPage() {
                               GRN {grnLabel}
                             </span>
                           )}
+                        </CardTitle>
+                        {grnStatus.label !== "—" ? (
                           <Badge
                             variant="outline"
-                            className={cn(
-                              "text-[10px]",
-                              statusClosedClass(pick(r, ["grn_status", "status"]))
-                            )}
+                            className={cn("w-fit text-[10px]", grnStatus.className)}
                           >
-                            {pick(r, ["grn_status", "status"])}
+                            {grnStatus.label}
                           </Badge>
-                        </CardTitle>
+                        ) : null}
                       </CardHeader>
                       <CardContent className="space-y-1.5 text-xs">
                         <div className="grid grid-cols-3 gap-1 text-center">
@@ -1064,26 +1128,28 @@ export default function InboundPoDetailPage() {
                 for this receipt.
               </p>
               {header ? (
-                <div className="bg-muted/50 space-y-1 rounded-md border px-3 py-2 text-xs">
-                  <p>
-                    <span className="text-muted-foreground">PO </span>
+                <div className="bg-muted/50 rounded-md border px-3 py-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2 border-b pb-2">
                     <span className="font-medium">
                       {formatPoLabel(poId, header.source)}
                     </span>
-                    <span className="text-muted-foreground"> · </span>
-                    <span>{deriveDisplayName(header.vendor_name)}</span>
-                  </p>
-                  <p className="text-muted-foreground">
-                    Ordered {numberStringOrDash(header.sku_count)} SKUs ·{" "}
-                    {numberStringOrDash(header.total_quantity)} qty ·{" "}
-                    {numberStringOrDash(header.number_of_grns)} existing GRN
-                    {header.number_of_grns === 1 ? "" : "s"} · source{" "}
-                    {header.source}
-                  </p>
-                  <p className="text-muted-foreground">
-                    This will be GRN #
-                    {header.number_of_grns + 1} on this purchase order.
-                  </p>
+                    <Badge variant="outline" className="text-[10px]">
+                      Will be GRN #{header.number_of_grns + 1}
+                    </Badge>
+                  </div>
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-2">
+                    <dt className="text-muted-foreground">Vendor</dt>
+                    <dd>{deriveDisplayName(header.vendor_name)}</dd>
+                    <dt className="text-muted-foreground">Ordered</dt>
+                    <dd>
+                      {numberStringOrDash(header.sku_count)} SKUs ·{" "}
+                      {numberStringOrDash(header.total_quantity)} qty
+                    </dd>
+                    <dt className="text-muted-foreground">Existing GRNs</dt>
+                    <dd>{numberStringOrDash(header.number_of_grns)}</dd>
+                    <dt className="text-muted-foreground">Source</dt>
+                    <dd className="capitalize">{header.source}</dd>
+                  </dl>
                 </div>
               ) : null}
               <div className="space-y-2">
@@ -1103,11 +1169,11 @@ export default function InboundPoDetailPage() {
                       {newGrnLinePreview.total === 1 ? "" : "s"} will be copied
                       to the new GRN:
                     </p>
-                    <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md border px-2 py-1.5 text-xs">
+                    <ul className="max-h-32 divide-y overflow-y-auto rounded-md border text-xs">
                       {newGrnLinePreview.rows.map((row) => (
                         <li
                           key={row.line_index}
-                          className="flex justify-between gap-2 font-mono"
+                          className="flex justify-between gap-2 px-2.5 py-1.5 font-mono"
                         >
                           <span className="truncate">{row.sku_id}</span>
                           <span className="text-muted-foreground shrink-0">
@@ -1189,22 +1255,34 @@ export default function InboundPoDetailPage() {
                   ) : null}
                 </div>
               </div>
-              <DialogFooter className="gap-2 sm:gap-0">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={newGrnBusy}
-                  onClick={() => setNewGrnOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={newGrnBusy || !newGrnCanSubmit}
-                  onClick={() => void submitNewGrn()}
-                >
-                  {newGrnBusy ? "Submitting…" : "Submit"}
-                </Button>
+              <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch sm:gap-2">
+                {!newGrnCanSubmit && !newGrnBusy ? (
+                  <p className="text-muted-foreground text-[11px] sm:text-right">
+                    Enter {newGrnMissingFields.join(", ")} to enable Submit.
+                  </p>
+                ) : null}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={newGrnBusy}
+                    onClick={() => setNewGrnOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={newGrnBusy || !newGrnCanSubmit}
+                    title={
+                      !newGrnCanSubmit
+                        ? `Enter ${newGrnMissingFields.join(", ")} first`
+                        : undefined
+                    }
+                    onClick={() => void submitNewGrn()}
+                  >
+                    {newGrnBusy ? "Submitting…" : "Submit"}
+                  </Button>
+                </div>
               </DialogFooter>
             </DialogContent>
           </Dialog>

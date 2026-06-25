@@ -3,19 +3,27 @@
  * Kept out of the React component for unit testing.
  */
 
+import { displayPoStatus } from "./inboundPoGrnPendingUi";
+
 const EM_DASH = "—";
 
 export function isZapCancelled(zapStatus: unknown): boolean {
   return String(zapStatus ?? "").trim().toUpperCase() === "CANCELLED";
 }
 
+/**
+ * Friendly, self-explanatory PO status for the detail page badge.
+ * Delegates to displayPoStatus so backend enums (e.g. PENDING_PUBLISHED)
+ * are humanized the same way as the PO list page.
+ */
 export function derivePoDisplayStatus(
   cancelled: boolean,
   headerStatus: string | null | undefined
 ): string {
   if (cancelled) return "Cancelled";
   const s = (headerStatus ?? "").trim();
-  return s === "" ? EM_DASH : s;
+  if (s === "") return EM_DASH;
+  return displayPoStatus(s);
 }
 
 export function deriveDisplayName(value: string | null | undefined): string {
