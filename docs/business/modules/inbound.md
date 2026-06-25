@@ -83,6 +83,14 @@ Step 7: Records closed in Zap
 - After audit, receipt line data is **locked** and cannot be changed
 - If audited prices differ from vendor prices, the system can **automatically generate** a rate-diff debit note
 
+### PO cancel and modify
+- **Modify PO** updates internal notes only (`zap_notes`) — it does not change SKU lines or quantities
+- **Cancel PO** requires confirmation and is **blocked** once any GRN on the PO is open, closed, audited, or has receipt quantities recorded
+- Full workflow: [inbound-po-grn-workflow.md](../../business/workflows/inbound-po-grn-workflow.md)
+
+### GRN totals on the PO page
+- SKU count and accepted/rejected/shortage on each GRN card are rolled up from line items and kept in sync whenever quantities change
+
 ### Upload documents
 - Attach vendor invoices directly to a GRN
 - Upload signed delivery challans or any other paperwork

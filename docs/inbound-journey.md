@@ -89,6 +89,14 @@ flowchart TD
 
 Automated coverage map: [inbound-journey-api-test-matrix.md](inbound-journey-api-test-matrix.md).
 
+**Workflow & field reference (business):**
+
+- [business/workflows/inbound-po-grn-workflow.md](business/workflows/inbound-po-grn-workflow.md)
+- [business/workflows/inbound-field-calibration.md](business/workflows/inbound-field-calibration.md)
+- [business/workflows/inbound-activity-log.md](business/workflows/inbound-activity-log.md)
+
+**GRN header totals:** quantity fields on `inbound_grns` are derived from `inbound_grn_items` on every write (migration `071` backfills existing rows). PO cancel is blocked once receipt has started.
+
 ```bash
 cd web
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/fixtures/inbound_journey_fixture.sql

@@ -785,6 +785,13 @@ export default function InboundFlowsPage() {
       </div>
 
       <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
+        <span className="font-medium">PO cancel &amp; GRN totals:</span> cancel a PO only before goods receipt
+        starts (no OPEN/CLOSED GRN). GRN header quantities (SKU count, accepted, rejected, shortage) are always
+        derived from line items in <code className="text-[11px]">inbound_grn_items</code>. Modify PO updates
+        internal notes only. Confirm before close GRN, close audit, accounts decision, or PO cancel.
+      </div>
+
+      <div className="border-primary/20 bg-primary/5 text-foreground rounded-md border px-3 py-2 text-xs leading-relaxed">
         <span className="font-medium">Engineers:</span> the architectural rules behind every flow live in{" "}
         <code className="text-[11px]">docs/zap-doctrine.md</code>{" "}
         — read it before changing anything that affects data boundaries, ID allocation, or the historical

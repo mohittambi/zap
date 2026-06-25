@@ -41,11 +41,11 @@ describe("migration registry", () => {
       [],
       `Remove or add SQL file for: ${orphanInRunner.join(", ")}`
     );
-    assert.ok(onDisk.length >= 70, "expected at least 70 migrations");
+    assert.ok(onDisk.length >= 71, "expected at least 71 migrations");
     assert.match(
       onDisk[onDisk.length - 1] ?? "",
-      /070_security_hardening\.sql$/,
-      "latest migration should be 070_security_hardening.sql"
+      /071_recalculate_grn_header_totals\.sql$/,
+      "latest migration should be 071_recalculate_grn_header_totals.sql"
     );
   });
 

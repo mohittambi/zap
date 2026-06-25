@@ -24,6 +24,8 @@ This matrix ties the **canonical inbound flow** (see [inbound-grn-debit-credit-n
 | Inventory booking | SKU → bin after APPROVED | `POST …/receive-inventory` | `receiveIntoInventory` | [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs): body validation / 422 |
 | Invoice Excel | Accounts export after physical copy **COLLECTED** (web button); **includes Zap DN summary + line sheet when a rate-diff note exists**; API has no `COLLECTED` guard | `GET …/invoice-export` | `buildInvoiceExcel` + route | [inbound-grn-flow.test.mjs](../tests/api/inbound-grn-flow.test.mjs) (data-dependent) |
 | List filters / CSV (PO hub) | Inbound PO / pending hubs | Listing pages query strings, `GET …/grn-report` | `buildGrnReportCsv` | [inbound-po-grn-pending-ui.test.ts](../tests/unit/inbound-po-grn-pending-ui.test.ts); [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs): Zap-source GRN report CSV |
+| GRN header totals | PO card SKU count / accepted / rejected | (read via PO details bundle) | `recalculateGrnHeaderTotals`, migration `071` | [grn-header-totals.test.ts](../tests/unit/grn-header-totals.test.ts) |
+| Cancel PO guard | Block cancel after receipt | `PATCH …/purchase-orders/{poId}/cancel` | `assertPoCancellable` | [inbound-po-cancel-guard.test.ts](../tests/unit/inbound-po-cancel-guard.test.ts); [inbound-journey-integration.test.mjs](../tests/api/inbound-journey-integration.test.mjs): **409** on Zap PO with CLOSED GRN |
 
 ## Deterministic fixtures (local / CI against `TEST_DATABASE_URL`)
 

@@ -3,6 +3,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import {
+  assertPoCancellable,
   assertVendorPoSnapshot,
   mergeInboundPoRaw,
 } from "@/server/services/inboundPoZapActionsService";
@@ -47,6 +48,8 @@ export async function PATCH(request: Request, context: Ctx) {
     if (cur === "CANCELLED") {
       return NextResponse.json({ ok: true });
     }
+
+    await assertPoCancellable(poIdNum);
 
     await mergeInboundPoRaw(vendorId, poIdNum, {
       zap_status: "CANCELLED",

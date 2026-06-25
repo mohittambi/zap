@@ -2,7 +2,7 @@
 
 ## Location
 
-Ordered SQL files: `web/migrations/*.sql` (numbered `001_` … `070_` as of 2026-06-25).
+Ordered SQL files: `web/migrations/*.sql` (numbered `001_` … `071_` as of 2026-06-25).
 
 The canonical runner is [`web/scripts/run_migrations.sh`](../../scripts/run_migrations.sh). **Every** new `NNN_*.sql` file must be appended to that script in order.
 
@@ -40,7 +40,7 @@ tsx --test tests/unit/migrations-parity.test.mjs
 
 Included in `npm run test:unit`.
 
-### Adding migration `071+`
+### Adding migration `072+`
 
 1. Create `web/migrations/071_your_change.sql`.
 2. Append the path to the `for f in …` loop in `run_migrations.sh`.

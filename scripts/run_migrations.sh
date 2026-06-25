@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create database (if missing) and run migrations 001-070 in order.
+# Create database (if missing) and run migrations 001-071 in order.
 # Requires DATABASE_URL (e.g. from .env). Use: npm run migrate
 #
 # Pre/post: scripts/verify_migrations.sh ensures every migrations/*.sql is listed
@@ -104,7 +104,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/067_outbound_consignments_zap_id_seq.sql \
          migrations/068_outbound_consignment_invoice_type.sql \
          migrations/069_inbound_grn_original_invoice_date.sql \
-         migrations/070_security_hardening.sql; do
+         migrations/070_security_hardening.sql \
+         migrations/071_recalculate_grn_header_totals.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

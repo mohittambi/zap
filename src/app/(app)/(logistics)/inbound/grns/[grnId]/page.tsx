@@ -52,6 +52,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -1926,25 +1936,9 @@ export default function InboundGrnDetailPage() {
       .catch(async (e: unknown) => {
         const msg = e instanceof Error ? e.message : "Failed to generate debit note";
         if (msg.includes("Cannot regenerate debit note while status is")) {
-          const confirmed = globalThis.confirm(
-            "This debit note is already progressed (ISSUED/CLOSED). Force regenerate and overwrite draft lines?"
-          );
-          if (confirmed) {
-            const forced = await apiFetch<ZapDebitNote>(
-              `/api/inbound/grns/${grnId}/debit-note`,
-              {
-                method: "POST",
-                body: JSON.stringify({ force_regenerate: true }),
-              }
-            );
-            setDebitNote(forced);
-            toast.success(
-              `Debit note ${forced.note_reference}: ${forced.lines.length} line(s), total ₹${Number(forced.total_debit_amount).toFixed(2)}`
-            );
-            refreshDebitNoteQuiet(grnId);
-            await reloadBundle();
-            return;
-          }
+          setDebitNoteForceRegenGrnId(grnId);
+          setDebitNoteForceRegenOpen(true);
+          return;
         }
         toast.error(msg);
       })
@@ -2216,6 +2210,30 @@ export default function InboundGrnDetailPage() {
   const [operationalGrnInput, setOperationalGrnInput] = React.useState("");
   const [registeringOperationalId, setRegisteringOperationalId] =
     React.useState(false);
+  const [registerOperationalConfirmOpen, setRegisterOperationalConfirmOpen] =
+    React.useState(false);
+  const [registerOperationalDraftId, setRegisterOperationalDraftId] =
+    React.useState<number | null>(null);
+  const [debitNoteForceRegenOpen, setDebitNoteForceRegenOpen] =
+    React.useState(false);
+  const [debitNoteForceRegenGrnId, setDebitNoteForceRegenGrnId] =
+    React.useState<number | null>(null);
+
+  async function forceRegenerateDebitNote(grnId: number) {
+    const forced = await apiFetch<ZapDebitNote>(
+      `/api/inbound/grns/${grnId}/debit-note`,
+      {
+        method: "POST",
+        body: JSON.stringify({ force_regenerate: true }),
+      }
+    );
+    setDebitNote(forced);
+    toast.success(
+      `Debit note ${forced.note_reference}: ${forced.lines.length} line(s), total ₹${Number(forced.total_debit_amount).toFixed(2)}`
+    );
+    refreshDebitNoteQuiet(grnId);
+    await reloadBundle();
+  }
 
   function handleRegisterOperational(draftId: number) {
     const n = Number.parseInt(String(operationalGrnInput).trim(), 10);
@@ -2223,13 +2241,15 @@ export default function InboundGrnDetailPage() {
       toast.error("Enter a positive operational GRN number");
       return;
     }
-    if (
-      !globalThis.confirm(
-        `Register this draft as GRN #${n}? The current id (${draftId}) will be replaced sitewide with this number.`
-      )
-    ) {
-      return;
-    }
+    setRegisterOperationalDraftId(draftId);
+    setRegisterOperationalConfirmOpen(true);
+  }
+
+  function confirmRegisterOperational() {
+    const draftId = registerOperationalDraftId;
+    const n = Number.parseInt(String(operationalGrnInput).trim(), 10);
+    if (draftId == null || !Number.isFinite(n) || n < 1) return;
+    setRegisterOperationalConfirmOpen(false);
     setRegisteringOperationalId(true);
     apiFetch<GrnHeader>(`/api/inbound/grns/${draftId}/register-operational`, {
       method: "POST",
@@ -5085,6 +5105,70 @@ export default function InboundGrnDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={debitNoteForceRegenOpen}
+        onOpenChange={setDebitNoteForceRegenOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Force regenerate debit note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This debit note is already progressed (ISSUED or CLOSED). Confirm
+              to overwrite draft lines with a newly generated note.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                const gid = debitNoteForceRegenGrnId;
+                setDebitNoteForceRegenOpen(false);
+                if (gid == null) return;
+                setGeneratingNote(true);
+                void forceRegenerateDebitNote(gid)
+                  .catch((err: unknown) =>
+                    toast.error(
+                      err instanceof Error ? err.message : "Regenerate failed"
+                    )
+                  )
+                  .finally(() => setGeneratingNote(false));
+              }}
+            >
+              Confirm regenerate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={registerOperationalConfirmOpen}
+        onOpenChange={setRegisterOperationalConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Register operational GRN id?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Register this draft as GRN #
+              {Number.parseInt(String(operationalGrnInput).trim(), 10) || "—"}?
+              The current id ({registerOperationalDraftId ?? "—"}) will be
+              replaced sitewide with this number.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmRegisterOperational();
+              }}
+            >
+              Confirm register
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

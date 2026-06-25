@@ -2,6 +2,10 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as XLSX from "xlsx";
 import { query } from "@/server/db";
 import { AppError } from "@/server/errors";
+import {
+  poCancelBlockReason,
+  type PoCancelGrnRow,
+} from "@/lib/inboundPoCancelGuard";
 import { mergePoGrnSources } from "@/server/services/eautomatePoDetailsIngestService";
 
 /**
@@ -76,6 +80,21 @@ export async function mergeInboundPoRaw(
   );
   if (r.rows.length === 0) {
     throw new AppError("Could not update PO", 500);
+  }
+}
+
+/** Reject PO cancellation when any linked GRN has receipt or terminal workflow state. */
+export async function assertPoCancellable(poId: number): Promise<void> {
+  const r = await query(
+    `SELECT grn_id, grn_status, grn_audit_status, grn_invoice_collection_status,
+            accounts_status, grn_sku_count, grn_accepted_quantity, grn_invoice_quantity
+       FROM inbound_grns
+      WHERE po_id = $1`,
+    [poId]
+  );
+  const block = poCancelBlockReason(r.rows as PoCancelGrnRow[]);
+  if (block) {
+    throw new AppError(block.reason, 409);
   }
 }
 

@@ -17,6 +17,11 @@ import {
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
 import { formatGrnLabel, formatPoLabel } from "@/lib/idDisplay";
 import {
+  canCancelPo,
+  poCancelBlockReason,
+  type PoCancelGrnRow,
+} from "@/lib/inboundPoCancelGuard";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -503,6 +508,20 @@ export default function InboundPoDetailPage() {
   }, [bundle?.grns, snap?.po_raw]);
 
   const isZapCancelled = deriveIsZapCancelled(poRaw.zap_status);
+  const poCancelGrnRows = React.useMemo((): PoCancelGrnRow[] => {
+    return (bundle?.grns ?? []).map((g) => {
+      const r =
+        g.raw && typeof g.raw === "object" && !Array.isArray(g.raw)
+          ? (g.raw as Record<string, unknown>)
+          : {};
+      return { grn_id: grnIdFromRow(g), raw: r };
+    });
+  }, [bundle?.grns]);
+  const poCancelBlock = React.useMemo(
+    () => poCancelBlockReason(poCancelGrnRows),
+    [poCancelGrnRows]
+  );
+  const poCancelAllowed = canCancelPo(poCancelGrnRows, isZapCancelled);
   const poStatus = derivePoDisplayStatus(isZapCancelled, header?.status ?? null);
   const totalSkus = numberStringOrDash(header?.sku_count);
   const totalReq = numberStringOrDash(header?.total_quantity);
@@ -641,15 +660,22 @@ export default function InboundPoDetailPage() {
               className="gap-2"
               disabled={actionBusy}
               onClick={openModify}
+              title="Updates internal PO notes only; does not change SKU lines or quantities."
             >
               <Pencil className="size-4" />
-              Modify PO
+              Modify PO notes
             </Button>
             <Button
               type="button"
               variant="default"
               className="gap-2"
-              disabled={actionBusy || isZapCancelled}
+              disabled={actionBusy || !poCancelAllowed}
+              title={
+                poCancelBlock?.reason ??
+                (isZapCancelled
+                  ? "This purchase order is already cancelled."
+                  : undefined)
+              }
               onClick={() => setCancelOpen(true)}
             >
               <XCircle className="size-4" />
@@ -845,6 +871,10 @@ export default function InboundPoDetailPage() {
                 ) : (
                   <span> No GRN activity yet for this PO.</span>
                 )}
+                {" "}
+                <Link href="/flows" className="text-primary underline-offset-4 hover:underline">
+                  Workflow guide
+                </Link>
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -928,6 +958,15 @@ export default function InboundPoDetailPage() {
                           Audit: {pick(r, ["grn_audit_status", "audit_status"])}
                         </p>
                         <p>SKU count: {pick(r, ["grn_sku_count", "sku_count"])}</p>
+                        {pick(r, ["grn_sku_count", "sku_count"]) === "0" &&
+                        ["OPEN", "CLOSED"].includes(
+                          pick(r, ["grn_status", "status"]).toUpperCase()
+                        ) ? (
+                          <p className="text-muted-foreground text-[10px]">
+                            Totals are derived from GRN line items; run migrate or
+                            re-save lines if this looks stale.
+                          </p>
+                        ) : null}
                         <p>Box count: {pick(r, ["box_count_invoice", "box_count"])}</p>
                         <p>
                           Actual boxes:{" "}

@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
+import { recalculateGrnHeaderTotals } from "@/server/services/grnHeaderTotalsService";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -301,6 +302,7 @@ export async function seedGrnItemsFromPoDetailLinesIfEmpty(
         [grnId, row.line_index, row.sku_id, rawJson]
       );
     }
+    await recalculateGrnHeaderTotals(grnId, client);
     await client.query("COMMIT");
     return lines.rows.length;
   } catch (e) {

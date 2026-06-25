@@ -758,4 +758,23 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     if (r.status === 503) return skip("server unreachable");
     assert.ok(r.status === 200 || r.status === 422, `expected 200 or 422, got ${r.status}`);
   });
+
+  it("PATCH cancel PO returns 409 when a CLOSED GRN exists on the PO", async () => {
+    if (!(await requireFixture())) return;
+    const probe = await api(
+      `/api/inbound/vendors/${INBOUND_JOURNEY_VENDOR_ID}/purchase-orders/${INBOUND_JOURNEY_ZAP_REPORT_PO_ID}/details`
+    );
+    if (probe.status !== 200) {
+      skip(`Zap report PO ${INBOUND_JOURNEY_ZAP_REPORT_PO_ID} missing — re-run fixture`);
+      return;
+    }
+    const r = await api(
+      `/api/inbound/vendors/${INBOUND_JOURNEY_VENDOR_ID}/purchase-orders/${INBOUND_JOURNEY_ZAP_REPORT_PO_ID}/cancel`,
+      { method: "PATCH" }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 409);
+    const body = await r.json();
+    assert.match(String(body.message ?? ""), /cannot be cancelled|CLOSED|receipt/i);
+  });
 });
