@@ -79,7 +79,7 @@ Training narratives that describe “close **then** upload” should be reversed
 - The audit team:
   - Verifies invoice data against the receipt.
   - If **rate discrepancy** is found:
-    - An **admin** captures **`audit_price`** (and quantities) on GRN lines (admin-only in Close GRN modal and Pending Audits admin column).
+    - An **admin** captures **`audit_price`** in **Pending Audit → Confirm Audit** (defaults to vendor price; partial `PATCH …/items` with `{ audit_price }` only).
     - A **best-effort Zap rate-diff DN** (`DRAFT`) runs on **`POST …/close`** and when an admin **marks audit closed** (`PATCH grn_audit_status` → terminal). If **`audit_price` is captured only after closure**, use **`POST …/debit-note`** once lines reflect the audited rates so Zap can mint or refresh **`inbound_zap_debit_notes`**.
   - **Mark audited** is **admin-only** with a confirmation dialog; non-admin attempts are blocked (403, log `AUDIT_DENIED`).
   - After audit, GRN lines are **locked** (no further line edits; log `AUDIT_LOCKED` on blocked attempts).
@@ -93,6 +93,7 @@ Training narratives that describe “close **then** upload” should be reversed
 - The Accounts team:
   - Selects the invoice (row checkbox or bulk),
   - Marks it as **Physical Copy Received** (**`COLLECTED`** via **`PATCH …/grn`**).
+- **Mark received** is **admin-only** with a confirmation dialog on `/inbound/pending-invoice-collection`; non-admin attempts are blocked (**403**, log `INVOICE_COLLECTION_DENIED`).
 - After this action:
   - Zap **allows** retrieval of an Excel workbook (Summary + GRN Items + Debit Note sheets when applicable). Generation happens **when the operator downloads** — **`GET …/invoice-export`** or **Download Invoice Excel** on the GRN Accounts tab (web button gated on **`COLLECTED`**; API does not enforce `COLLECTED`).
 

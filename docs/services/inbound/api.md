@@ -7,7 +7,7 @@ All routes require auth unless noted. Permission checks vary by route (often `pu
 | Methods | Path | Description |
 |---------|------|-------------|
 | POST, GET | `/inbound/grns` | Create draft GRN / list GRNs |
-| GET, PATCH | `/inbound/grns/[grnId]` | GRN detail + update status fields. Setting terminal `grn_audit_status` (`CLOSED` / `AUDITED` / `DONE` / `COMPLETED`) requires **`admin` role**; logs `AUDIT_DENIED` on 403, `AUDIT` on success; triggers rate-diff DN when applicable |
+| GET, PATCH | `/inbound/grns/[grnId]` | GRN detail + update status fields. Setting terminal `grn_audit_status` (`CLOSED` / `AUDITED` / `DONE` / `COMPLETED`), `accounts_status` (`APPROVED` / `REJECTED`), and `grn_invoice_collection_status` (`COLLECTED`) requires **`admin` role**; logs `AUDIT_DENIED`, `ACCOUNTS_DENIED`, or `INVOICE_COLLECTION_DENIED` on 403; `AUDIT` on successful audit close; triggers rate-diff DN when applicable |
 | GET | `/inbound/grns/[grnId]/details` | Full bundle for GRN detail UI |
 | PATCH | `/inbound/grns/[grnId]/items/[lineIndex]` | Update GRN line quantities/prices. Returns **409** when `grn_audit_status` is terminal; logs `AUDIT_LOCKED` |
 | GET | `/inbound/grns/[grnId]/files/[fileId]` | Download invoice/attachment file |
@@ -19,6 +19,7 @@ All routes require auth unless noted. Permission checks vary by route (often `pu
 | GET | `/inbound/pending-audits/grns` | Pending audit queue; includes `grn_audit_price_total` per row |
 | GET | `/inbound/pending-invoice-collection/grns` | Pending invoice collection |
 | GET | `/inbound/pending-debit-credit/notes` | Pending debit/credit notes |
+| POST | `/inbound/pending-debit-credit/notes/[noteId]/decision` | Accept or decline a pending debit/credit note; **`admin` role** required; logs `DCN_DECISION_DENIED` on 403 |
 | GET | `/inbound/skus/[skuId]/inbound-summary` | SKU inbound summary |
 | GET | `/inbound/vendors/[id]/purchase-orders/[poId]/details` | PO detail bundle |
 | GET | `/inbound/vendors/[id]/purchase-orders/[poId]/document` | Document download |

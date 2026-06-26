@@ -37,7 +37,7 @@ vendor_purchase_orders.total_* ← PO summary cards (received, fill rates)
 6. Per-line quantity conservation: `invoice_quantity = accepted + rejected + shortage` (`grnLineQuantitySumErrorMessage` in `src/lib/grnLineQuantityValidation.ts`).
 7. PO cancel is blocked after receipt starts (`assertPoCancellable` / `poCancelBlockReason`) — API **409**, UI disabled + tooltip.
 8. Modify PO is **notes-only** (`zap_notes`) — does not change SKU lines or quantities.
-9. Audit close locks line edits; destructive actions need `AlertDialog` confirmation + server validation.
+9. Audit close locks line edits; destructive actions need `AlertDialog` confirmation + server validation. **`audit_price`** is set only in **Pending Audit → Confirm Audit** (defaults to vendor `received_price`). `PATCH …/items/{lineIndex}` accepts **partial bodies** (`mergeGrnItemPatchIntoRaw` merges into existing `raw`; audit-only `{ audit_price }` is valid).
 10. Reports/exports use canonical tables (doctrine #11) — not snapshot-only queries for Zap POs.
 11. eAutomate sync must not overwrite Zap rollups — PO list UPSERT in `sync-eautomate-vendor-pos.mjs` scoped to `WHERE vendor_purchase_orders.source = 'eautomate'` (doctrine #10).
 12. **PO header sync ≠ PO detail sync** — `sync:vendor-pos*` only upserts `vendor_purchase_orders` (headers). SKU lines, listings, and GRN snapshot for eAutomate POs require `sync:po:details*` (`inbound_po_detail_snapshot`, `inbound_po_detail_lines`). After vendor-pos, always run `sync:po:details:missing` or `sync:po:details:if-needed -- --po <id>`. Missing = no snapshot **or** `sku_count > 0` with zero `inbound_po_detail_lines`.
@@ -122,6 +122,7 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 | PO rollup SQL | `src/server/services/poHeaderTotalsService.ts` |
 | PO rollup pure math | `src/lib/inboundPoHeaderTotals.ts` |
 | GRN quantity keys | `src/lib/inboundGrnQuantities.ts` |
+| GRN line PATCH merge | `src/lib/inboundGrnItemPatch.ts` (`mergeGrnItemPatchIntoRaw` — partial body, audit-only OK) |
 | PO cancel guard | `src/lib/inboundPoCancelGuard.ts`, `assertPoCancellable` in `inboundPoZapActionsService.ts` |
 | GRN lifecycle | `src/server/services/inboundGrnsService.ts` |
 | PO bundle | `src/server/services/eautomatePoDetailsIngestService.ts` |
@@ -167,6 +168,7 @@ Registry: append to `scripts/run_migrations.sh`; `npm run verify:migrations` mus
 | PO header rollup | `tests/unit/po-header-totals.test.ts` |
 | Open New GRN modal | `tests/unit/inbound-new-grn-modal.test.ts` |
 | PO cancel guard | `tests/unit/inbound-po-cancel-guard.test.ts` |
+| GRN line PATCH merge | `tests/unit/inbound-grn-item-patch.test.ts` |
 | Migration parity | `tests/unit/migrations-parity.test.mjs` (latest = `072`) |
 | API integration | `tests/api/inbound-journey-integration.test.mjs` (PO rollup header + cancel 409) |
 

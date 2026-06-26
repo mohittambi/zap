@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CircleHelp } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
@@ -154,6 +163,7 @@ function isUploadedStatus(value: string | null): boolean {
 type PendingRowProps = Readonly<{
   row: NoteRow;
   rowIndex: number;
+  isAdmin: boolean;
   uploadingNoteId: number | null;
   decidingNoteId: number | null;
   onUpload: (noteId: number, grnId: number) => void;
@@ -164,6 +174,7 @@ type PendingRowProps = Readonly<{
 function PendingDebitCreditTableRow({
   row,
   rowIndex,
+  isAdmin,
   uploadingNoteId,
   decidingNoteId,
   onUpload,
@@ -314,25 +325,34 @@ function PendingDebitCreditTableRow({
             </Button>
           ) : null}
           {canDecide ? (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                disabled={actionBusy || uploadBusy}
-                onClick={() => void onDecision(row.note_id, row.grn_id, "APPROVED")}
+            isAdmin ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={actionBusy || uploadBusy}
+                  onClick={() => void onDecision(row.note_id, row.grn_id, "APPROVED")}
+                >
+                  {actionBusy ? "Saving..." : "Accept"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={actionBusy || uploadBusy}
+                  onClick={() => void onDecision(row.note_id, row.grn_id, "REJECTED")}
+                >
+                  {actionBusy ? "Saving..." : "Decline"}
+                </Button>
+              </>
+            ) : (
+              <span
+                className="text-muted-foreground text-xs"
+                title="Only admins can accept or decline debit/credit notes"
               >
-                {actionBusy ? "Saving..." : "Accept"}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={actionBusy || uploadBusy}
-                onClick={() => void onDecision(row.note_id, row.grn_id, "REJECTED")}
-              >
-                {actionBusy ? "Saving..." : "Decline"}
-              </Button>
-            </>
+                Admin only
+              </span>
+            )
           ) : null}
           {showNoActions && row.credit_debit_note_number_assignment_status?.toUpperCase() === "ASSIGNED" ? (
             <span className="text-muted-foreground text-xs">No actions available</span>
@@ -344,6 +364,7 @@ function PendingDebitCreditTableRow({
 }
 
 export default function InboundPendingDebitCreditPage() {
+  const { isAdmin } = useAuth();
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -358,6 +379,12 @@ export default function InboundPendingDebitCreditPage() {
   const uploadRef = React.useRef<HTMLInputElement | null>(null);
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] = React.useState(false);
+  const [confirmDecision, setConfirmDecision] = React.useState<{
+    noteId: number;
+    grnId: number;
+    status: "APPROVED" | "REJECTED";
+    row: NoteRow;
+  } | null>(null);
 
   // Assign DCN Number Sheet state
   const [dcnAssignSheetOpen, setDcnAssignSheetOpen] = React.useState(false);
@@ -432,28 +459,32 @@ export default function InboundPendingDebitCreditPage() {
   );
 
   const handleDecision = React.useCallback(
-    async (noteId: number, grnId: number, status: "APPROVED" | "REJECTED") => {
-      const message =
-        status === "APPROVED"
-          ? "Accept this debit/credit note?"
-          : "Decline this debit/credit note?";
-      if (!globalThis.confirm(message)) return;
-      setDecidingNoteId(noteId);
-      try {
-        await apiFetch(`/api/inbound/pending-debit-credit/notes/${noteId}/decision`, {
-          method: "POST",
-          body: JSON.stringify({ grn_id: grnId, status }),
-        });
-        toast.success(status === "APPROVED" ? "Note accepted" : "Note declined");
-        await load();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Action failed");
-      } finally {
-        setDecidingNoteId(null);
-      }
+    (noteId: number, grnId: number, status: "APPROVED" | "REJECTED") => {
+      const row = data?.content.find((r) => r.note_id === noteId);
+      if (!row) return;
+      setConfirmDecision({ noteId, grnId, status, row });
     },
-    [load]
+    [data?.content]
   );
+
+  const confirmDecisionSubmit = React.useCallback(async () => {
+    if (!confirmDecision) return;
+    const { noteId, grnId, status } = confirmDecision;
+    setDecidingNoteId(noteId);
+    try {
+      await apiFetch(`/api/inbound/pending-debit-credit/notes/${noteId}/decision`, {
+        method: "POST",
+        body: JSON.stringify({ grn_id: grnId, status }),
+      });
+      toast.success(status === "APPROVED" ? "Note accepted" : "Note declined");
+      setConfirmDecision(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setDecidingNoteId(null);
+    }
+  }, [confirmDecision, load]);
 
   const handleAssign = React.useCallback(
     async (grnId: number) => {
@@ -662,6 +693,7 @@ export default function InboundPendingDebitCreditPage() {
                         key={row.note_id}
                         row={row}
                         rowIndex={idx}
+                        isAdmin={isAdmin}
                         uploadingNoteId={uploadingNoteId}
                         decidingNoteId={decidingNoteId}
                         onUpload={handleUpload}
@@ -772,6 +804,104 @@ export default function InboundPendingDebitCreditPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={confirmDecision !== null}
+        onOpenChange={(open) => {
+          if (!open && decidingNoteId === null) setConfirmDecision(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmDecision?.status === "APPROVED"
+                ? "Confirm accept note"
+                : "Confirm decline note"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmDecision?.status === "APPROVED"
+                ? "Accept this debit/credit note case. It will leave the pending queue when settled."
+                : "Decline this debit/credit note case. Review vendor and GRN context before confirming."}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmDecision ? (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div>
+                <dt className="text-muted-foreground text-xs">Note Id</dt>
+                <dd className="font-mono font-medium">{confirmDecision.row.note_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">GRN Id</dt>
+                <dd className="font-mono font-medium">{confirmDecision.row.grn_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">PO Number</dt>
+                <dd className="font-mono">{confirmDecision.row.po_id ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor</dt>
+                <dd className="truncate">{confirmDecision.row.vendor_name ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor invoice #</dt>
+                <dd>{confirmDecision.row.vendor_invoice_number ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Note type</dt>
+                <dd>{formatNoteType(confirmDecision.row.credit_debit_note_type)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Note status</dt>
+                <dd>{confirmDecision.row.credit_debit_note_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Note number</dt>
+                <dd className="truncate">
+                  {confirmDecision.row.credit_debit_note_number ?? "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Upload status</dt>
+                <dd>{confirmDecision.row.credit_debit_note_upload_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Box (invoice)</dt>
+                <dd className="font-mono">{confirmDecision.row.box_count_invoice ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Actual boxes</dt>
+                <dd className="font-mono">
+                  {confirmDecision.row.actual_box_count_recieved ?? "—"}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={decidingNoteId !== null}
+              onClick={() => setConfirmDecision(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={
+                confirmDecision?.status === "REJECTED" ? "destructive" : "default"
+              }
+              disabled={decidingNoteId !== null || !confirmDecision}
+              onClick={() => void confirmDecisionSubmit()}
+            >
+              {decidingNoteId !== null
+                ? "Saving…"
+                : confirmDecision?.status === "APPROVED"
+                  ? "Accept"
+                  : "Decline"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

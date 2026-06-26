@@ -21,6 +21,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
   Table,
@@ -116,6 +124,10 @@ export default function InboundPendingAccountsPage() {
   const [actingId, setActingId] = React.useState<number | null>(null);
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] = React.useState(false);
+  const [confirmAction, setConfirmAction] = React.useState<{
+    row: GrnRow;
+    status: "APPROVED" | "REJECTED";
+  } | null>(null);
 
   const perPage = 100;
 
@@ -157,6 +169,7 @@ export default function InboundPendingAccountsPage() {
         body: JSON.stringify({ accounts_status: status }),
       });
       toast.success(`GRN ${grnId} accounts ${status === "APPROVED" ? "approved" : "rejected"}`);
+      setConfirmAction(null);
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
@@ -409,7 +422,9 @@ export default function InboundPendingAccountsPage() {
                                 variant="outline"
                                 className="h-7 whitespace-nowrap px-2 text-xs text-green-600 hover:text-green-700"
                                 disabled={actingId === row.grn_id || row.accounts_status === "APPROVED"}
-                                onClick={() => void handleAction(row.grn_id, "APPROVED")}
+                                onClick={() =>
+                                  setConfirmAction({ row, status: "APPROVED" })
+                                }
                               >
                                 {actingId === row.grn_id ? "Saving…" : "Approve"}
                               </Button>
@@ -418,7 +433,9 @@ export default function InboundPendingAccountsPage() {
                                 variant="outline"
                                 className="h-7 whitespace-nowrap px-2 text-xs text-destructive hover:text-destructive"
                                 disabled={actingId === row.grn_id || row.accounts_status === "REJECTED"}
-                                onClick={() => void handleAction(row.grn_id, "REJECTED")}
+                                onClick={() =>
+                                  setConfirmAction({ row, status: "REJECTED" })
+                                }
                               >
                                 Reject
                               </Button>
@@ -468,6 +485,112 @@ export default function InboundPendingAccountsPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open && actingId === null) setConfirmAction(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmAction?.status === "APPROVED"
+                ? "Confirm approve accounts"
+                : "Confirm reject accounts"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmAction?.status === "APPROVED"
+                ? "Approve this GRN for accounts so warehouse can proceed to inventory booking when policy allows."
+                : "Reject this GRN for accounts. It will leave the pending queue with a rejected outcome."}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmAction ? (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div>
+                <dt className="text-muted-foreground text-xs">GRN Id</dt>
+                <dd className="font-mono font-medium">{confirmAction.row.grn_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">PO Number</dt>
+                <dd className="font-mono font-medium">{confirmAction.row.po_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor</dt>
+                <dd className="truncate">{confirmAction.row.vendor_name ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor Id</dt>
+                <dd className="font-mono">{confirmAction.row.vendor_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor invoice #</dt>
+                <dd>{confirmAction.row.vendor_invoice_number ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Original invoice date</dt>
+                <dd>{formatInboundListDate(confirmAction.row.original_invoice_date)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Accounts status</dt>
+                <dd>{confirmAction.row.accounts_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Audit status</dt>
+                <dd>{confirmAction.row.grn_audit_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">GRN status</dt>
+                <dd>{confirmAction.row.grn_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Audit by</dt>
+                <dd className="truncate">{confirmAction.row.grn_audit_by ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Accepted qty</dt>
+                <dd className="font-mono">{confirmAction.row.grn_accepted_quantity}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Rejected qty</dt>
+                <dd className="font-mono">{confirmAction.row.grn_rejected_quantity}</dd>
+              </div>
+            </dl>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={actingId !== null}
+              onClick={() => setConfirmAction(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={
+                confirmAction?.status === "REJECTED" ? "destructive" : "default"
+              }
+              className={
+                confirmAction?.status === "APPROVED"
+                  ? "bg-green-600 text-white hover:bg-green-700"
+                  : undefined
+              }
+              disabled={actingId !== null || !confirmAction}
+              onClick={() =>
+                confirmAction &&
+                void handleAction(confirmAction.row.grn_id, confirmAction.status)
+              }
+            >
+              {actingId !== null
+                ? "Saving…"
+                : confirmAction?.status === "APPROVED"
+                  ? "Approve"
+                  : "Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 
 ## 1 — GRN Lifecycle (operator order)
 
-Typical Zap sequence: **receive and edit lines while `OPEN` → attach vendor invoice → close GRN** (invoice required). **Pending Audit** surfaces GRNs from the Zap-maintained **`inbound_grn_pending_audit`** queue; an **admin** verifies invoice alignment and enters **`audit_price`** on GRN lines (admin-only in Close GRN modal and Pending Audits list). **Rate-diff Zap debit notes** are raised when discrepancies exist—see §2 for auto-generation on **GRN close** and **audit close**.
+Typical Zap sequence: **receive and edit lines while `OPEN` → attach vendor invoice → close GRN** (invoice required). **Pending Audit** surfaces GRNs from the Zap-maintained **`inbound_grn_pending_audit`** queue; an **admin** verifies invoice alignment and enters **`audit_price`** in the **Confirm Audit** dialog on `/inbound/pending-audits` (defaults to vendor `received_price`; lower only to dispute rate). **Rate-diff Zap debit notes** are raised when discrepancies exist—see §2 for auto-generation on **GRN close** and **audit close**.
 
 ### Summary flow (stakeholder milestones)
 
@@ -51,7 +51,7 @@ flowchart TD
 ### Invoice Audit Team
 
 1. **Where they work:** The **Pending Audit** hub at route `/inbound/pending-audits` lists GRNs joined from **`inbound_grn_pending_audit`** with filters in `listPendingAuditGrnsPaginated` ([`inboundGrnsService.ts`](../../src/server/services/inboundGrnsService.ts)). That queue row set is Zap data (see service comments for lifecycle). Admins see an **Audited Price Total** column (`grn_audit_price_total` from line `audit_price` sums).
-2. **What they verify:** Invoice vs receipt; **audit price** (`audit_price` and related keys on each GRN line `raw`) is captured via `PATCH …/items/{lineIndex}` while the GRN is not yet audit-closed. **Audited Price** inputs are **admin-only** in the Close GRN modal and Pending Audits context.
+2. **What they verify:** Invoice vs receipt; **audit price** (`audit_price` on each GRN line `raw`) is captured in **Pending Audit → Confirm Audit** via `PATCH …/items/{lineIndex}` with a **partial body** (`{ audit_price }` only is valid — `updateInboundGrnItemRaw` merges into existing line quantities). Inputs default to vendor `received_price`; debit applies only when audit price is lower.
 3. **Mark audited:** Only **`admin`** role users can set terminal `grn_audit_status` (web UI: **Confirm Audit** dialog before PATCH). Non-admins receive **403**; the attempt is logged as `AUDIT_DENIED`.
 4. **After audit:** GRN line edits are blocked (`updateInboundGrnItemRaw` → **409**, log `AUDIT_LOCKED`); GRN INPUT UI is read-only.
 5. **Rate discrepancy DN:** Zap compares **received (vendor) price** vs **audit price** when building lines for `inbound_zap_debit_notes` ([`generateDebitNote`](../../src/server/services/grnDebitNoteService.ts)). Auto-generation runs on **`POST …/close`** and when admin marks audit closed via **`PATCH …/grn_audit_status`**. This is distinct from receipt-issue debit/credit records in §3.
@@ -65,6 +65,8 @@ Audit-related entries in `inbound_grn_logs` (visible on the GRN **Activity** tab
 | `AUDIT` | Admin successfully marks GRN audited |
 | `AUDIT_DENIED` | Non-admin attempted to set terminal `grn_audit_status` |
 | `AUDIT_LOCKED` | Line edit blocked because audit is already closed |
+| `INVOICE_COLLECTION_DENIED` | Non-admin attempted to set `grn_invoice_collection_status` to `COLLECTED` |
+| `DCN_DECISION_DENIED` | Non-admin attempted to accept or decline a GRN-linked debit/credit note |
 | `STATUS` | Any workflow status PATCH (includes audit fields) |
 | `LINE` | Line quantities/prices saved |
 | `DEBIT_NOTE` | Rate-diff debit note generated or updated |
@@ -73,7 +75,7 @@ Audit-related entries in `inbound_grn_logs` (visible on the GRN **Activity** tab
 
 Business wording **Pending Physical Copy Receiving** maps to Zap’s **Pending Invoice Collection** queue (`/inbound/pending-invoice-collection`), backed by **`inbound_grn_pending_invoice_collection`** together with **`inbound_grns`** lifecycle fields—maintained **in Zap** like other inbound queues.
 
-1. **Mark received:** The Accounts team selects rows (bulk or per row) and sets **`grn_invoice_collection_status` to `COLLECTED`** via **`PATCH /api/inbound/grns/{grnId}`** ([`pending-invoice-collection/page.tsx`](../../src/app/%28app%29/%28logistics%29/inbound/pending-invoice-collection/page.tsx)). That completes “physical copy received” in Zap; marking does **not** by itself emit a stored file.
+1. **Mark received:** The Accounts team selects rows (bulk or per row) and sets **`grn_invoice_collection_status` to `COLLECTED`** via **`PATCH /api/inbound/grns/{grnId}`** ([`pending-invoice-collection/page.tsx`](../../src/app/%28app%29/%28logistics%29/inbound/pending-invoice-collection/page.tsx)). **Admin role required**; the web UI shows a confirmation dialog before PATCH. Non-admin attempts log `INVOICE_COLLECTION_DENIED` and return **403**. That completes “physical copy received” in Zap; marking does **not** by itself emit a stored file.
 
 2. **Invoice Excel:** After **`COLLECTED`**, operators download a workbook **on demand** — **Download Invoice Excel** on the GRN **Accounts** tab, or **`GET /api/inbound/grns/{grnId}/invoice-export`** ([`buildInvoiceExcel`](../../src/server/services/grnDebitNoteService.ts)). The export is operator-initiated, not triggered automatically when collection is marked.
 
@@ -180,6 +182,8 @@ Note?}
 | `credit_debit_note_number_assignment_status` | `ASSIGNED` / `NOT_ASSIGNED` |
 | `credit_debit_note_upload_status` | `UPLOADED` / `NOT_UPLOADED` |
 | `reverse_credit_debit_note_number` | Reverse note reference if applicable |
+
+**Accept/Decline decisions** on `/inbound/pending-debit-credit` require the **`admin` role**; the web UI shows a confirmation dialog before **`POST /api/inbound/pending-debit-credit/notes/{noteId}/decision`**. Non-admin attempts log `DCN_DECISION_DENIED` and return **403**. Assign # and Upload remain available to non-admins (file management, not approval decisions).
 
 ---
 

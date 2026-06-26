@@ -492,6 +492,26 @@ describe("Inbound journey — with SQL fixture loaded", () => {
     );
   });
 
+  it("POST DCN decision rejected for non-admin", async () => {
+    if (!(await requireFixture())) return;
+    const warehouseToken = await loginAs("warehouse@example.com", "warehouse123");
+    if (!warehouseToken) return skip("warehouse user login failed — run npm run seed");
+    const r = await apiWithToken(
+      warehouseToken,
+      `/api/inbound/pending-debit-credit/notes/${INBOUND_JOURNEY_DCN_NOTE_ID}/decision`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grn_id: INBOUND_JOURNEY_GRN_DCN,
+          status: "APPROVED",
+        }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 403);
+  });
+
   it("POST DCN decision updates local row (re-seed to repeat)", async () => {
     if (!(await requireFixture())) return;
     const r = await api(
@@ -673,6 +693,23 @@ describe("Inbound journey — with SQL fixture loaded", () => {
       (bundle.grn_logs || []).some((log) => log.log_type === "AUDIT_LOCKED"),
       "AUDIT_LOCKED log should be visible after blocked post-audit line edit"
     );
+  });
+
+  it("PATCH grn invoice_collection_status COLLECTED rejected for non-admin", async () => {
+    if (!(await requireFixture())) return;
+    const warehouseToken = await loginAs("warehouse@example.com", "warehouse123");
+    if (!warehouseToken) return skip("warehouse user login failed — run npm run seed");
+    const r = await apiWithToken(
+      warehouseToken,
+      `/api/inbound/grns/${INBOUND_JOURNEY_GRN_PENDING_INVOICE}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grn_invoice_collection_status: "COLLECTED" }),
+      }
+    );
+    if (r.status === 503) return skip("server unreachable");
+    assert.strictEqual(r.status, 403);
   });
 
   it("PATCH grn invoice_collection_status COLLECTED succeeds on fixture GRN", async () => {

@@ -56,9 +56,9 @@ flowchart TD
 | 5. Upload vendor invoice | Warehouse | GRN Documents / close flow | `POST …/upload-zap` | [Process notes §IV](services/inbound/inbound-tab-process-notes.md) |
 | 6. Close GRN | Warehouse | GRN detail | `POST …/close` (+ optional rate-diff DN draft) | [workflows.md](services/inbound/workflows.md) |
 | 7. Pending audit | Audit (admin) | `/inbound/pending-audits` | `GET` queue + admin `PATCH` audit closed (Confirm Audit dialog) | [Process notes §V](services/inbound/inbound-tab-process-notes.md), [workflows.md](current-system/workflows.md) |
-| 8. Physical invoice copy | Accounts | `/inbound/pending-invoice-collection` | `PATCH` → `COLLECTED` on collection status | [Process notes §VI](services/inbound/inbound-tab-process-notes.md) |
-| 9. Accounts approval | Accounts (admin) | `/inbound/pending-accounts` | Admin `PATCH /api/inbound/grns/[grnId]` approve/reject | [workflows.md](services/inbound/workflows.md) |
-| 10. Debit / credit notes | Finance | GRN detail, `/inbound/pending-debit-credit` | `debit-note`, `cn-copy`, eAutomate DCN queue | [GRN flows §2–3](inbound-grn-debit-credit-note-flows.md) |
+| 8. Physical invoice copy | Accounts (admin) | `/inbound/pending-invoice-collection` | Admin `PATCH` → `COLLECTED` on collection status (Confirm dialog) | [Process notes §VI](services/inbound/inbound-tab-process-notes.md) |
+| 9. Accounts approval | Accounts (admin) | `/inbound/pending-accounts` | Admin `PATCH /api/inbound/grns/[grnId]` approve/reject (Confirm dialog) | [workflows.md](services/inbound/workflows.md) |
+| 10. Debit / credit notes | Finance (admin for decisions) | GRN detail, `/inbound/pending-debit-credit` | `debit-note`, `cn-copy`, eAutomate DCN queue; **Accept/Decline admin-only** with confirmation | [GRN flows §2–3](inbound-grn-debit-credit-note-flows.md) |
 | 11. Invoice Excel | Accounts | GRN Accounts tab | `GET …/invoice-export` (after **COLLECTED** on web) | [API test matrix](inbound-journey-api-test-matrix.md) |
 | 12. Book inventory | Warehouse | GRN detail (after APPROVED) | `POST …/receive-inventory` | [API test matrix](inbound-journey-api-test-matrix.md) |
 
@@ -71,7 +71,7 @@ flowchart TD
 | **Procurement** | Vendors, inbound POs (create or monitor sync) |
 | **Warehouse** | GRN quantities, invoice upload, GRN close, receive into bins |
 | **Audit** | Verify invoice vs receipt; admin captures `audit_price`; admin-only mark audited with confirmation; lines locked after audit |
-| **Accounts** | Physical invoice collection; **admin-only** approve/reject; DN numbering, Excel export |
+| **Accounts** | **Admin-only** mark invoice collected (with confirmation); **admin-only** approve/reject (with confirmation); DN numbering, Excel export |
 | **Operations** | Queue hygiene, escalations, sync runs when data is stale |
 
 ---
@@ -81,7 +81,7 @@ flowchart TD
 | Type | When | Where documented |
 |------|------|------------------|
 | **Rate-diff Zap DN** | `received_price` > `audit_price` at/after GRN close or audit close | [inbound-grn-debit-credit-note-flows.md](inbound-grn-debit-credit-note-flows.md) §2 |
-| **Receipt-issue / DCN** | Shortage, damage, vendor CN workflows | Same doc §3; pending debit/credit hub |
+| **Receipt-issue / DCN** | Shortage, damage, vendor CN workflows | Same doc §3; pending debit/credit hub; **Accept/Decline requires admin** |
 
 ---
 

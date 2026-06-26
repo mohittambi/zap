@@ -130,7 +130,7 @@ function linesToAuditLines(rows: LineRow[]): AuditLine[] {
     const short = pickNum(r, NUM_KEYS.shortage);
     const vp = pickNum(r, NUM_KEYS.receivedPrice);
     const ap = pickNum(r, NUM_KEYS.auditPrice);
-    const diff = vp - ap;
+    const diff = Math.max(0, vp - ap);
     return {
       line_index: item.line_index,
       sku_id: item.sku_id ?? null,
@@ -145,6 +145,27 @@ function linesToAuditLines(rows: LineRow[]): AuditLine[] {
       has_discrepancy: diff > 0 && qty > 0,
     };
   });
+}
+
+/** Default audited price for Confirm Audit inputs: stored audit, else vendor price. */
+function defaultAuditPrice(line: AuditLine): string {
+  if (line.audit_price > 0) return String(line.audit_price);
+  if (line.vendor_price > 0) return String(line.vendor_price);
+  return "";
+}
+
+function resolveEditedAuditPrice(
+  line: AuditLine,
+  rawEdit: string | undefined
+): number {
+  const trimmed = (rawEdit ?? "").trim();
+  if (trimmed !== "") {
+    const n = Number(trimmed);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  if (line.audit_price > 0) return line.audit_price;
+  if (line.vendor_price > 0) return line.vendor_price;
+  return 0;
 }
 
 const PENDING_AUDITS_WORKFLOW = `
@@ -272,7 +293,7 @@ export default function InboundPendingAuditsPage() {
         setAuditLines(lines);
         const edits: Record<number, string> = {};
         for (const l of lines) {
-          edits[l.line_index] = l.audit_price > 0 ? String(l.audit_price) : "";
+          edits[l.line_index] = defaultAuditPrice(l);
         }
         setAuditPriceEdits(edits);
       })
@@ -282,10 +303,8 @@ export default function InboundPendingAuditsPage() {
 
   function computedLines(): (AuditLine & { edited_audit_price: number; edited_diff: number; edited_debit: number })[] {
     return auditLines.map((l) => {
-      const raw = auditPriceEdits[l.line_index] ?? "";
-      const editedAudit = raw === "" ? 0 : Number(raw);
-      const ap = Number.isFinite(editedAudit) && editedAudit >= 0 ? editedAudit : l.audit_price;
-      const diff = l.vendor_price - ap;
+      const ap = resolveEditedAuditPrice(l, auditPriceEdits[l.line_index]);
+      const diff = Math.max(0, l.vendor_price - ap);
       return {
         ...l,
         edited_audit_price: ap,
@@ -302,7 +321,7 @@ export default function InboundPendingAuditsPage() {
     try {
       const lines = computedLines();
       const priceSaves = lines.filter(
-        (l) => l.edited_audit_price !== l.audit_price && l.edited_audit_price > 0
+        (l) => l.edited_audit_price > 0 && l.edited_audit_price !== l.audit_price
       );
       if (priceSaves.length > 0) {
         // Ensure inbound_grn_items rows exist (seeds from PO detail lines if empty)
@@ -450,6 +469,12 @@ export default function InboundPendingAuditsPage() {
                   No line items found for this GRN.
                 </p>
               ) : (
+                <div className="space-y-2 min-h-0 flex flex-col flex-1">
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Audited price defaults to vendor price. Lower it only where you
+                    dispute the rate; debit applies when audit price is below vendor
+                    price.
+                  </p>
                 <div className="overflow-auto border rounded-md min-h-0 flex-1">
                   <Table>
                     <TableHeader>
@@ -487,6 +512,11 @@ export default function InboundPendingAuditsPage() {
                               type="number"
                               step="0.01"
                               min="0"
+                              placeholder={
+                                l.vendor_price > 0
+                                  ? l.vendor_price.toFixed(2)
+                                  : undefined
+                              }
                               className="h-7 w-[100px] ml-auto text-right font-mono text-xs tabular-nums"
                               value={auditPriceEdits[l.line_index] ?? ""}
                               onChange={(e) =>
@@ -527,6 +557,7 @@ export default function InboundPendingAuditsPage() {
                       )}
                     </TableBody>
                   </Table>
+                </div>
                 </div>
               )}
 

@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +20,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CircleHelp, Download } from "lucide-react";
 import { MermaidDiagram } from "@/components/ui/mermaid";
 import {
@@ -115,6 +124,7 @@ function invoiceCollectionStatusClass(value: string | null): string {
 }
 
 export default function InboundPendingInvoiceCollectionPage() {
+  const { isAdmin } = useAuth();
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -128,6 +138,8 @@ export default function InboundPendingInvoiceCollectionPage() {
   const [workflowOpen, setWorkflowOpen] = React.useState(false);
   const [workflowChartMounted, setWorkflowChartMounted] =
     React.useState(false);
+  const [confirmRow, setConfirmRow] = React.useState<GrnRow | null>(null);
+  const [confirmBulk, setConfirmBulk] = React.useState(false);
 
   const perPage = 100;
 
@@ -215,6 +227,7 @@ export default function InboundPendingInvoiceCollectionPage() {
         body: JSON.stringify({ grn_invoice_collection_status: "COLLECTED" }),
       });
       toast.success(`GRN ${grnId} invoice marked as Collected`);
+      setConfirmRow(null);
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to mark collected");
@@ -251,6 +264,7 @@ export default function InboundPendingInvoiceCollectionPage() {
     }
     setBulkMarking(false);
     setSelectedIds([]);
+    setConfirmBulk(false);
     void load();
   }
 
@@ -448,12 +462,18 @@ export default function InboundPendingInvoiceCollectionPage() {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    disabled={selectedIds.length === 0 || bulkMarking || loading}
-                    title="Set invoice collection to Collected for all selected GRNs"
+                    disabled={
+                      !isAdmin || selectedIds.length === 0 || bulkMarking || loading
+                    }
+                    title={
+                      !isAdmin
+                        ? "Only admins can mark invoice as collected"
+                        : "Set invoice collection to Collected for all selected GRNs"
+                    }
                     className={cn(
                       selectedIds.length === 0 && "opacity-50"
                     )}
-                    onClick={() => void markBulkReceived()}
+                    onClick={() => setConfirmBulk(true)}
                   >
                     {bulkMarking ? "Updating…" : "Mark as received in bulk"}
                   </Button>
@@ -634,17 +654,26 @@ export default function InboundPendingInvoiceCollectionPage() {
                           {formatDisplayDateTime(row.created_at)}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 whitespace-nowrap px-2 text-xs"
-                            disabled={
-                              markingId === row.grn_id || bulkMarking
-                            }
-                            onClick={() => void markCollected(row.grn_id)}
-                          >
-                            {markingId === row.grn_id ? "Saving…" : "Mark received"}
-                          </Button>
+                          {isAdmin ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 whitespace-nowrap px-2 text-xs"
+                              disabled={
+                                markingId === row.grn_id || bulkMarking
+                              }
+                              onClick={() => setConfirmRow(row)}
+                            >
+                              {markingId === row.grn_id ? "Saving…" : "Mark received"}
+                            </Button>
+                          ) : (
+                            <span
+                              className="text-muted-foreground text-xs"
+                              title="Only admins can mark invoice as collected"
+                            >
+                              Admin only
+                            </span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -685,6 +714,132 @@ export default function InboundPendingInvoiceCollectionPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={confirmRow !== null}
+        onOpenChange={(open) => {
+          if (!open && markingId === null) setConfirmRow(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Confirm mark invoice received</DialogTitle>
+            <DialogDescription>
+              Mark the physical vendor invoice copy as collected for this GRN. This
+              moves the GRN out of the pending invoice collection queue.
+            </DialogDescription>
+          </DialogHeader>
+          {confirmRow ? (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div>
+                <dt className="text-muted-foreground text-xs">GRN Id</dt>
+                <dd className="font-mono font-medium">{confirmRow.grn_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">PO Number</dt>
+                <dd className="font-mono font-medium">{confirmRow.po_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor</dt>
+                <dd className="truncate">{confirmRow.vendor_name ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor Id</dt>
+                <dd className="font-mono">{confirmRow.vendor_id}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Vendor invoice #</dt>
+                <dd>{confirmRow.vendor_invoice_number ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">GRN status</dt>
+                <dd>{confirmRow.grn_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Audit status</dt>
+                <dd>{confirmRow.grn_audit_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Collection status</dt>
+                <dd>{confirmRow.grn_invoice_collection_status ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">SKU count</dt>
+                <dd className="font-mono">{confirmRow.grn_sku_count}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Accepted qty</dt>
+                <dd className="font-mono">{confirmRow.grn_accepted_quantity}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Rejected qty</dt>
+                <dd className="font-mono">{confirmRow.grn_rejected_quantity}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground text-xs">Shortage qty</dt>
+                <dd className="font-mono">{confirmRow.grn_shortage_quantity}</dd>
+              </div>
+            </dl>
+          ) : null}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={markingId !== null}
+              onClick={() => setConfirmRow(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={markingId !== null || !confirmRow}
+              onClick={() => confirmRow && void markCollected(confirmRow.grn_id)}
+            >
+              {markingId !== null ? "Saving…" : "Mark as Received"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmBulk}
+        onOpenChange={(open) => {
+          if (!open && !bulkMarking) setConfirmBulk(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm bulk mark received</DialogTitle>
+            <DialogDescription>
+              Mark physical invoice copies as collected for{" "}
+              <strong className="text-foreground">{selectedIds.length}</strong> selected
+              GRN(s). Completed rows will leave this queue.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-muted-foreground max-h-32 overflow-y-auto font-mono text-xs">
+            {selectedIds.join(", ")}
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={bulkMarking}
+              onClick={() => setConfirmBulk(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={bulkMarking || selectedIds.length === 0}
+              onClick={() => void markBulkReceived()}
+            >
+              {bulkMarking
+                ? "Updating…"
+                : `Confirm Mark Received (${selectedIds.length})`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

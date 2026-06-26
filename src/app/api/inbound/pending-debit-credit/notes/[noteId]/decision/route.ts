@@ -3,6 +3,7 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { decidePendingDebitCreditNote } from "@/server/services/inboundPendingDebitCreditService";
+import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
 
 type RouteContext = { params: Promise<{ noteId: string }> };
 
@@ -11,7 +12,7 @@ type RouteContext = { params: Promise<{ noteId: string }> };
  * /inbound/pending-debit-credit/notes/{noteId}/decision:
  *   post:
  *     summary: Decide on a pending debit/credit note
- *     description: Requires purchase_orders:write.
+ *     description: Requires purchase_orders:write and admin role for Accept/Decline decisions.
  *     tags: [Inbound]
  *     parameters:
  *       - in: path
@@ -41,6 +42,28 @@ export async function POST(request: Request, ctx: RouteContext) {
 
     const { noteId } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!user.roles.includes("admin")) {
+      const grnIdForLog =
+        typeof body.grn_id === "string" || typeof body.grn_id === "number"
+          ? Number(body.grn_id)
+          : NaN;
+      if (Number.isFinite(grnIdForLog) && grnIdForLog !== 0) {
+        await appendInboundGrnLogSafe({
+          grnId: grnIdForLog,
+          logType: "DCN_DECISION_DENIED",
+          operationPerformed: "Debit/credit note accept/decline attempt blocked — not an admin",
+          createdBy: user.email,
+          raw: {
+            note_id: noteId,
+            attempted_status: body.status,
+            user_roles: user.roles,
+          },
+        });
+      }
+      throw new AppError("Admin role required to accept or decline debit/credit notes", 403);
+    }
+
     const grnId = body.grn_id;
     const status = body.status;
 

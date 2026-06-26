@@ -1,6 +1,9 @@
 // @ts-nocheck
+import {
+  GrnItemPatchError,
+  mergeGrnItemPatchIntoRaw,
+} from "@/lib/inboundGrnItemPatch";
 import { normalizeGrnAuditStatusForPatch } from "@/lib/inboundWorkflowNormalization";
-import { grnLineQuantitySumErrorMessage } from "@/lib/grnLineQuantityValidation";
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import {
@@ -582,54 +585,6 @@ export async function updateInboundGrnItemRaw(grnIdRaw, lineIndexRaw, body, acto
     throw new AppError("Invalid line index", 400);
   }
 
-  function nonNegNum(v, fieldLabel) {
-    if (v === undefined || v === null || v === "") {
-      throw new AppError(`${fieldLabel} is required`, 400);
-    }
-    const n = Number(v);
-    if (!Number.isFinite(n) || n < 0) {
-      throw new AppError(`${fieldLabel} must be a non-negative number`, 400);
-    }
-    return n;
-  }
-
-  const next = {
-    invoice_quantity: nonNegNum(body?.invoice_quantity, "invoice_quantity"),
-    accepted_quantity: nonNegNum(body?.accepted_quantity, "accepted_quantity"),
-    rejected_quantity: nonNegNum(body?.rejected_quantity, "rejected_quantity"),
-    shortage_quantity: nonNegNum(body?.shortage_quantity, "shortage_quantity"),
-    received_price: nonNegNum(body?.received_price, "received_price"),
-    tax_rate: nonNegNum(body?.tax_rate, "tax_rate"),
-  };
-
-  const qtySumMsg = grnLineQuantitySumErrorMessage({
-    invoice_quantity: next.invoice_quantity,
-    accepted_quantity: next.accepted_quantity,
-    rejected_quantity: next.rejected_quantity,
-    shortage_quantity: next.shortage_quantity,
-  });
-  if (qtySumMsg) {
-    throw new AppError(qtySumMsg, 400);
-  }
-
-  let auditPriceOut;
-  if (Object.prototype.hasOwnProperty.call(body || {}, "audit_price")) {
-    if (body.audit_price === null || body.audit_price === "") {
-      auditPriceOut = null;
-    } else {
-      const a = Number(body.audit_price);
-      if (!Number.isFinite(a) || a < 0) {
-        throw new AppError(
-          "audit_price must be a non-negative number or empty",
-          400
-        );
-      }
-      auditPriceOut = a;
-    }
-  } else {
-    auditPriceOut = undefined;
-  }
-
   const pool = getPool();
   const client = await pool.connect();
   try {
@@ -664,26 +619,14 @@ export async function updateInboundGrnItemRaw(grnIdRaw, lineIndexRaw, body, acto
       throw new AppError("GRN line not found", 404);
     }
 
-    const existing = row.rows[0].raw;
-    const base =
-      existing && typeof existing === "object" && !Array.isArray(existing)
-        ? { ...existing }
-        : {};
-
-    base.invoice_quantity = next.invoice_quantity;
-    base.accepted_quantity = next.accepted_quantity;
-    base.rejected_quantity = next.rejected_quantity;
-    base.shortage_quantity = next.shortage_quantity;
-    base.received_price = next.received_price;
-    base.tax_rate = next.tax_rate;
-
-    if (auditPriceOut === null) {
-      delete base.audit_price;
-      delete base.auditPrice;
-      delete base.audit_price_excl_gst;
-      delete base.audit_price_exclusive_gst;
-    } else if (auditPriceOut !== undefined) {
-      base.audit_price = auditPriceOut;
+    let base;
+    try {
+      base = mergeGrnItemPatchIntoRaw(row.rows[0].raw, body);
+    } catch (e) {
+      if (e instanceof GrnItemPatchError) {
+        throw new AppError(e.message, e.statusCode);
+      }
+      throw e;
     }
 
     const upd = await client.query(

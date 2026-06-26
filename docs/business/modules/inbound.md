@@ -83,6 +83,8 @@ Step 7: Records closed in Zap
 - Completing the audit (marking a GRN as audited) is an **administrator-only** action with a confirmation step in the web UI
 - After audit, receipt line data is **locked** and cannot be changed
 - If audited prices differ from vendor prices, the system can **automatically generate** a rate-diff debit note
+- **Mark invoice collected** (`grn_invoice_collection_status = COLLECTED`) is **admin-only** with a confirmation dialog; non-admin API attempts are blocked
+- **Debit/credit note Accept/Decline** on the pending queue is **admin-only** with a confirmation dialog
 
 ### PO cancel and modify
 - **Modify PO** updates internal notes only (`zap_notes`) — it does not change SKU lines or quantities
@@ -128,8 +130,8 @@ Step 7: Records closed in Zap
 |------|-------------|
 | **Procurement** | Creates POs (or they are synced in from eAutomate) |
 | **Warehouse team** | Physically receives goods and raises GRNs |
-| **Audit (administrators)** | Verify invoices, enter audited prices, mark GRNs as audited |
-| **Finance** | Reviews invoices, raises debit/credit notes, settles accounts |
+| **Audit (administrators)** | Verify invoices, enter audited prices in **Pending Audit → Confirm Audit** (defaults to vendor price), mark GRNs as audited |
+| **Finance** | Reviews invoices, raises debit/credit notes, settles accounts; **admin-only** Accept/Decline on pending debit/credit queue |
 | **Operations managers** | Monitor overall inbound flow, queue management |
 
 ---

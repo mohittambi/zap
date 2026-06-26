@@ -7,6 +7,7 @@ import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService"
 
 const AUDIT_TERMINAL = new Set(["CLOSED", "AUDITED", "DONE", "COMPLETED"]);
 const ACCOUNTS_TERMINAL = new Set(["APPROVED", "REJECTED"]);
+const INVOICE_COLLECTION_COLLECTED = "COLLECTED";
 
 type RouteContext = { params: Promise<{ grnId: string }> };
 
@@ -28,7 +29,7 @@ type RouteContext = { params: Promise<{ grnId: string }> };
  *       403: { description: Forbidden }
  *   patch:
  *     summary: Update GRN status fields (audit / invoice-collection / accounts)
- *     description: Requires purchase_orders:write. Terminal grn_audit_status and accounts_status (APPROVED/REJECTED) require admin role.
+ *     description: Requires purchase_orders:write. Terminal grn_audit_status, accounts_status (APPROVED/REJECTED), and grn_invoice_collection_status (COLLECTED) require admin role.
  *     tags: [Inbound]
  *     parameters:
  *       - in: path
@@ -119,6 +120,21 @@ export async function PATCH(request: Request, context: RouteContext) {
         });
       }
       throw new AppError("Admin role required to approve or reject GRN accounts", 403);
+    }
+
+    const invoiceCollectionVal = String(fields.grn_invoice_collection_status ?? "").trim().toUpperCase();
+    if (invoiceCollectionVal === INVOICE_COLLECTION_COLLECTED && !user.roles.includes("admin")) {
+      const gid = Number(grnId);
+      if (Number.isFinite(gid) && gid !== 0) {
+        await appendInboundGrnLogSafe({
+          grnId: gid,
+          logType: "INVOICE_COLLECTION_DENIED",
+          operationPerformed: "Mark invoice collected attempt blocked — not an admin",
+          createdBy: user.email,
+          raw: { attempted_value: invoiceCollectionVal, user_roles: user.roles },
+        });
+      }
+      throw new AppError("Admin role required to mark GRN invoice as collected", 403);
     }
 
     const updated = await inboundGrnsService.updateGrnStatus(grnId, fields, user.email);
