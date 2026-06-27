@@ -45,7 +45,7 @@ export const BRAND_DOMAINS: Record<BrandKey, string> = {
   pepperfry: "pepperfry.com",
   vaaree: "vaaree.com",
   more: "moreretail.in",
-  slikk: "slikkclub.com",
+  slikk: "slikk.club",
   jiomart: "jiomart.com",
   meesho: "meesho.com",
   ajio: "ajio.com",
@@ -75,7 +75,7 @@ const DOMAIN_NEEDLES: readonly [string, string][] = [
   ["pepperfry", "pepperfry.com"],
   ["vaaree", "vaaree.com"],
   ["more retail", "moreretail.com"],
-  ["slikk", "slikk.in"],
+  ["slikk", "slikk.club"],
   ["jiomart", "jiomart.com"],
   ["meesho", "meesho.com"],
   ["ajio", "ajio.com"],
@@ -173,7 +173,11 @@ export function faviconUrlForCompanyName(companyName: string): string | null {
 }
 
 /**
- * Resolved logo URL for `<img src>` — DB attribute, remote favicon, then bundled asset path.
+ * Resolved logo URL for `<img src>` — DB attribute, bundled asset, then remote favicon.
+ *
+ * Bundled assets are preferred over remote favicons because they are served from
+ * our own origin (always CSP-allowed) and don't depend on third-party favicon
+ * services, which 404 for newer brands (e.g. Zepto, Slikk).
  */
 export function resolveCompanyLogoUrl(
   companyName?: string | null,
@@ -185,11 +189,11 @@ export function resolveCompanyLogoUrl(
   const name = companyName?.trim();
   if (!name) return null;
 
-  const favicon = faviconUrlForCompanyName(name);
-  if (favicon) return favicon;
-
   const key = matchBrandKey(name);
   if (key) return localBrandLogoPath(key);
+
+  const favicon = faviconUrlForCompanyName(name);
+  if (favicon) return favicon;
 
   return null;
 }

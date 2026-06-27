@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
   companyInitials,
@@ -105,26 +104,15 @@ export function CompanyLogo({
       style={{ width: size, height: size }}
       title={name ?? undefined}
     >
-      {isRemote ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          width={size}
-          height={size}
-          className="size-full object-contain p-0.5"
-          onError={handleImageError}
-        />
-      ) : (
-        <Image
-          src={src}
-          alt=""
-          width={size}
-          height={size}
-          className="size-full object-contain p-0.5"
-          onError={handleImageError}
-        />
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        className="size-full object-contain p-0.5"
+        onError={handleImageError}
+      />
     </span>
   );
 }
