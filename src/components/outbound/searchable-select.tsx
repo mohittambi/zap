@@ -27,6 +27,8 @@ export function SearchableSelect({
   size = "default",
   disabled = false,
   className,
+  triggerClassName,
+  mono = false,
 }: {
   value: string | null;
   onChange: (key: string) => void;
@@ -35,10 +37,14 @@ export function SearchableSelect({
   options: SearchableSelectOption[];
   placeholder: string;
   emptyText?: string;
-  variant?: "solid" | "soft";
+  variant?: "solid" | "soft" | "outline";
   size?: "default" | "sm";
   disabled?: boolean;
   className?: string;
+  /** Applied to the trigger button (e.g. font-mono). */
+  triggerClassName?: string;
+  /** Use monospace font on trigger and list items. */
+  mono?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const wasOpenRef = React.useRef(false);
@@ -120,7 +126,7 @@ export function SearchableSelect({
       <div
         ref={panelRef}
         role="listbox"
-        className="bg-background text-foreground border-border fixed z-[500] max-h-[min(280px,calc(100vh-24px))] overflow-hidden rounded-md border p-2 shadow-lg"
+        className="bg-popover text-popover-foreground border-border fixed z-[500] max-h-[min(280px,calc(100vh-24px))] overflow-hidden rounded-md border p-2 shadow-lg"
         style={{
           top: panelBox.top,
           left: panelBox.left,
@@ -150,8 +156,9 @@ export function SearchableSelect({
                   role="option"
                   aria-selected={value === o.key}
                   className={cn(
-                    "hover:bg-muted rounded px-2 py-2 text-left text-sm font-medium",
-                    value === o.key && "bg-muted/80"
+                    "hover:bg-muted rounded px-2 py-2 text-left text-sm",
+                    value === o.key && "bg-muted/80 font-medium",
+                    mono && "font-mono"
                   )}
                   onClick={() => {
                     onChange(o.key);
@@ -188,11 +195,20 @@ export function SearchableSelect({
           size === "sm"
             ? "min-h-8 h-8 px-2 py-1 text-xs"
             : "min-h-11 px-4 py-2 text-sm",
-          variant === "soft"
-            ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
-            : "bg-primary text-primary-foreground hover:bg-primary/90",
-          open && !disabled && "ring-ring ring-2 ring-offset-2 ring-offset-background",
-          disabled && "pointer-events-none cursor-not-allowed opacity-50"
+          variant === "outline"
+            ? "border border-input bg-background px-3 text-foreground hover:bg-muted/50"
+            : variant === "soft"
+              ? "bg-primary/15 text-foreground border-primary/35 hover:bg-primary/22 border"
+              : "bg-primary text-primary-foreground hover:bg-primary/90",
+          open &&
+            !disabled &&
+            (variant === "outline"
+              ? "ring-1 ring-ring"
+              : "ring-ring ring-2 ring-offset-2 ring-offset-background"),
+          disabled && "pointer-events-none cursor-not-allowed opacity-50",
+          !selected && variant === "outline" && "text-muted-foreground",
+          mono && "font-mono",
+          triggerClassName
         )}
         onClick={() => {
           if (disabled) return;
@@ -222,7 +238,7 @@ export function SearchableSelect({
             "shrink-0 opacity-90 transition-transform",
             size === "sm" ? "size-3.5" : "size-4",
             open && "rotate-180",
-            variant === "soft" && "text-foreground"
+            (variant === "soft" || variant === "outline") && "text-muted-foreground"
           )}
         />
       </button>

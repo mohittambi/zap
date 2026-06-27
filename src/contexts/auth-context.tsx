@@ -130,6 +130,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user]
   );
 
+  const isAdmin =
+    (user?.roles?.includes("admin") ?? false) ||
+    userHasPermission(user, "*", "*");
+
   const value: AuthContextValue = React.useMemo(
     () => ({
       user,
@@ -137,10 +141,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
       refreshUser,
-      isAdmin: user?.roles?.includes("admin") ?? false,
+      isAdmin,
       hasPermission,
     }),
-    [user, loading, login, logout, refreshUser, hasPermission]
+    [user, loading, login, logout, refreshUser, isAdmin, hasPermission]
   );
 
   return (

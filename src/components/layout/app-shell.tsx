@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Menu, ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Keyboard, Menu, PanelLeft, PanelLeftClose, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -23,135 +23,26 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
+import { ShellUiProvider, useShellUi } from "@/contexts/shell-ui-context";
 import { ThemeToggle } from "./theme-toggle";
 import { AppFooter } from "./app-footer";
+import { AppSidebar } from "./app-sidebar";
+import { CommandPalette } from "./command-palette";
+import { KeyboardShortcutsGuide } from "./keyboard-shortcuts-guide";
+import { GlobalKeyboardShortcuts } from "./global-keyboard-shortcuts";
+import { cn } from "@/lib/utils";
 
-const primaryNav = [
-  {
-    href: "/listings/warehouse",
-    label: "Listings & Inventory",
-    match: (p: string | null) => !!p?.startsWith("/listings"),
-  },
-  {
-    href: "/catalogues",
-    label: "Catalogues",
-    match: (p: string | null) => !!p?.startsWith("/catalogues"),
-  },
-  {
-    href: "/inbound",
-    label: "Inbound",
-    match: (p: string | null) => !!p?.startsWith("/inbound"),
-  },
-  {
-    href: "/outbound",
-    label: "Outbound",
-    match: (p: string | null) => !!p?.startsWith("/outbound"),
-  },
-  {
-    href: "/ops/sku-po-control",
-    label: "Ops Planning",
-    match: (p: string | null) => !!p?.startsWith("/ops"),
-  },
-  {
-    href: "/labels",
-    label: "Labels",
-    match: (p: string | null) => p === "/labels",
-  },
-];
-
-const moreLinks = [
-  { href: "/vendors", label: "Vendors" },
-  { href: "/warehouses", label: "Warehouses" },
-  { href: "/bins", label: "Bins" },
-  { href: "/bins/changes", label: "Bin Changes" },
-  { href: "/reorder", label: "Reorder Alerts" },
-  { href: "/forms", label: "Forms" },
-  { href: "/purchase-orders", label: "Purchase Orders" },
-  { href: "/warehouse-inventory", label: "Warehouse Inventory Log" },
-  { href: "/inventory/packs", label: "Inventory — Packs (legacy)" },
-  { href: "/inventory/secondary", label: "Inventory — Secondary (legacy)" },
-];
-
-function NavLinksShell({
-  pathname,
-  onNavigate,
-  isAdmin,
-}: {
-  pathname: string | null;
-  onNavigate?: () => void;
-  isAdmin?: boolean;
-}) {
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  return (
-    <nav className="flex flex-col gap-1 md:flex-row md:items-center md:gap-1">
-      {primaryNav.map(({ href, label, match }) => {
-        const active = match(pathname ?? null);
-        return (
-          <Link
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            className={cn(
-              "rounded-full px-3 py-2 text-sm font-medium md:py-1.5",
-              active
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            {label}
-          </Link>
-        );
-      })}
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground">
-              More <ChevronDown className="size-4" />
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>Operations</DropdownMenuLabel>
-            {moreLinks.map(({ href, label }) => (
-              <DropdownMenuItem
-                key={href}
-                onClick={() => {
-                  router.push(href);
-                  onNavigate?.();
-                }}
-              >
-                {label}
-              </DropdownMenuItem>
-            ))}
-            {isAdmin ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Admin</DropdownMenuLabel>
-                <DropdownMenuItem
-                  onClick={() => {
-                    router.push("/settings/users");
-                    onNavigate?.();
-                  }}
-                >
-                  User management
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </nav>
-  );
-}
-
-export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout, isAdmin } = useAuth();
-  const router = useRouter();
-  const pathname = usePathname();
-  const [open, setOpen] = React.useState(false);
+  const {
+    sidebarOpen,
+    toggleSidebar,
+    setShortcutsGuideOpen,
+    mobileNavOpen,
+    setMobileNavOpen,
+  } = useShellUi();
 
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -159,29 +50,50 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="mx-auto flex max-w-[1600px] items-center gap-2 px-3 py-2 md:px-6">
-          <Sheet open={open} onOpenChange={setOpen}>
+      <GlobalKeyboardShortcuts />
+      <CommandPalette />
+      <KeyboardShortcutsGuide />
+
+      <header className="sticky top-0 z-50 shrink-0 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div className="flex items-center gap-2 px-3 py-2 md:px-4">
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetTrigger
               render={
-                <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="md:hidden"
+                  aria-label="Open menu"
+                >
                   <Menu className="size-5" />
                 </Button>
               }
             />
-            <SheetContent side="left" className="w-80 p-0">
+            <SheetContent side="left" className="w-[280px] p-0">
               <SheetHeader className="border-b p-4 text-left">
                 <SheetTitle>eCraft Zap</SheetTitle>
               </SheetHeader>
-              <ScrollArea className="h-[calc(100dvh-5rem)] px-4 py-4">
-                <NavLinksShell
-                  pathname={pathname}
-                  onNavigate={() => setOpen(false)}
-                  isAdmin={isAdmin}
-                />
+              <ScrollArea className="h-[calc(100dvh-4.5rem)]">
+                <AppSidebar isAdmin={isAdmin} onNavigate={() => setMobileNavOpen(false)} />
               </ScrollArea>
             </SheetContent>
           </Sheet>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden md:inline-flex"
+            onClick={toggleSidebar}
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={sidebarOpen}
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose className="size-5" />
+            ) : (
+              <PanelLeft className="size-5" />
+            )}
+          </Button>
 
           <Link
             href="/"
@@ -190,16 +102,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             eCraft Zap
           </Link>
 
-          <nav className="ml-2 hidden flex-1 flex-wrap items-center gap-1 md:ml-6 md:flex">
-            <NavLinksShell pathname={pathname} />
-          </nav>
-
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="hidden sm:inline-flex"
+              aria-label="Keyboard shortcuts"
+              onClick={() => setShortcutsGuideOpen(true)}
+            >
+              <Keyboard className="size-5" />
+            </Button>
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
-                  <Button variant="ghost" className="relative h-11 gap-2 rounded-full px-2 md:h-9">
+                  <Button
+                    variant="ghost"
+                    className="relative h-11 gap-2 rounded-full px-2 md:h-9"
+                  >
                     <Avatar className="size-8">
                       <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                     </Avatar>
@@ -222,16 +143,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  {isAdmin && (
-                    <DropdownMenuItem onClick={() => router.push("/settings/users")}>
-                      User management
+                  {isAdmin ? (
+                    <DropdownMenuItem
+                      className="cursor-pointer"
+                      onClick={() => router.push("/settings/users")}
+                    >
+                      <Users className="size-4" />
+                      User Management
                     </DropdownMenuItem>
-                  )}
-                  {isAdmin && (
-                    <DropdownMenuItem onClick={() => router.push("/settings/ean-mappings")}>
-                      EAN mappings
-                    </DropdownMenuItem>
-                  )}
+                  ) : null}
                   <DropdownMenuItem onClick={() => logout()}>Sign out</DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -240,8 +160,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="flex-1 pb-[max(1.5rem,env(safe-area-inset-bottom))]">{children}</main>
-      <AppFooter />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside
+          className={cn(
+            "hidden shrink-0 flex-col border-border bg-card transition-[width,border-color] duration-200 ease-in-out md:flex",
+            sidebarOpen ? "w-60 border-r" : "w-0 overflow-hidden border-r-0"
+          )}
+          aria-hidden={!sidebarOpen}
+        >
+          <ScrollArea className="h-full min-h-0 w-60 flex-1">
+            <AppSidebar isAdmin={isAdmin} />
+          </ScrollArea>
+        </aside>
+
+        <main className="min-w-0 flex-1 overflow-y-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          {children}
+          <AppFooter />
+        </main>
+      </div>
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <ShellUiProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </ShellUiProvider>
   );
 }

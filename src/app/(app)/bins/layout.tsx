@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AppPageShell } from "@/components/layout/app-page-shell";
 
-export default function OpsLayout({ children }: { children: ReactNode }) {
+export default function BinsLayout({ children }: { children: ReactNode }) {
   return <AppPageShell>{children}</AppPageShell>;
 }

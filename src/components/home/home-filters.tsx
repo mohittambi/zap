@@ -45,11 +45,13 @@ export function HomeFilters({
             const v = e.target.value;
             onCompanyChange(v === "" ? null : Number(v));
           }}
-          className="h-9 min-w-48 rounded-md border border-input bg-background px-2 text-sm"
+          className="h-9 min-w-48 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <option value="">All companies</option>
+          <option value="" className="bg-background text-foreground">
+            All companies
+          </option>
           {companies.map((c) => (
-            <option key={c.id} value={c.id}>
+            <option key={c.id} value={c.id} className="bg-background text-foreground">
               {c.name}
             </option>
           ))}
