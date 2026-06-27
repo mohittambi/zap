@@ -338,13 +338,7 @@ export default function OutboundEanMappingsPage() {
             data={data?.content ?? []}
             rowKey={(row) => row.sku_code}
             isLoading={loading}
-            emptyMessage={
-              <>
-                No mappings found. Run{" "}
-                <span className="font-mono">npm run migrate</span> then{" "}
-                <span className="font-mono">npm run seed:ean-mappings</span>.
-              </>
-            }
+            emptyMessage="No mappings found. Adjust your search or filters."
             sort={sort}
             onSortChange={handleSortChange}
             stickyFirstColumn

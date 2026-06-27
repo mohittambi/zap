@@ -16,7 +16,7 @@ const securityHeaders = [
   {
     key: "Content-Security-Policy",
     value:
-      "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tech.intellozene.com https://www.tech.intellozene.com https://www.ecraftindia.intellozene.com; connect-src 'self' https://*.supabase.co;",
+      "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tech.intellozene.com https://www.tech.intellozene.com https://www.ecraftindia.intellozene.com https://www.google.com https://*.gstatic.com; connect-src 'self' https://*.supabase.co;",
   },
 ];
 

@@ -131,8 +131,7 @@ export default function EanMappingsPage() {
         <h1 className="text-primary text-2xl font-semibold">EAN Code Mappings</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           Company-specific EAN and item codes per SKU. Used on outbound PO line items and
-          consignment dispatch views. Seed from{" "}
-          <span className="font-mono text-xs">npm run seed:ean-mappings</span>.
+          consignment dispatch views.
         </p>
         {data?.summary ? (
           <p className="text-muted-foreground mt-2 text-xs">
@@ -328,9 +327,7 @@ export default function EanMappingsPage() {
                       colSpan={5}
                       className="text-muted-foreground py-10 text-center text-sm"
                     >
-                      No mappings found. Run{" "}
-                      <span className="font-mono">npm run migrate</span> then{" "}
-                      <span className="font-mono">npm run seed:ean-mappings</span>.
+                      No mappings found. Import a CSV or adjust your filters.
                     </TableCell>
                   </TableRow>
                 ) : (
