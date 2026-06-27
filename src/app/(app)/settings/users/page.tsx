@@ -3,9 +3,10 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ShieldCheck, X } from "lucide-react";
+import { ChevronDown, Key, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { ENABLE_API_KEY_REGENERATION } from "@/lib/featureFlags";
 import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -289,6 +290,7 @@ export default function AdminUsersSettingsPage() {
   const [viewingRolePerms, setViewingRolePerms] = React.useState<string | null>(null);
 
   const [saving, setSaving] = React.useState(false);
+  const [regeneratingApiKey, setRegeneratingApiKey] = React.useState(false);
 
   const loadAll = React.useCallback(async () => {
     const [uRows, rRows] = await Promise.all([
@@ -322,6 +324,25 @@ export default function AdminUsersSettingsPage() {
     loadAll()
       .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
       .finally(() => setLoading(false));
+  }
+
+  async function regenerateApiKey() {
+    if (!ENABLE_API_KEY_REGENERATION) return;
+    setRegeneratingApiKey(true);
+    try {
+      const res = await apiFetch<{ api_key: string; message: string }>(
+        "/api/auth/refresh-api-key",
+        { method: "POST" }
+      );
+      toast.success("New API key generated", {
+        description: "Copy it now — it won’t be shown again.",
+      });
+      await navigator.clipboard.writeText(res.api_key);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to regenerate API key");
+    } finally {
+      setRegeneratingApiKey(false);
+    }
   }
 
   function openCreate() {
@@ -559,6 +580,49 @@ export default function AdminUsersSettingsPage() {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="mt-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Key className="size-4 text-muted-foreground" aria-hidden />
+                Automation API key
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Long-lived credential for scripts and server-to-server access to Zap APIs
+                (send as <span className="font-mono">Authorization: Bearer zap_…</span>).
+                Only the signed-in admin&apos;s key is rotated.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                <li>Regenerating creates a new key and immediately revokes the previous one.</li>
+                <li>The new key is shown once and copied to your clipboard — store it securely.</li>
+                <li>
+                  API route:{" "}
+                  <span className="font-mono text-[11px]">POST /api/auth/refresh-api-key</span>{" "}
+                  (admin <span className="font-mono">*:*</span> permission).
+                </li>
+              </ul>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!ENABLE_API_KEY_REGENERATION || regeneratingApiKey}
+                  onClick={() => void regenerateApiKey()}
+                >
+                  {regeneratingApiKey ? "Regenerating…" : "Regenerate API key"}
+                </Button>
+                {!ENABLE_API_KEY_REGENERATION ? (
+                  <p className="text-xs text-muted-foreground">
+                    Disabled in code — set{" "}
+                    <span className="font-mono">ENABLE_API_KEY_REGENERATION</span> in{" "}
+                    <span className="font-mono">src/lib/featureFlags.ts</span> when you need to
+                    rotate credentials.
+                  </p>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         </div>

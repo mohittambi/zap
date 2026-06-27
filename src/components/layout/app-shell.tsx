@@ -27,8 +27,6 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { ThemeToggle } from "./theme-toggle";
 import { AppFooter } from "./app-footer";
-import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
 
 const primaryNav = [
   {
@@ -159,21 +157,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ? user.email.slice(0, 2).toUpperCase()
     : "?";
 
-  async function refreshApiKey() {
-    try {
-      const res = await apiFetch<{ api_key: string; message: string }>(
-        "/api/auth/refresh-api-key",
-        { method: "POST" }
-      );
-      toast.success("New API key generated", {
-        description: "Copy it now — it won’t be shown again.",
-      });
-      await navigator.clipboard.writeText(res.api_key);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    }
-  }
-
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -239,11 +222,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  {isAdmin && (
-                    <DropdownMenuItem onClick={() => void refreshApiKey()}>
-                      Regenerate API key
-                    </DropdownMenuItem>
-                  )}
                   {isAdmin && (
                     <DropdownMenuItem onClick={() => router.push("/settings/users")}>
                       User management
