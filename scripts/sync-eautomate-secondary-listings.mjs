@@ -22,8 +22,9 @@
  *      EAUTOMATE_FETCH_TIMEOUT_MS (optional, e.g. 120000) — abort hung HTTP calls
  *
  * Usage: node scripts/sync-eautomate-secondary-listings.mjs [--search-keyword msgb] [--count 1000]
- *        [--delay-ms 50] [--max-rows N] [--max-pages 1000]
+ *        [--delay-ms 50] [--start-page 14] [--concurrency 8] [--max-rows N] [--max-pages 1000]
  *        [--post-retries 2] [--post-retry-base-ms 500] [--get-only]
+ *      SYNC_SECONDARY_CONCURRENCY (optional env, same as --concurrency)
  *    or: npm run sync:secondary-listings
  */
 import path from "path";
@@ -263,9 +264,36 @@ function strOrNull(v, maxLen) {
   return s;
 }
 
+/**
+ * Floor for stub listing id allocation. Real eAutomate listing ids are small auto-increment
+ * BIGINTs (far below this), so stub ids allocated from the sequence above this floor never
+ * collide with real ids or with each other — making parallel warehouse ingest race-free
+ * without serializing on a global lock. (BIGINT max is ~9.2e18; JS stays exact below 2^53.)
+ */
+const STUB_ID_FLOOR = 1_000_000_000_000_000n;
+
+/**
+ * Create + floor the dedicated sequence used to allocate stub listing ids. Idempotent and safe
+ * across reruns: the sequence persists, so concurrent workers get unique, monotonically
+ * increasing ids via atomic nextval(). Must be called once at startup before any ingest.
+ */
+async function ensureStubIdSequence(client) {
+  await client.query(
+    `CREATE SEQUENCE IF NOT EXISTS listings_stub_id_seq MINVALUE 1 START WITH ${STUB_ID_FLOOR}`
+  );
+  await client.query(
+    `SELECT setval(
+       'listings_stub_id_seq',
+       GREATEST((SELECT last_value FROM listings_stub_id_seq), $1::bigint),
+       true
+     )`,
+    [STUB_ID_FLOOR.toString()]
+  );
+}
+
 async function nextListingsId(client) {
-  const m = await client.query(`SELECT COALESCE(MAX(id), 0)::bigint AS m FROM listings`);
-  return BigInt(m.rows[0].m) + 1n;
+  const r = await client.query(`SELECT nextval('listings_stub_id_seq')::bigint AS id`);
+  return BigInt(r.rows[0].id);
 }
 
 /**
@@ -288,7 +316,8 @@ async function ensureMinimalListingStub(client, skuIdRaw) {
        available_quantity, raw_created_at, raw_updated_at, eautomate_bins, updated_at
      ) VALUES (
        $1,$2,$3,'NA',NULL,'SINGLE','NO','',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,0,NULL,0,NULL,NULL,0,NULL,NULL,'[]'::jsonb, NOW()
-     )`,
+     )
+     ON CONFLICT (sku_id) DO NOTHING`,
     [newId.toString(), skuId, skuId]
   );
 }
@@ -401,7 +430,8 @@ async function ensurePackParentListing(client, merged) {
        available_quantity, raw_created_at, raw_updated_at, eautomate_bins, updated_at
      ) VALUES (
        $1,$2,$3,'NA',NULL,$4,'NO','',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,1,0,NULL,0,NULL,NULL,$5,NULL,NULL,'[]'::jsonb, NOW()
-     )`,
+     )
+     ON CONFLICT (sku_id) DO NOTHING`,
     [newId.toString(), sku, msku, stype, avail]
   );
 }
@@ -457,6 +487,8 @@ async function ingestSkuWiseIntoWarehouse(client, unwrapped, merged) {
     }
   }
 
+  // Serialize only same-parent pack_combos rebuilds (DELETE+INSERT); different parents stay parallel.
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)", [parent]);
   await client.query(`DELETE FROM pack_combos WHERE parent_sku_id = $1`, [parent]);
   for (const c of childs) {
     const compSku = String(
@@ -592,15 +624,108 @@ async function upsertSecondaryListing(client, merged, rawResponse) {
   return { ok: true };
 }
 
+async function runPool(items, concurrency, worker) {
+  let idx = 0;
+  async function runOne() {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) break;
+      await worker(items[i], i);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => runOne()
+  );
+  await Promise.all(workers);
+}
+
+/**
+ * POST sku_wise_details (unless --get-only), upsert secondary_listings + warehouse rows.
+ * @returns {{ ok: boolean, usedGetFallback: boolean, reason?: string }}
+ */
+async function processSecondaryListingRow(client, opts, getRow) {
+  const { base, getOnly, postRetries, postRetryBaseMs } = opts;
+  const normalizedGet = normalizeListingRowForUpsert(getRow);
+  const postBody = buildPostBody(getRow);
+  let rawPost;
+  let usedGetFallback = false;
+
+  if (getOnly) {
+    rawPost = {
+      _sync_note:
+        "POST skipped (--get-only); sku_wise_details_raw contains no server response.",
+    };
+  } else {
+    const pr = await postSkuWiseWithRetry(base, postBody, postRetries, postRetryBaseMs);
+    if (pr.ok) {
+      rawPost = pr.data;
+    } else {
+      usedGetFallback = true;
+      const errMsg = pr.error instanceof Error ? pr.error.message : String(pr.error);
+      rawPost = {
+        _post_failed: true,
+        _error: errMsg.slice(0, 2000),
+        _hint:
+          "eAutomate returned an error on POST sku_wise_details (e.g. HTTP 500). Common cause: remote Laravel cannot write storage/logs/laravel.log — fix on eAutomate server. Row was saved from GET paginated payload only.",
+      };
+      if (/HTTP 5\d\d/.test(errMsg)) {
+        console.warn(
+          `GET fallback (POST failed) ${getRow?.secondary_sku ?? getRow?.id}: ${errMsg.slice(0, 120)}…`
+        );
+      } else {
+        console.warn(
+          `GET fallback ${getRow?.secondary_sku ?? getRow?.id}: ${errMsg.slice(0, 200)}`
+        );
+      }
+    }
+  }
+
+  const unwrapped = unwrapSkuWisePayload(rawPost);
+  const merged = deepMergeListing(normalizedGet, unwrapped);
+  await client.query("BEGIN");
+  const r = await upsertSecondaryListing(client, merged, rawPost);
+  await client.query("COMMIT");
+  if (
+    r.ok &&
+    !getOnly &&
+    rawPost &&
+    typeof rawPost === "object" &&
+    !rawPost._post_failed &&
+    !rawPost._sync_note
+  ) {
+    try {
+      await client.query("BEGIN");
+      await ingestSkuWiseIntoWarehouse(client, unwrapped, merged);
+      await client.query("COMMIT");
+    } catch (ingErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.warn(
+        `Warehouse ingest (listings/pack_combos) ${merged.secondary_sku ?? getRow?.secondary_sku}:`,
+        ingErr instanceof Error ? ingErr.message : ingErr
+      );
+    }
+  }
+  if (!r.ok) {
+    return { ok: false, usedGetFallback, reason: r.reason };
+  }
+  return { ok: true, usedGetFallback };
+}
+
 function parseArgs(argv) {
   let searchKeyword = "";
   let count = 1000;
   let delayMs = 0;
+  let startPage = 1;
   let maxRows = null;
   let maxPages = 1000;
   let postRetries = 2;
   let postRetryBaseMs = 500;
   let getOnly = false;
+  let concurrency = Math.max(
+    1,
+    Number(process.env.SYNC_SECONDARY_CONCURRENCY) || 1
+  );
 
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -612,6 +737,9 @@ function parseArgs(argv) {
       i += 1;
     } else if (a === "--delay-ms" && argv[i + 1]) {
       delayMs = Math.max(0, Number(argv[i + 1]) || 0);
+      i += 1;
+    } else if (a === "--start-page" && argv[i + 1]) {
+      startPage = Math.max(1, Number(argv[i + 1]) || 1);
       i += 1;
     } else if (a === "--max-rows" && argv[i + 1]) {
       maxRows = Math.max(1, Number(argv[i + 1]) || 1);
@@ -627,12 +755,17 @@ function parseArgs(argv) {
       i += 1;
     } else if (a === "--get-only") {
       getOnly = true;
+    } else if (a === "--concurrency" && argv[i + 1]) {
+      concurrency = Math.min(32, Math.max(1, Number(argv[i + 1]) || 1));
+      i += 1;
     }
   }
   return {
     searchKeyword,
     count,
     delayMs,
+    startPage,
+    concurrency,
     maxRows,
     maxPages,
     postRetries,
@@ -652,6 +785,8 @@ async function main() {
     searchKeyword,
     count,
     delayMs,
+    startPage,
+    concurrency,
     maxRows,
     maxPages,
     postRetries,
@@ -660,9 +795,10 @@ async function main() {
   } = parseArgs(process.argv.slice(2));
 
   const progressEvery = Math.max(1, Number(process.env.SYNC_SECONDARY_PROGRESS_EVERY) || 25);
+  const rowOpts = { base, getOnly, postRetries, postRetryBaseMs };
 
   console.log(
-    `[secondary-listings] Starting — base=${base} search_keyword=${JSON.stringify(searchKeyword)} count/page=${count} maxPages=${maxPages}${maxRows != null ? ` maxRows=${maxRows}` : ""} getOnly=${getOnly} delayMs=${delayMs}`
+    `[secondary-listings] Starting — base=${base} search_keyword=${JSON.stringify(searchKeyword)} count/page=${count} startPage=${startPage} concurrency=${concurrency} maxPages=${maxPages}${maxRows != null ? ` maxRows=${maxRows}` : ""} getOnly=${getOnly} delayMs=${delayMs}`
   );
   if (fetchTimeoutMs()) {
     console.log(
@@ -675,17 +811,43 @@ async function main() {
   }
 
   console.log("[secondary-listings] Connecting to database…");
-  const pool = new pg.Pool({ connectionString: url });
-  const client = await pool.connect();
+  const pool = new pg.Pool({
+    connectionString: url,
+    max: Math.max(4, concurrency + 2),
+  });
+  {
+    const setupClient = await pool.connect();
+    try {
+      await ensureStubIdSequence(setupClient);
+    } finally {
+      setupClient.release();
+    }
+  }
   console.log("[secondary-listings] Database connected.");
   let processed = 0;
   let ok = 0;
   let okGetFallback = 0;
   let failed = 0;
 
+  async function processRowWithPool(getRow) {
+    const client = await pool.connect();
+    try {
+      return await processSecondaryListingRow(client, rowOpts, getRow);
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(
+        `Row ${getRow?.secondary_sku ?? getRow?.id}:`,
+        e instanceof Error ? e.message : e
+      );
+      return { ok: false, usedGetFallback: false };
+    } finally {
+      client.release();
+    }
+  }
+
   try {
     let lastPageFetched = 0;
-    outer: for (let page = 1; page <= maxPages; page += 1) {
+    outer: for (let page = startPage; page <= maxPages; page += 1) {
       console.log(
         `[secondary-listings] Fetching paginated page ${page} (this can take a while for large count=)…`
       );
@@ -703,92 +865,24 @@ async function main() {
       );
       if (!Array.isArray(rows) || rows.length === 0) break;
 
-      for (const getRow of rows) {
-        if (maxRows != null && processed >= maxRows) {
-          break outer;
-        }
+      let batch = rows;
+      if (maxRows != null) {
+        const remaining = maxRows - processed;
+        if (remaining <= 0) break outer;
+        batch = rows.slice(0, remaining);
+      }
+
+      await runPool(batch, concurrency, async (getRow) => {
+        const result = await processRowWithPool(getRow);
         processed += 1;
-        const normalizedGet = normalizeListingRowForUpsert(getRow);
-        const postBody = buildPostBody(getRow);
-        try {
-          let rawPost;
-          let usedGetFallback = false;
-
-          if (getOnly) {
-            rawPost = {
-              _sync_note:
-                "POST skipped (--get-only); sku_wise_details_raw contains no server response.",
-            };
-          } else {
-            const pr = await postSkuWiseWithRetry(
-              base,
-              postBody,
-              postRetries,
-              postRetryBaseMs
-            );
-            if (pr.ok) {
-              rawPost = pr.data;
-            } else {
-              usedGetFallback = true;
-              const errMsg =
-                pr.error instanceof Error ? pr.error.message : String(pr.error);
-              rawPost = {
-                _post_failed: true,
-                _error: errMsg.slice(0, 2000),
-                _hint:
-                  "eAutomate returned an error on POST sku_wise_details (e.g. HTTP 500). Common cause: remote Laravel cannot write storage/logs/laravel.log — fix on eAutomate server. Row was saved from GET paginated payload only.",
-              };
-              if (/HTTP 5\d\d/.test(errMsg)) {
-                console.warn(
-                  `GET fallback (POST failed) ${getRow?.secondary_sku ?? getRow?.id}: ${errMsg.slice(0, 120)}…`
-                );
-              } else {
-                console.warn(
-                  `GET fallback ${getRow?.secondary_sku ?? getRow?.id}: ${errMsg.slice(0, 200)}`
-                );
-              }
-            }
-          }
-
-          const unwrapped = unwrapSkuWisePayload(rawPost);
-          const merged = deepMergeListing(normalizedGet, unwrapped);
-          await client.query("BEGIN");
-          const r = await upsertSecondaryListing(client, merged, rawPost);
-          await client.query("COMMIT");
-          if (
-            r.ok &&
-            !getOnly &&
-            rawPost &&
-            typeof rawPost === "object" &&
-            !rawPost._post_failed &&
-            !rawPost._sync_note
-          ) {
-            try {
-              await client.query("BEGIN");
-              await ingestSkuWiseIntoWarehouse(client, unwrapped, merged);
-              await client.query("COMMIT");
-            } catch (ingErr) {
-              await client.query("ROLLBACK").catch(() => {});
-              console.warn(
-                `Warehouse ingest (listings/pack_combos) ${merged.secondary_sku ?? getRow?.secondary_sku}:`,
-                ingErr instanceof Error ? ingErr.message : ingErr
-              );
-            }
-          }
-          if (r.ok) {
-            ok += 1;
-            if (usedGetFallback || getOnly) okGetFallback += 1;
-          } else {
-            failed += 1;
-            console.warn(`Skip row: ${r.reason}`, getRow?.secondary_sku ?? getRow?.id);
-          }
-        } catch (e) {
-          await client.query("ROLLBACK").catch(() => {});
+        if (result.ok) {
+          ok += 1;
+          if (result.usedGetFallback || getOnly) okGetFallback += 1;
+        } else {
           failed += 1;
-          console.error(
-            `Row ${getRow?.secondary_sku ?? getRow?.id}:`,
-            e instanceof Error ? e.message : e
-          );
+          if (result.reason) {
+            console.warn(`Skip row: ${result.reason}`, getRow?.secondary_sku ?? getRow?.id);
+          }
         }
         if (delayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -798,7 +892,7 @@ async function main() {
             `[secondary-listings] … processed ${processed} row(s) so far (${ok} ok, ${failed} failed/skipped)`
           );
         }
-      }
+      });
 
       if (rows.length < count) break;
       if (maxRows != null && processed >= maxRows) break;
@@ -808,7 +902,6 @@ async function main() {
       `Done. Last paginated page fetched: ${lastPageFetched || 0}. Processed ${processed} listing(s): ${ok} saved (${okGetFallback} from GET only / POST skipped), ${failed} failed/skipped.`
     );
   } finally {
-    client.release();
     await pool.end();
   }
 }

@@ -99,6 +99,20 @@ These are **single-entity** or optional flows; run them manually when needed:
 3. **Data volume**: PO/GRN detail phases scale with **row counts already in your database** from the list syncs.
 4. **Failures**: By default the script **stops on the first failing `npm` exit code**. Use `--continue-on-error` for best-effort full passes; fix root causes from logs and re-run.
 
+## Warnings log and client flagging
+
+All sync warnings and errors during prod migration (and future runs) are tracked in:
+
+**[prod-supabase-migration-sync-warnings.md](./prod-supabase-migration-sync-warnings.md)**
+
+After each sync session:
+
+1. Harvest warnings from the terminal log: `npm run harvest:sync-warnings -- /path/to/sync.log`
+2. Append to the doc (review diff): `npm run harvest:sync-warnings -- /path/to/sync.log --append`
+3. Update the executive summary table and **flag High/Medium items to the client**.
+
+Severity definitions and notification checklist are in that document.
+
 ## CLI reference (`sync-all-eautomate.sh`)
 
 | Flag | Effect |

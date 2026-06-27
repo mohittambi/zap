@@ -54,6 +54,7 @@
     "sync:eautomate:all": "bash scripts/sync-all-eautomate.sh",
     "sync:eautomate:all:dry": "bash scripts/sync-all-eautomate.sh --dry-run",
     "sync:eautomate:fresh": "node scripts/run-reset-and-sync-eautomate.mjs",
+    "harvest:sync-warnings": "node scripts/harvest-sync-warnings.mjs",
     "refresh:ops-sku-po-metrics": "tsx scripts/refresh-ops-master-sku-po-metrics.ts",
     "fix:zap-pos": "node scripts/fix-zap-pos.mjs",
     "fix:zap-grns": "node scripts/fix-zap-grns.mjs",
