@@ -2,6 +2,8 @@
 
 **Canonical location:** `web/docs/operations/sync-runbook.md`. Older links may point to `web/docs/sync-all-eautomate.md`.
 
+**Production migration status (Jun 2026):** [prod-supabase-migration.md](./prod-supabase-migration.md) · **Warnings log:** [prod-supabase-migration-sync-warnings.md](./prod-supabase-migration-sync-warnings.md)
+
 This document describes the **orchestrated sync** from eAutomate public APIs into the Zap PostgreSQL database. The entry point is a shell script that invokes the existing `npm run sync:*` scripts in a **dependency-safe order**.
 
 ## How to run

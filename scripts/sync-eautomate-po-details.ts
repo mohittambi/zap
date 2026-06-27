@@ -6,8 +6,11 @@
  *   npm run sync:po:details:from-db
  *   npm run sync:po:details:missing
  *   npm run sync:po:details:if-needed -- --po <id>
+ *   npm run sync:po:details:from-db -- --missing-only --concurrency 4
  *
  * Env: DATABASE_URL, EAUTOMATE_COOKIE or EAUTOMATE_BEARER_TOKEN
+ * Optional: SYNC_PO_DETAILS_CONCURRENCY (same as --concurrency)
+ * Optional: PG_POOL_MAX — set to concurrency + 2 when using session pooler
  */
 import path from "path";
 import { fileURLToPath } from "url";
@@ -28,6 +31,11 @@ function parseArgs(argv: string[]) {
   let po: number | null = null;
   let fromDb = false;
   let missingOnly = false;
+  let continueOnError = false;
+  let concurrency = Math.max(
+    1,
+    Number(process.env.SYNC_PO_DETAILS_CONCURRENCY) || 1
+  );
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--vendor" && argv[i + 1]) {
@@ -40,16 +48,45 @@ function parseArgs(argv: string[]) {
       fromDb = true;
     } else if (a === "--missing-only") {
       missingOnly = true;
+    } else if (a === "--continue-on-error") {
+      continueOnError = true;
+    } else if (a === "--concurrency" && argv[i + 1]) {
+      concurrency = Math.min(12, Math.max(1, Number(argv[i + 1]) || 1));
+      i += 1;
     }
   }
-  return { vendor, po, fromDb, missingOnly };
+  return { vendor, po, fromDb, missingOnly, continueOnError, concurrency };
+}
+
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  let idx = 0;
+  async function runOne() {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) break;
+      await worker(items[i], i);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => runOne()
+  );
+  await Promise.all(workers);
 }
 
 async function main() {
-  const { vendor, po, fromDb, missingOnly } = parseArgs(process.argv.slice(2));
+  const { vendor, po, fromDb, missingOnly, continueOnError, concurrency } =
+    parseArgs(process.argv.slice(2));
   if (!process.env.DATABASE_URL?.trim()) {
     console.error("DATABASE_URL is required");
     process.exit(1);
+  }
+  if (concurrency > 1 && !process.env.PG_POOL_MAX) {
+    process.env.PG_POOL_MAX = String(concurrency + 2);
   }
 
   const pairs: { vendor_id: number; po_id: number; reason?: string }[] = [];
@@ -87,6 +124,9 @@ async function main() {
       }
       console.log(`Ingesting PO details for ${pairs.length} PO(s) (full refresh)...`);
     }
+    if (concurrency > 1) {
+      console.log(`Concurrency: ${concurrency} (PG_POOL_MAX=${process.env.PG_POOL_MAX})`);
+    }
   } else if (
     vendor != null &&
     Number.isFinite(vendor) &&
@@ -108,19 +148,30 @@ async function main() {
 
   let ok = 0;
   let fail = 0;
-  for (const { vendor_id, po_id, reason } of pairs) {
+  let done = 0;
+  const progressEvery = 25;
+
+  await runPool(pairs, concurrency, async ({ vendor_id, po_id, reason }) => {
     try {
       const suffix = reason ? ` [${reason}]` : "";
-      process.stdout.write(`PO ${po_id} (vendor ${vendor_id})${suffix}... `);
       await ingestPoDetailsByVendorAndPo(vendor_id, po_id);
-      console.log("ok");
       ok += 1;
+      done += 1;
+      console.log(`PO ${po_id} (vendor ${vendor_id})${suffix}... ok`);
     } catch (e) {
-      console.log("failed");
-      console.error(e instanceof Error ? e.message : e);
       fail += 1;
+      done += 1;
+      console.log(`PO ${po_id} (vendor ${vendor_id})... failed`);
+      console.error(e instanceof Error ? e.message : e);
+      if (!continueOnError) {
+        throw e;
+      }
     }
-  }
+    if (done > 0 && done % progressEvery === 0) {
+      console.log(`[po-details] … ${done}/${pairs.length} processed (${ok} ok, ${fail} failed)`);
+    }
+  });
+
   console.log(`Done. ${ok} ok, ${fail} failed.`);
   if (fail > 0) process.exit(1);
 }

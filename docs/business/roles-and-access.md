@@ -31,6 +31,17 @@ In Zap, roles work the same way.
 
 ## Standard roles and what they can do
 
+Zap stores roles in the database using these names (shown in **Settings → Users**):
+
+| DB role name | Business name |
+| ------------ | ------------- |
+| `admin` | Administrator |
+| `ops_manager` | Operations Manager |
+| `warehouse_staff` | Warehouse Staff |
+| `finance` | Finance / Accounts |
+| `merchandising` | Merchandising / Category |
+| `sales` | Sales / Key Accounts |
+
 ### Administrator
 **Who this is for:** IT leads, senior operations managers  
 **What they can do:**
@@ -55,13 +66,18 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ---
 
 ### Operations Manager
-**Who this is for:** Ops leads, logistics managers  
+**DB role:** `ops_manager`
+**Who this is for:** Ops leads, logistics managers
 **What they can do:**
 - View and manage all inbound and outbound POs
 - Acknowledge, update, and cancel outbound orders
 - Generate and download labels and reports
 - Manage consignments and dispatch records
 - View vendor and warehouse data
+- Create/delete bin locations (`bins:manage`)
+- Submit operational forms (`forms:write`)
+- Use dashboard query builder (`query_builder:read`)
+- Delete vendors when required (`vendors:delete`)
 
 **They cannot:**
 - Create or deactivate user accounts
@@ -70,11 +86,13 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ---
 
 ### Warehouse Staff
-**Who this is for:** Warehouse workers, GRN raisers, dispatch team  
+**DB role:** `warehouse_staff`
+**Who this is for:** Warehouse workers, GRN raisers, dispatch team
 **What they can do:**
 - Raise and edit GRNs for inbound deliveries
 - View inbound POs assigned to their warehouse
-- Look up bin locations for products
+- Look up and manage bin locations for products (`bins:manage`)
+- Submit operational forms (`forms:write`)
 - View outbound POs to guide picking
 - Use the Zap Ops mobile app
 
@@ -87,12 +105,15 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ---
 
 ### Finance / Accounts
-**Who this is for:** Finance managers, accounts payable/receivable  
+**DB role:** `finance`
+**Who this is for:** Finance managers, accounts payable/receivable
 **What they can do:**
 - View all GRNs and their linked invoices
 - Raise and manage debit and credit notes
 - Download financial reports and statements
 - View vendor and product records for reference
+- Submit operational forms (`forms:write`)
+- Use dashboard query builder (`query_builder:read`)
 
 **They cannot:**
 - Edit product listings
@@ -103,6 +124,7 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ---
 
 ### Merchandising / Category
+**DB role:** `merchandising`
 **Who this is for:** Category managers, buyers, product team  
 **What they can do:**
 - View and edit product listings (name, images, dimensions, pricing, category)
@@ -119,12 +141,14 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ---
 
 ### Sales / Key Accounts
-**Who this is for:** Sales managers, account managers, KAMs  
+**DB role:** `sales`
+**Who this is for:** Sales managers, account managers, KAMs
 **What they can do:**
 - View product listings and stock levels
 - Build and export catalogues
 - View outbound PO status for their accounts
 - Manage their own focus lists
+- Use dashboard query builder (`query_builder:read`)
 
 **They cannot:**
 - Edit product data
@@ -159,7 +183,8 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 | Download reports | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Edit product listings | ✓ | — | — | — | ✓ | — | — |
 | Build catalogues | ✓ | — | — | — | ✓ | ✓ | — |
-| Manage vendors | ✓ | ✓ | — | ✓ | — | — | — |
+| Manage bin locations | ✓ | ✓ | ✓ | — | — | — | — |
+| Manage vendors (delete) | ✓ | ✓ | — | — | — | — | — |
 | Bulk import/export | ✓ | ✓ | — | — | ✓ | — | — |
 | Manage users and roles | ✓ | — | — | — | — | — | — |
 
@@ -168,10 +193,10 @@ Other roles (warehouse, finance, operations) may still enter quantities and uplo
 ## Managing users (for administrators)
 
 ### Adding a new user
-1. Go to **Settings → Users**.
+1. Go to **Settings → Users** (admin only).
 2. Click **Add User**.
-3. Enter the person's name, email address, and assign their role.
-4. Save — they receive an email invitation to set their password.
+3. Enter email, temporary password, and assign one or more roles.
+4. Save — share the password securely (Zap does not send email invitations yet).
 
 ### Changing a role
 1. Go to **Settings → Users**.

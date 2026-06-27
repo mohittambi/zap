@@ -40,3 +40,4 @@
 
 - [web-setup.md](web-setup.md)
 - [../operations/sync-runbook.md](../operations/sync-runbook.md)
+- [../operations/prod-supabase-migration.md](../operations/prod-supabase-migration.md) — prod vs dev Supabase refs and Vercel production env names

@@ -15,6 +15,8 @@ This folder is the **single entry point** for understanding the Zap system: web 
 | API consumers | [architecture/api-index.md](architecture/api-index.md) → service-specific `services/*/api.md` |
 | DB / migrations | [architecture/database-schema.md](architecture/database-schema.md) |
 | DevOps / deploy | [deployment/web-setup.md](deployment/web-setup.md), [deployment/env-reference.md](deployment/env-reference.md) |
+| **Prod migration (Jun 2026)** | [operations/prod-supabase-migration.md](operations/prod-supabase-migration.md) — cutover status, env split, Vercel `main` |
+| **Prod RBAC** | [operations/prod-rbac-setup.md](operations/prod-rbac-setup.md) — roles, permissions, admin user management |
 | Sync / scripts | [operations/sync-runbook.md](operations/sync-runbook.md) |
 | Roadmap | [enhancements/roadmap.md](enhancements/roadmap.md), [final/to-be-system.md](final/to-be-system.md) |
 
@@ -36,7 +38,7 @@ web/docs/
 ├── current-system/           ← as-is overview, workflows, limitations
 ├── services/                 ← one folder per domain (overview + api + data-model where needed)
 ├── deployment/               ← setup, env, migrations, seeds
-├── operations/               ← sync runbooks, Postman
+├── operations/               ← sync runbooks, Postman, **prod migration**
 ├── enhancements/             ← gaps, proposals, roadmap
 └── final/                    ← to-be vision + migration plan
 ```

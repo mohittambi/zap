@@ -20,6 +20,7 @@
     "seed:generate": "node scripts/generate_seed_from_xlsx.mjs",
     "inspect:xlsx": "node scripts/inspect_xlsx.mjs",
     "seed:ean-mappings": "tsx scripts/seed-ean-mappings.ts",
+    "seed:prod-admins": "node scripts/seed-prod-admin-users.mjs",
     "seed:ean-mappings:dry": "tsx scripts/seed-ean-mappings.ts --dry-run",
     "seed:sample": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/load_sample_data.sh', { env: process.env, stdio: 'inherit' })\"",
     "seed:sample:replace": "node -e \"require('dotenv').config({path:'.env.local'}); require('dotenv').config(); require('child_process').execSync('bash scripts/load_sample_data.sh --replace', { env: process.env, stdio: 'inherit' })\"",

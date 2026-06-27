@@ -4,7 +4,7 @@
 **Purpose:** Track every sync warning/error from the initial migration and flag items that need client awareness or follow-up.  
 **Owner:** Zap engineering — update this file after each sync session or when new warnings appear in logs.
 
-Related: [sync-runbook.md](./sync-runbook.md)
+Related: [sync-runbook.md](./sync-runbook.md) · [prod-supabase-migration.md](./prod-supabase-migration.md) (full cutover status)
 
 ---
 
@@ -52,22 +52,28 @@ Patterns captured: orchestrator `WARNING:`, vendor/row failures, warehouse inges
 | 5 | Medium | 3 Secondary listings | **1** warehouse ingest warning on fixed run (`B08QNJHWFK`, `760670`) | **Open** — monitor; may self-heal on upsert | Optional |
 | 6 | High | 3 Secondary listings | DB connection `ETIMEDOUT` at page 42 (~28,350 rows, run `760670`) | **Resolved** — resumed and completed (67,183 total) | Yes |
 | 7 | Medium | 3 Secondary listings | Warehouse ingest duplicate keys on fixed runs (`808675`: 44 SKUs incl. `MOPS508`) | **Open** — core data OK; optional warehouse backfill | Optional |
-| 8 | High | 5a PO details | Skipped in tail run (`--skip-vendor-pos`); **1,574 PO line details not ingested** | **In progress** — ingesting on prod 2026-06-27 (`inbound_po_detail_snapshot` growing toward 1,574) | Yes |
-| 9 | High | 6 Ops SKU PO metrics | `ops_master_sku_po_metrics` **empty on prod** — earlier "3,091 rows" went to the **wrong pooler region** (dev, per W-004) | **Auto-queued** — `refresh:ops-sku-po-metrics` runs on prod once PO details finish | Optional |
+| 8 | High | 5a PO details | Skipped in tail run (`--skip-vendor-pos`); **1,575 PO line details not ingested** | **Resolved** — 1,574/1,574 eAutomate POs, 9,371 lines, 489 ok / 0 failed (concurrency 4 pass) | Yes |
+| 9 | High | 6 Ops SKU PO metrics | `ops_master_sku_po_metrics` empty on prod — refresh hit **dev** via `.env.local` override | **Resolved** — prod refresh **3,346 rows** after script fix (2026-06-27) | Optional |
+| 10 | High | Data copy | SKU/EAN mappings missing on prod | **Resolved** — copied 28,430 `company_ean_mappings` + 10 `company_ean_column_config` from old dev DB | Yes |
 
 **Latest tail run (`685750`, 2026-06-27):** Phase 4 outbound ✅, Phase 5b GRN **984/984 ok**, Phase 6 ops metrics ran against **dev** pooler (prod table empty — see W-009). Exit 0.
 
 ### Migration completion (2026-06-27)
 
-- **Vendor 12328:** re-synced ✅
-- **PO detail ingest:** running on prod (session pooler), all rows `ok` so far
-- **Ops SKU PO metrics:** queued to rebuild on prod after PO details
-- **Prod storage buckets:** created ✅ — `listing-images` (public), `outbound-po-files` (private), `inbound-grn-files` (private)
-- **Vercel prod env:** 6 vars repointed from old dev Supabase (`wzdvcjqjdshmcbcmsyoi`) to new prod (`bxgmcddxmlsgrflnbywv`) — `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `SHEETS_SYNC_BEARER_TOKEN` (stored Sensitive per team policy) ✅
-- **Prod deploy:** `zap` deployed to production, `https://zap-rust.vercel.app` (HTTP 200) ✅
-- **`web/.temp`:** deleted (secrets now in `.env.production.local` + Vercel) ✅
+See **[prod-supabase-migration.md](./prod-supabase-migration.md)** for the full cutover runbook. Summary:
 
-**Still pending:** PO detail ingest completion + ops metrics rebuild (auto-chained, in progress), optional RBAC/admin user seed for prod login.
+- **Vendor 12328:** re-synced ✅
+- **SKU/EAN mappings:** copied from old dev DB (28,430 + 10 column configs) ✅
+- **PO detail ingest:** complete ✅ — 1,574 snapshots, 9,371 lines, 986 PO–GRN links, 0 missing
+- **Ops SKU PO metrics:** complete ✅ — **3,346 rows** on prod (after fixing `.env.local` override in refresh script)
+- **Prod storage buckets:** created ✅ — `listing-images` (public), `outbound-po-files` (private), `inbound-grn-files` (private)
+- **Vercel prod env:** 6 vars repointed to new prod Supabase ✅
+- **Vercel production branch:** `main` (was `dev`) ✅
+- **Prod deploy:** https://zap-rust.vercel.app ✅
+- **Prod admin:** `admin@zap.app` seeded with `admin` role — password in team vault, rotate after first login ✅
+- **`web/.temp`:** deleted ✅
+
+**Sync complete (2026-06-27):** All eAutomate migration phases done on prod. Optional: residual warehouse ingest warnings (W-005, W-007). Next: user/RBAC setup (Saumya, Ankit admins).
 
 ---
 
@@ -199,3 +205,4 @@ Patterns captured: orchestrator `WARNING:`, vendor/row failures, warehouse inges
 | ---------- | ------ | ------ |
 | 2026-06-27 | Engineering | Initial log from migration sync terminals `843559`, `151921`, `428412`, `760670` |
 | 2026-06-27 | Engineering | Resolved W-001/W-002 (vendor 12328); started PO detail ingest (W-008); added W-009 (ops metrics empty on prod, auto-queued); created prod storage buckets; repointed Vercel prod env + deployed to production; deleted `web/.temp` |
+| 2026-06-27 | Engineering | W-010 EAN mappings copied; Vercel prod branch → `main`; admin seed; added [prod-supabase-migration.md](./prod-supabase-migration.md) |

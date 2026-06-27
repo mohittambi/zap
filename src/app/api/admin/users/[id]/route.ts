@@ -84,10 +84,10 @@ export async function PATCH(
         throw new AppError("Password must be at least 8 characters", 400);
       }
       const hash = await bcrypt.hash(body.password, 10);
-      await query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
-        hash,
-        userId,
-      ]);
+      await query(
+        `UPDATE users SET password_hash = $1, token_invalidated_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [hash, userId]
+      );
     }
 
     if (Array.isArray(body.roles)) {

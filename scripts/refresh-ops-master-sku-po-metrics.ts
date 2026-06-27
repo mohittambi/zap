@@ -8,7 +8,10 @@ import { resolve } from "node:path";
 
 const root = resolve(process.cwd());
 config({ path: resolve(root, ".env") });
-config({ path: resolve(root, ".env.local"), override: true });
+// Do not override an explicit DATABASE_URL (e.g. prod session pooler from shell/orchestrator).
+if (!process.env.DATABASE_URL?.trim()) {
+  config({ path: resolve(root, ".env.local"), override: true });
+}
 
 async function main() {
   const { refreshOpsMasterSkuPoMetricsCache } = await import(

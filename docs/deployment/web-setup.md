@@ -70,8 +70,20 @@ Seeds under `npm run seed` are intended for **localhost** only—do not run them
 
 1. **Root Directory** = `web`.
 2. Add `DATABASE_URL`, `JWT_SECRET`, and any other vars from `.env.local.example` your deployment needs (e.g. eAutomate sync is optional).
+3. **Production branch:** `main` (GitHub default). Vercel production tracking is set to `main`; merges to `main` deploy to https://zap-rust.vercel.app.
+4. **Preview / Development** env vars may still point at the **dev** Supabase project (`wzdvcjqjdshmcbcmsyoi`) unless you repoint them.
 
 See also the root [README](../../../README.md) **Deploy (Vercel)** section.
+
+### Production vs development Supabase
+
+| | Production | Development |
+| - | ---------- | ----------- |
+| Project ref | `bxgmcddxmlsgrflnbywv` | `wzdvcjqjdshmcbcmsyoi` |
+| Region | ap-southeast-2 | ap-northeast-1 |
+| Vercel | Production env + `main` branch | Preview / local `.env.local` |
+
+Full cutover checklist, row counts, and stakeholder update template: **[operations/prod-supabase-migration.md](../operations/prod-supabase-migration.md)**.
 
 ## 5. Mental model: where login runs
 
