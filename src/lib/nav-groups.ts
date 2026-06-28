@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
   Barcode,
+  BarChart3,
   BellRing,
   BookOpen,
   Box,
@@ -30,6 +31,7 @@ import {
   Send,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Store,
   Tag,
   Tags,
@@ -225,6 +227,30 @@ export const navGroups: NavGroup[] = [
       {
         title: "Reports",
         items: [{ href: "/purchase-orders", label: "Purchase Orders", icon: FileText }],
+      },
+    ],
+  },
+  {
+    id: "insights",
+    label: "Insights",
+    icon: Sparkles,
+    match: (p) => p.startsWith("/insights"),
+    sections: [
+      {
+        title: "Intelligence",
+        items: [
+          { href: "/insights", label: "Overview", icon: Sparkles, adminOnly: true },
+          { href: "/insights/forecasting", label: "Forecasting", icon: BarChart3, adminOnly: true },
+          { href: "/insights/segmentation", label: "Segmentation", icon: Grid3x3, adminOnly: true },
+          { href: "/insights/vendors", label: "Vendor Scores", icon: Store, adminOnly: true },
+          {
+            href: "/insights/working-capital",
+            label: "Working Capital",
+            icon: Wallet,
+            adminOnly: true,
+          },
+          { href: "/insights/settings", label: "Settings", icon: Settings, adminOnly: true },
+        ],
       },
     ],
   },

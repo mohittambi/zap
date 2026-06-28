@@ -32,6 +32,7 @@ Without bulk operations, this would have required hours of manual data entry.
 | Task | How Bulk Ops helps |
 |------|--------------------|
 | Onboarding new products | Upload hundreds of new SKUs at once via spreadsheet |
+| Master SKU creation | Bulk-create warehouse master listings from CSV (Zap-managed SKUs) |
 | Price updates | Update MRP or cost price for many SKUs together |
 | Bin location changes | Reassign multiple SKUs to new bins after warehouse reorganisation |
 | Export for reporting | Download a full filtered set of listings for analysis |
@@ -66,6 +67,7 @@ Step 6: Download summary
 ## Important notes on bulk imports
 
 - Always download and use the **official Zap template** — custom column names will cause errors.
+- **Master listing import** is create-only: duplicate `sku_id` rows are rejected per row; use the sample CSV under Bulk Operations.
 - Zap validates each row before committing — no partial saves that corrupt existing data.
 - A full audit trail is kept: who imported what, and when.
 - If an import fails, the previous data is untouched.

@@ -722,6 +722,28 @@ Activity log lines per outbound PO. PK `id` (BIGINT). FK `outbound_po_id` → `o
 
 **`inbound_grn_invoice_files`** and **`inbound_grn_debit_credit_note_files`:** optional `zap_storage_path` TEXT — when set, file download uses Zap Storage.
 
+### Decision intelligence (`074`)
+
+Admin-only insights hub: config, digest snapshots, user feedback.
+
+#### `insight_config`
+
+Single-row tuning (PK `id = 1`): severity weights, `stockout_cover_days`, `dead_stock_days`, `ordering_cost_default`, `holding_cost_pct_default`, `digest_enabled`, `extra` JSONB.
+
+#### `insight_snapshots`
+
+Digest runs: `generated_at`, `trigger` (SCHEDULED|MANUAL), `summary` JSONB. Index on `generated_at DESC`.
+
+#### `insight_snapshot_items`
+
+FK `snapshot_id` → `insight_snapshots` CASCADE. Stores ranked insight rows at digest time (`insight_key`, `domain`, `severity`, entity, title, rationale, `impact_value`, `priority`, `raw` JSONB).
+
+#### `insight_feedback`
+
+User actions: `insight_key`, `action` (DISMISSED|SNOOZED|ACTED), optional `snooze_until`, `created_by`. Index on `insight_key`.
+
+RBAC permissions: `insights:read`, `insights:manage` (admin wildcard only by default).
+
 ---
 
 ## Source of truth

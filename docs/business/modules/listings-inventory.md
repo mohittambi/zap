@@ -82,6 +82,7 @@ Zap tracks inventory across multiple warehouses. For each SKU you can see:
 
 ### Bulk import
 - Upload a spreadsheet to create or update multiple listings at once (see [Bulk Operations](bulk-ops.md))
+- **Master SKUs:** use **Bulk Operations → Create Master Listings (CSV)** with the sample template (`sample_master_listings_import.csv`). Create-only — duplicate SKU IDs are skipped with a row error.
 
 ---
 

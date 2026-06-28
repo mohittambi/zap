@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { useListQueryState } from "@/hooks/use-list-query-state";
 import { ListingsFilters } from "@/components/listings/listings-filters";
 import { ListingsSort } from "@/components/listings/listings-sort";
+import { CreateListingDialog } from "@/components/listings/create-listing-dialog";
 
 type Row = {
   sku_id: string;
@@ -43,6 +44,7 @@ export default function WarehouseListingsPage() {
   const [selected, setSelected] = React.useState<Row | null>(null);
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
   const [focusLoading, setFocusLoading] = React.useState(false);
+  const [createOpen, setCreateOpen] = React.useState(false);
 
   // Keep the local draft in sync if the URL search param changes externally.
   React.useEffect(() => {
@@ -129,7 +131,14 @@ export default function WarehouseListingsPage() {
             Warehouse Listings
           </h1>
           <p className="text-sm text-muted-foreground">
-            Browse master SKUs with images and add items to a focus list.
+            Browse master SKUs with images and add items to a focus list.{" "}
+            <Link
+              href="/listings/bulk"
+              className="text-primary font-medium underline-offset-2 hover:underline"
+            >
+              Bulk CSV import
+            </Link>{" "}
+            for many SKUs at once.
           </p>
         </div>
         <div className="flex w-full max-w-md flex-col gap-2 lg:w-auto">
@@ -153,9 +162,25 @@ export default function WarehouseListingsPage() {
               <Search className="mr-2 size-4" />
               Search
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 shrink-0"
+              onClick={() => setCreateOpen(true)}
+            >
+              + New Listing
+            </Button>
           </div>
         </div>
       </div>
+
+      <CreateListingDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(skuId) => {
+          set({ search: skuId, page: 1 });
+        }}
+      />
 
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <ListingsFilters

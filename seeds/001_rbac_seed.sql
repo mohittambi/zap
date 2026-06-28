@@ -27,7 +27,9 @@ INSERT INTO permissions (resource, action, description) VALUES
   ('inventory', 'read', 'Inventory secondary listings'),
   ('forms', 'read', 'Forms categories and submissions'),
   ('warehouses', 'read', 'Warehouses list and by id'),
-  ('bins', 'read', 'Bins list and by id')
+  ('bins', 'read', 'Bins list and by id'),
+  ('insights', 'read', 'View decision intelligence hub and worklist'),
+  ('insights', 'manage', 'Configure insights, feedback, and run digest')
 ON CONFLICT (resource, action) DO NOTHING;
 
 -- Role permissions

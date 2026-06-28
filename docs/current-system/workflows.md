@@ -491,6 +491,38 @@ See [../operations/sync-runbook.md](../operations/sync-runbook.md) for credentia
 
 ---
 
+## 6. Insights digest (scheduled)
+
+Admin-only Decision Intelligence hub. Ranked insights are computed on demand from existing BI services (`homeSummaryService`, `reorderService`, etc.); a daily digest persists a snapshot for history and email-style review.
+
+```mermaid
+sequenceDiagram
+  participant CRON as Cron / scheduler
+  participant API as POST /api/insights/digest
+  participant SVC as decisionIntelligenceService
+  participant PG as Postgres
+
+  CRON->>API: Authorization: Bearer INSIGHTS_DIGEST_BEARER_TOKEN
+  API->>API: validate bearer (no fallback secret)
+  API->>SVC: build ranked Insight[] + summary counts
+  SVC->>PG: read insight_config, insight_feedback (suppress dismissed/snoozed)
+  API->>PG: INSERT insight_snapshots + insight_snapshot_items
+  API-->>CRON: { snapshot_id, counts }
+```
+
+| Trigger | Auth | Route | Tables written |
+|---|---|---|---|
+| Cron (`insightsDigestScheduler`, default `0 6 * * *`) | `INSIGHTS_DIGEST_BEARER_TOKEN` | `POST /api/insights/digest` | `insight_snapshots`, `insight_snapshot_items` |
+| Admin manual digest | JWT + `insights:manage` | same | same |
+
+Config: [`src/config/schedulers.ts`](../../src/config/schedulers.ts) — `insightsDigestScheduler`  
+Env: `INSIGHTS_DIGEST_BEARER_TOKEN`, optional `INSIGHTS_DIGEST_ENDPOINT`  
+Permissions: `insights:read`, `insights:manage` (admin wildcard only by default — see migration `074`)
+
+Interactive worklist dismiss/snooze uses `POST /api/insights/feedback` → `insight_feedback`; suppressed keys are filtered before ranking on subsequent reads.
+
+---
+
 ## See also
 
 - Business-facing flows: [../business/workflows/end-to-end-flows.md](../business/workflows/end-to-end-flows.md)

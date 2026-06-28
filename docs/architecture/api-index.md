@@ -37,6 +37,7 @@ This index lists **96** Route Handlers under `web/src/app/api/`. For request/res
 | GET | `/bulk/export/secondary-listings` |
 | GET | `/bulk/export/ais-listings` |
 | GET | `/bulk/export/master-sku-details` |
+| POST | `/bulk/import/master-listings` |
 | POST | `/bulk/import/secondary-listings` |
 | POST | `/bulk/import/ais-listings` |
 | POST | `/bulk/import/packs-combos` |

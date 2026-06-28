@@ -1,5 +1,8 @@
 // @ts-nocheck
 import { query } from "@/server/db";
+import { AppError } from "@/server/errors";
+import { isBulkRowEmpty, mapBulkRowToCreateListingInput } from "@/lib/listingCreate";
+import { createListing } from "@/server/services/listingsService";
 
 function csvEscape(v) {
   if (v == null) return "";
@@ -265,4 +268,37 @@ export async function importPacksCombosFromBuffer(buffer) {
 /** AIS = same as secondary import with optional filter — reuse secondary listings sheet format */
 export async function importAisListingsFromBuffer(buffer) {
   return importSecondaryListingsFromBuffer(buffer);
+}
+
+/** Create new master listings from CSV/XLSX (create-only; existing sku_id → row error). */
+export async function importMasterListingsFromBuffer(buffer, createdBy) {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(buffer, { type: "buffer" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet);
+  const errors = [];
+  let imported = 0;
+  const createdSkuIds = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (isBulkRowEmpty(r)) continue;
+
+    try {
+      const body = mapBulkRowToCreateListingInput(r);
+      const listing = await createListing(body, createdBy);
+      imported++;
+      createdSkuIds.push(listing.sku_id);
+    } catch (e) {
+      const message =
+        e instanceof AppError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : String(e);
+      errors.push({ row: i + 2, message });
+    }
+  }
+
+  return { imported, errors, created_sku_ids: createdSkuIds };
 }

@@ -1,0 +1,3 @@
+sku_id,description,category,sku_type,inventory_bypass_on,ops_tag,bulk_price,actual_weight,dimension,no_of_constituents,material_info,keyword_pool,img_hd,img_white,img_wdim,img_link1,img_link2
+ZAP-SAMPLE-001,Sample widget A — bulk import demo,Tools,SINGLE,NO,SM,199.00,0.45,12x8x4 cm,1,Plastic,widget sample,https://example.com/images/zap-sample-001-hd.jpg,,,,,
+ZAP-SAMPLE-002,Sample widget B — minimal row,,SINGLE,NO,,,,,,,,,,,,

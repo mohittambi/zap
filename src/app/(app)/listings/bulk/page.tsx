@@ -139,7 +139,7 @@ export default function BulkOperationsPage() {
     <div className="space-y-6">
       <AppPageTitle
         title="Bulk Operations"
-        description="Export full CSV snapshots from the database, or import spreadsheets to add or update secondary listings, pack/combo BOM rows, and AIS (platform) quantities. Requires bulk read / import permissions."
+        description="Export full CSV snapshots from the database, or import spreadsheets to create master SKUs, add or update secondary listings, pack/combo BOM rows, and AIS (platform) quantities. Requires bulk read / import permissions; master listing import also requires listings write."
       />
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -201,7 +201,15 @@ export default function BulkOperationsPage() {
           <CardContent className="flex flex-col gap-6">
             <p className="text-muted-foreground text-xs leading-relaxed">
               Imports use the <span className="font-mono">xlsx</span> parser (CSV and Excel).{" "}
-              Secondary / AIS: snake_case headers (
+              <strong>Master listings</strong> (create-only): required columns{" "}
+              <span className="font-mono">sku_id</span>,{" "}
+              <span className="font-mono">description</span>; optional classification,
+              pricing, and image URL columns — see sample CSV. Duplicate{" "}
+              <span className="font-mono">sku_id</span> values are reported as row errors
+              (existing eAutomate or Zap rows are not overwritten). Requires{" "}
+              <span className="font-mono">listings:write</span> in addition to{" "}
+              <span className="font-mono">bulk:import</span>. Secondary / AIS: snake_case
+              headers (
               <span className="font-mono">secondary_sku</span>,{" "}
               <span className="font-mono">master_sku</span>, …) or legacy headers from sample
               data (Channel SKU, Master SKU, Inventory SKU, Pack Combo SKU, SKU Type, Bypass
@@ -213,6 +221,13 @@ export default function BulkOperationsPage() {
               must already exist in <span className="font-mono">listings</span> (FK).
             </p>
 
+            <ImportBlock
+              title="Create Master Listings (CSV)"
+              inputId="bulk-import-master-listings"
+              uploadPath="/api/bulk/import/master-listings"
+              sampleHref="/samples/bulk/sample_master_listings_import.csv"
+              sampleFilename="sample_master_listings_import.csv"
+            />
             <ImportBlock
               title="Add/Update Secondary Listings"
               inputId="bulk-import-secondary"

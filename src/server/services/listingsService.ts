@@ -1,5 +1,12 @@
 // @ts-nocheck
 import { query } from '@/server/db';
+import { AppError } from '@/server/errors';
+import {
+  buildCreateListingDefaults,
+  ListingCreateError,
+  validateCreateListingInput,
+  type CreateListingInput,
+} from '@/lib/listingCreate';
 import {
   LISTING_STOCK_CTE,
   listingOrderBy,
@@ -7,6 +14,8 @@ import {
   type ListingSort,
   type StockState,
 } from '@/server/sql/listingStockCte';
+
+export type { CreateListingInput };
 
 export async function getSkuNames() {
   const result = await query(
@@ -213,6 +222,80 @@ export async function getListingsByPage(
       live_bin_qty: Number(l.live_bin_qty ?? 0),
     })),
   };
+}
+
+async function ensureListingsStubIdSequence() {
+  await query(
+    `CREATE SEQUENCE IF NOT EXISTS listings_stub_id_seq
+     MINVALUE 1 START WITH 1000000000000000`
+  );
+}
+
+export async function createListing(
+  rawInput: Record<string, unknown>,
+  createdBy: string
+) {
+  let input: CreateListingInput;
+  try {
+    input = validateCreateListingInput(rawInput);
+  } catch (err) {
+    if (err instanceof ListingCreateError) {
+      throw new AppError(err.message, err.statusCode);
+    }
+    throw err;
+  }
+
+  const dup = await query(`SELECT 1 FROM listings WHERE sku_id = $1`, [input.sku_id]);
+  if (dup.rows.length > 0) {
+    throw new AppError(`SKU "${input.sku_id}" already exists`, 409);
+  }
+
+  await ensureListingsStubIdSequence();
+  const idResult = await query(
+    `SELECT nextval('listings_stub_id_seq')::bigint AS id`
+  );
+  const id = idResult.rows[0].id;
+  const defaults = buildCreateListingDefaults(input);
+
+  await query(
+    `INSERT INTO listings (
+       id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
+       inventory_bypass_on, ops_tag, category, description, meta_fields,
+       img_hd, img_white, img_wdim, img_link1, img_link2, no_of_constituents,
+       actual_weight, dimension, bulk_price, keyword_pool, material_info,
+       available_quantity, source, created_by, eautomate_bins, updated_at
+     ) VALUES (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'[]'::jsonb, NOW()
+     )`,
+    [
+      id,
+      input.sku_id,
+      defaults.master_sku,
+      defaults.inventory_sku_id,
+      defaults.pack_combo_sku_id,
+      defaults.sku_type,
+      defaults.inventory_bypass_on,
+      input.ops_tag ?? null,
+      input.category ?? null,
+      input.description,
+      input.img_hd ?? null,
+      input.img_white ?? null,
+      input.img_wdim ?? null,
+      input.img_link1 ?? null,
+      input.img_link2 ?? null,
+      defaults.no_of_constituents,
+      input.actual_weight ?? null,
+      input.dimension ?? null,
+      input.bulk_price ?? null,
+      input.keyword_pool ?? null,
+      input.material_info ?? null,
+      defaults.available_quantity,
+      defaults.source,
+      createdBy.slice(0, 200),
+    ]
+  );
+
+  return getListingBySku(input.sku_id);
 }
 
 export async function updateListingBySku(

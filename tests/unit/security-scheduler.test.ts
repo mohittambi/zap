@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { sheetsSyncScheduler } from "../../src/config/schedulers";
+import { sheetsSyncScheduler, insightsDigestScheduler } from "../../src/config/schedulers";
 
 describe("sheetsSyncScheduler", () => {
   it("reads bearer token from environment (not hardcoded)", () => {
@@ -23,5 +23,14 @@ describe("sheetsSyncScheduler", () => {
     );
     if (prev !== undefined) process.env.SHEETS_SYNC_BEARER_TOKEN = prev;
     else delete process.env.SHEETS_SYNC_BEARER_TOKEN;
+  });
+});
+
+describe("insightsDigestScheduler", () => {
+  it("reads bearer token from environment", () => {
+    assert.strictEqual(
+      insightsDigestScheduler.bearerToken,
+      process.env.INSIGHTS_DIGEST_BEARER_TOKEN?.trim() ?? ""
+    );
   });
 });
