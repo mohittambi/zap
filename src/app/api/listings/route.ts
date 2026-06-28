@@ -50,6 +50,12 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as Record<string, unknown>;
     const listing = await listingsService.createListing(body, user.email);
+    if (!listing) {
+      return NextResponse.json(
+        { error: "Failed to create listing" },
+        { status: 500 }
+      );
+    }
 
     const ctx = buildActivityContext(request, user.id);
     await logActivity({

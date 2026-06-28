@@ -64,7 +64,7 @@ export async function POST(
       resource: "catalogues",
       resourceId: String(id),
       statusCode: 200,
-      details: { imported: data.imported, error_count: data.errors?.length ?? 0 },
+      details: { imported: data.imported },
     });
     return NextResponse.json(data);
   } catch (err) {
