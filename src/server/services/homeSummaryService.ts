@@ -1,8 +1,14 @@
 import { query } from "@/server/db";
 import { getReorderMetrics } from "@/server/services/reorderService";
+import { AppError } from "@/server/errors";
+import {
+  defaultSummaryRange,
+  isIsoDay,
+  parseIsoDayUtc,
+} from "@/lib/dashboard-date-range";
 
-// Trailing-30-day windows anchored at "today 00:00 UTC". MoM compares to the
-// 30 days before that; YoY compares to the same 30-day window one year earlier.
+// KPI windows use caller-selected [from, to) (exclusive end). MoM compares to the
+// previous period of equal length; YoY compares to the same window one year earlier.
 
 export type Delta = {
   value: number;
@@ -140,6 +146,7 @@ export type HomeSummary = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_DAYS = 365;
+const MAX_RANGE_DAYS = 365;
 
 function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -149,12 +156,7 @@ function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function computeDelta(value: number, prev: number | null): number | null {
-  if (prev == null || prev === 0) return null;
-  return ((value - prev) / prev) * 100;
-}
-
-type Windows = {
+export type SummaryWindows = {
   curStart: Date;
   curEnd: Date;
   momStart: Date;
@@ -163,15 +165,63 @@ type Windows = {
   yoyEnd: Date;
 };
 
-function buildWindows(now: Date): Windows {
-  const curEnd = startOfUtcDay(now);
-  const curStart = new Date(curEnd.getTime() - 30 * DAY_MS);
+/** Build MoM/YoY comparison windows from the selected [curStart, curEnd) range. */
+export function buildWindows(curStart: Date, curEnd: Date): SummaryWindows {
+  const spanMs = curEnd.getTime() - curStart.getTime();
   const momEnd = curStart;
-  const momStart = new Date(momEnd.getTime() - 30 * DAY_MS);
+  const momStart = new Date(momEnd.getTime() - spanMs);
   const yoyEnd = new Date(curEnd.getTime() - YEAR_DAYS * DAY_MS);
-  const yoyStart = new Date(yoyEnd.getTime() - 30 * DAY_MS);
+  const yoyStart = new Date(curStart.getTime() - YEAR_DAYS * DAY_MS);
   return { curStart, curEnd, momStart, momEnd, yoyStart, yoyEnd };
 }
+
+export function resolveSummaryDateRange(opts: {
+  from?: string;
+  to?: string;
+  now?: Date;
+}): { curStart: Date; curEnd: Date } {
+  const now = opts.now ?? new Date();
+  const todayStart = startOfUtcDay(now);
+
+  if (opts.from == null && opts.to == null) {
+    const fallback = defaultSummaryRange(now);
+    return {
+      curStart: parseIsoDayUtc(fallback.from),
+      curEnd: parseIsoDayUtc(fallback.to),
+    };
+  }
+
+  if (opts.from == null || opts.to == null) {
+    throw new AppError("Both from and to are required when specifying a date range", 400);
+  }
+  if (!isIsoDay(opts.from) || !isIsoDay(opts.to)) {
+    throw new AppError("from and to must be YYYY-MM-DD", 400);
+  }
+
+  const curStart = parseIsoDayUtc(opts.from);
+  const curEnd = parseIsoDayUtc(opts.to);
+
+  if (curStart.getTime() >= curEnd.getTime()) {
+    throw new AppError("from must be before to", 400);
+  }
+  if (curEnd.getTime() > todayStart.getTime()) {
+    throw new AppError("to cannot be in the future", 400);
+  }
+
+  const spanDays = (curEnd.getTime() - curStart.getTime()) / DAY_MS;
+  if (spanDays > MAX_RANGE_DAYS) {
+    throw new AppError(`Date range cannot exceed ${MAX_RANGE_DAYS} days`, 400);
+  }
+
+  return { curStart, curEnd };
+}
+
+export function computeDelta(value: number, prev: number | null): number | null {
+  if (prev == null || prev === 0) return null;
+  return ((value - prev) / prev) * 100;
+}
+
+type Windows = SummaryWindows;
 
 async function sumWindow(
   sql: (start: string, end: string, paramOffset: number) => { text: string; params: unknown[] },
@@ -595,7 +645,7 @@ async function dailyTrend(
   companyId: number | null,
   companyName: string | null
 ): Promise<TrendPoint[]> {
-  const trendStart = new Date(windows.curEnd.getTime() - 90 * DAY_MS);
+  const trendStart = windows.curStart;
   const trendEnd = windows.curEnd;
   const prevYearStart = new Date(trendStart.getTime() - YEAR_DAYS * DAY_MS);
   const prevYearEnd = new Date(trendEnd.getTime() - YEAR_DAYS * DAY_MS);
@@ -662,11 +712,18 @@ async function dailyTrend(
 
 export async function getHomeSummary(opts: {
   companyId?: number | null;
+  from?: string;
+  to?: string;
   now?: Date;
 }): Promise<HomeSummary> {
   const companyId = opts.companyId ?? null;
   const now = opts.now ?? new Date();
-  const windows = buildWindows(now);
+  const { curStart, curEnd } = resolveSummaryDateRange({
+    from: opts.from,
+    to: opts.to,
+    now,
+  });
+  const windows = buildWindows(curStart, curEnd);
   const companyName = companyId == null ? null : await lookupCompanyName(companyId);
 
   // Inbound is always company-agnostic — see HomeSummary.inbound_scope.

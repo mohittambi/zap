@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { CardFilters } from "@/lib/dashboard-card-ids";
+import { formatIstRangeInclusive } from "@/lib/format-ist";
 
 type Company = { id: number; name: string };
 
@@ -19,6 +20,8 @@ export function CardFilterForm({
   open,
   initial,
   pageCompanyId,
+  pageDateFrom,
+  pageDateTo,
   onClose,
   onSave,
   onClear,
@@ -27,6 +30,9 @@ export function CardFilterForm({
   initial: CardFilters | undefined;
   /** Page-level company filter — used to label "Inherit page filter" with the actual company. */
   pageCompanyId: number | null;
+  /** Page-level date range (exclusive `to`), shown for context. */
+  pageDateFrom: string;
+  pageDateTo: string;
   onClose: () => void;
   onSave: (filters: CardFilters) => void;
   onClear: () => void;
@@ -81,6 +87,8 @@ export function CardFilterForm({
       ? "All companies (no page filter)"
       : (companies.find((c) => c.id === pageCompanyId)?.name ??
           `Company ${pageCompanyId}`);
+
+  const inheritedDateLabel = formatIstRangeInclusive(pageDateFrom, pageDateTo);
 
   const hasActiveFilter =
     initial != null && Object.keys(initial).length > 0;
@@ -142,14 +150,19 @@ export function CardFilterForm({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-                From
+              <span className="text-muted-foreground flex items-center justify-between text-[10px] font-medium uppercase tracking-wide">
+                <span>From</span>
+                <span className="text-foreground/60 normal-case tracking-normal text-[11px]">
+                  Page: <span className="font-medium">{inheritedDateLabel}</span>
+                </span>
               </span>
               <input
                 type="date"
                 value={from}
+                disabled
+                title="Per-card date filters are not yet supported"
                 onChange={(e) => setFrom(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-9 rounded-md border border-input bg-muted/50 px-2 text-sm opacity-60"
               />
             </label>
             <label className="flex flex-col gap-1">
@@ -159,13 +172,17 @@ export function CardFilterForm({
               <input
                 type="date"
                 value={to}
+                disabled
+                title="Per-card date filters are not yet supported"
                 onChange={(e) => setTo(e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-9 rounded-md border border-input bg-muted/50 px-2 text-sm opacity-60"
               />
             </label>
           </div>
           <p className="text-muted-foreground text-xs">
-            Empty fields inherit the page-level filter. The dashboard&apos;s default 30-day window applies if no date range is set anywhere.
+            Company overrides inherit from the page filter when left empty. Custom card date
+            range is not yet supported — use the page-level time range above (
+            {inheritedDateLabel} IST).
             {isClearedInForm
               ? " Clicking Apply with all fields empty will remove this card's custom filter."
               : null}

@@ -30,6 +30,7 @@ import { CustomQueryCard } from "@/components/home/custom-query-card";
 import { useHomeSummary } from "@/hooks/use-home-summary";
 import { useDashboardPrefs } from "@/hooks/use-dashboard-prefs";
 import { formatIstRangeInclusive } from "@/lib/format-ist";
+import { defaultSummaryRange } from "@/lib/dashboard-date-range";
 import { downloadCsv, stampedCsvName } from "@/lib/dashboard-csv";
 import { buildShareUrl, readLayoutFromHash } from "@/lib/share-layout";
 import {
@@ -70,18 +71,18 @@ const CARD_DESCRIPTIONS: Partial<Record<DashboardCardId, string>> = {
   fill_rate_pct: "Weighted by qty",
   inbound_qty: "GRN accepted",
   skus_below_reorder: "Live alert count",
-  gmv_value_30d: "Dispatched MRP value",
-  ops_queues: "Pending action",
-  open_pos: "OPEN + ACK PENDING",
-  vendor_quality: "GRN ratios",
+  gmv_value_30d: "Dispatched MRP value (selected range)",
+  ops_queues: "Pending action (live queue)",
+  open_pos: "OPEN + ACK PENDING (live backlog)",
+  vendor_quality: "GRN ratios (selected range)",
   inventory_snapshot: "Live, point-in-time",
-  sku_velocity_buckets: "Catalogue health (30d)",
-  trends: "Trailing 90 days vs prior year",
-  channel_mix: "Units shipped per company",
-  reorder_alerts_strip: "Top SKUs below threshold",
-  sku_movement: "Top movers, switch window to re-sort",
-  stockout_risk: "<14 days of cover at current burn rate",
-  dead_stock: "On hand, no sale in 60+ days",
+  sku_velocity_buckets: "Catalogue health (always trailing 30d)",
+  trends: "Sales & inbound vs prior year (selected range)",
+  channel_mix: "Units shipped per company (selected range)",
+  reorder_alerts_strip: "Top SKUs below threshold (live)",
+  sku_movement: "Top movers — always 30 / 60 / 90 d from today",
+  stockout_risk: "<14 days cover at 30d burn (always trailing 30d)",
+  dead_stock: "On hand, no sale in 60+ days (always trailing 60d)",
   saved_query_panel: "Pick a curated query, run it",
   custom_query: "Write SQL with {{from}}, {{to}}, {{min_val}}, {{max_val}} placeholders",
 };
@@ -104,7 +105,6 @@ function withCompanyParam(base: string, companyId: number | null | undefined) {
 export function HomeContent() {
   const [companyId, setCompanyId] = React.useState<number | null>(null);
   const [companies, setCompanies] = React.useState<Company[]>([]);
-  const { data, loading, refresh } = useHomeSummary(companyId);
   const {
     layout,
     saving,
@@ -113,6 +113,7 @@ export function HomeContent() {
     setHidden,
     setChartType,
     setCardFilters,
+    setPageDateRange,
     save,
     resetLayout,
     updatePositions,
@@ -121,6 +122,15 @@ export function HomeContent() {
     exitPreviewAndDiscard,
     previewMode,
   } = useDashboardPrefs();
+
+  const effectiveDateRange = React.useMemo(() => {
+    if (layout.default_date_from && layout.default_date_to) {
+      return { from: layout.default_date_from, to: layout.default_date_to };
+    }
+    return defaultSummaryRange();
+  }, [layout.default_date_from, layout.default_date_to]);
+
+  const { data, loading, refresh } = useHomeSummary(companyId, effectiveDateRange);
 
   // Detail-sheet + per-card-filter dialog state.
   const [detailFor, setDetailFor] = React.useState<DashboardCardId | null>(null);
@@ -148,8 +158,12 @@ export function HomeContent() {
   }, []);
 
   const subtitle = data
-    ? `Trailing 30 days (${formatIstRangeInclusive(data.range.from, data.range.to)} IST). Drag, resize, and configure each card.`
+    ? `${formatIstRangeInclusive(data.range.from, data.range.to)} IST · Drag, resize, and configure each card.`
     : "Drag, resize, and configure each card.";
+
+  function handleDateRangeChange(range: { from: string; to: string }) {
+    setPageDateRange(range.from, range.to);
+  }
 
   function handleChannelBarClick(name: string) {
     const match = companies.find((c) => c.name === name);
@@ -565,7 +579,13 @@ export function HomeContent() {
         </div>
       </div>
       <div className="mb-4">
-        <HomeFilters companyId={companyId} onCompanyChange={setCompanyId} />
+        <HomeFilters
+          companyId={companyId}
+          onCompanyChange={setCompanyId}
+          dateFrom={effectiveDateRange.from}
+          dateTo={effectiveDateRange.to}
+          onDateChange={handleDateRangeChange}
+        />
       </div>
 
       <DashboardGrid
@@ -590,6 +610,8 @@ export function HomeContent() {
         open={filterFor != null}
         initial={filterFor ? getCardConfig(filterFor).filters : undefined}
         pageCompanyId={companyId}
+        pageDateFrom={effectiveDateRange.from}
+        pageDateTo={effectiveDateRange.to}
         onClose={() => setFilterFor(null)}
         onSave={(filters: CardFilters) => {
           if (filterFor) setCardFilters(filterFor, filters);

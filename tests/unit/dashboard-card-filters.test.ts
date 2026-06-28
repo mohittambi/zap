@@ -118,4 +118,26 @@ describe("patchCard — set / clear filters", () => {
       date_from: "2026-01-01",
     });
   });
+
+  it("default_date_from/to survive migrateLayout round-trip", () => {
+    const seeded: typeof DEFAULT_LAYOUT_V2 = {
+      ...DEFAULT_LAYOUT_V2,
+      default_date_from: "2026-01-01",
+      default_date_to: "2026-01-31",
+    };
+    const round = migrateLayout(JSON.parse(JSON.stringify(seeded)));
+    assert.equal(round.default_date_from, "2026-01-01");
+    assert.equal(round.default_date_to, "2026-01-31");
+  });
+
+  it("invalid default_date fields are dropped on migrate", () => {
+    const round = migrateLayout({
+      version: 2,
+      cards: DEFAULT_LAYOUT_V2.cards,
+      default_date_from: "bad",
+      default_date_to: "2026-01-31",
+    });
+    assert.equal(round.default_date_from, undefined);
+    assert.equal(round.default_date_to, "2026-01-31");
+  });
 });

@@ -2,9 +2,13 @@
 
 import * as React from "react";
 import { apiFetch } from "@/lib/api-browser";
+import type { SummaryDateRange } from "@/lib/dashboard-date-range";
 import type { HomeSummary } from "@/server/services/homeSummaryService";
 
-export function useHomeSummary(companyId: number | null) {
+export function useHomeSummary(
+  companyId: number | null,
+  dateRange: SummaryDateRange | null
+) {
   const [data, setData] = React.useState<HomeSummary | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -15,6 +19,10 @@ export function useHomeSummary(companyId: number | null) {
     try {
       const q = new URLSearchParams();
       if (companyId != null) q.set("company_id", String(companyId));
+      if (dateRange != null) {
+        q.set("from", dateRange.from);
+        q.set("to", dateRange.to);
+      }
       const qs = q.toString();
       const summary = await apiFetch<HomeSummary>(
         `/api/home/summary${qs ? `?${qs}` : ""}`
@@ -26,7 +34,7 @@ export function useHomeSummary(companyId: number | null) {
     } finally {
       setLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, dateRange?.from, dateRange?.to]);
 
   React.useEffect(() => {
     void load();

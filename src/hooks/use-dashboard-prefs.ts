@@ -165,6 +165,20 @@ export function useDashboardPrefs() {
     await save(DEFAULT_LAYOUT_V2);
   }, [save]);
 
+  const setPageDateRange = React.useCallback(
+    (from: string | null, to: string | null) => {
+      const next: DashboardLayoutV2 = {
+        ...layout,
+        default_date_from: from ?? undefined,
+        default_date_to: to ?? undefined,
+      };
+      if (from == null) delete next.default_date_from;
+      if (to == null) delete next.default_date_to;
+      void save(next);
+    },
+    [layout, save]
+  );
+
   return {
     layout,
     loading,
@@ -179,6 +193,7 @@ export function useDashboardPrefs() {
     setChartType,
     setCardFilters,
     resetLayout,
+    setPageDateRange,
     enterPreview,
     exitPreviewAndPersist,
     exitPreviewAndDiscard,

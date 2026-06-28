@@ -60,6 +60,10 @@ export type DashboardLayoutV2 = {
   version: 2;
   cards: CardConfig[];
   default_company_id?: number | null;
+  /** Inclusive start (YYYY-MM-DD). Paired with default_date_to (exclusive end). */
+  default_date_from?: string;
+  /** Exclusive end (YYYY-MM-DD), same convention as GET /api/home/summary. */
+  default_date_to?: string;
 };
 
 // 12-column grid; row height is ~80px in DashboardGrid. Defaults match the
@@ -157,6 +161,8 @@ export function migrateLayout(raw: unknown): DashboardLayoutV2 {
       version: 2,
       cards,
       default_company_id: sanitizeCompanyId(raw.default_company_id),
+      default_date_from: sanitizeIsoDay(raw.default_date_from),
+      default_date_to: sanitizeIsoDay(raw.default_date_to),
     };
   }
 
@@ -172,6 +178,12 @@ export function migrateLayout(raw: unknown): DashboardLayoutV2 {
         pos: defaultPositionFor(id),
       })),
       default_company_id: sanitizeCompanyId(raw.default_company_id),
+      default_date_from: sanitizeIsoDay(
+        (raw as { default_date_from?: unknown }).default_date_from
+      ),
+      default_date_to: sanitizeIsoDay(
+        (raw as { default_date_to?: unknown }).default_date_to
+      ),
     };
   }
 
@@ -214,4 +226,9 @@ function sanitizeFilters(raw: unknown): CardFilters | undefined {
 function sanitizeCompanyId(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   return null;
+}
+
+function sanitizeIsoDay(raw: unknown): string | undefined {
+  if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return undefined;
 }
