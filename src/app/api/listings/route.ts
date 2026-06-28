@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertAdmin } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { logAdminAction } from "@/server/services/adminAuditService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import * as listingsService from "@/server/services/listingsService";
 
 /**
@@ -10,7 +13,7 @@ import * as listingsService from "@/server/services/listingsService";
  * /listings:
  *   post:
  *     summary: Create a new master listing
- *     description: Requires listings:write. Allocates a stub ID and marks source=zap.
+ *     description: Requires admin (*:*). Allocates a stub ID and marks source=zap.
  *     tags: [Listings]
  *     requestBody:
  *       required: true
@@ -43,13 +46,19 @@ import * as listingsService from "@/server/services/listingsService";
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "listings", "write");
+    assertAdmin(user);
 
     const body = (await request.json()) as Record<string, unknown>;
     const listing = await listingsService.createListing(body, user.email);
 
-    await logAdminAction(user.id, "listing_created", null, {
-      sku_id: listing.sku_id,
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "listing_created",
+      resource: "listings",
+      resourceId: listing.sku_id,
+      statusCode: 201,
+      details: { sku_id: listing.sku_id },
     });
 
     return NextResponse.json(listing, { status: 201 });

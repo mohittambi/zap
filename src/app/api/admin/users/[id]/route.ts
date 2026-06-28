@@ -4,6 +4,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { logAdminAction } from "@/server/services/adminAuditService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import { query } from "@/server/db";
 
 type PatchBody = {
@@ -147,6 +151,21 @@ export async function PATCH(
       is_active: body.is_active,
       roles: body.roles,
       password_changed: typeof body.password === "string" && body.password.length > 0,
+    });
+
+    const ctx = buildActivityContext(request, admin.id);
+    await logActivity({
+      ...ctx,
+      action: body.is_active === false ? "user_deactivated" : "user_updated",
+      resource: "admin",
+      resourceId: String(userId),
+      statusCode: 200,
+      details: {
+        is_active: body.is_active,
+        roles: body.roles,
+        password_changed:
+          typeof body.password === "string" && body.password.length > 0,
+      },
     });
 
     return NextResponse.json({ ok: true, message: "User updated." });

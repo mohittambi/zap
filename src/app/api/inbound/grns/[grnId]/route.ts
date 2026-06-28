@@ -4,6 +4,10 @@ import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as inboundGrnsService from "@/server/services/inboundGrnsService";
 import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 const AUDIT_TERMINAL = new Set(["CLOSED", "AUDITED", "DONE", "COMPLETED"]);
 const ACCOUNTS_TERMINAL = new Set(["APPROVED", "REJECTED"]);
@@ -138,6 +142,26 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const updated = await inboundGrnsService.updateGrnStatus(grnId, fields, user.email);
+
+    const ctx = buildActivityContext(request, user.id);
+    let action = "grn_updated";
+    if (fields.grn_audit_status) {
+      const v = String(fields.grn_audit_status).toUpperCase();
+      if (AUDIT_TERMINAL.has(v)) action = "grn_audited";
+    } else if (fields.grn_invoice_collection_status) {
+      action = "grn_invoice_collected";
+    } else if (fields.accounts_status) {
+      action = "grn_accounts_updated";
+    }
+    await logActivity({
+      ...ctx,
+      action,
+      resource: "inbound_grns",
+      resourceId: String(grnId),
+      statusCode: 200,
+      details: { fields },
+    });
+
     return NextResponse.json(updated);
   } catch (err) {
     return handleApiError(err);

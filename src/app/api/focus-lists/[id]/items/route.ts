@@ -3,6 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as focusListsService from "@/server/services/focusListsService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 /**
  * @swagger
@@ -91,6 +95,15 @@ export async function POST(
       return NextResponse.json({ error: "sku_id required" }, { status: 400 });
     }
     await focusListsService.addFocusListItem(Number(id), skuId);
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "focus_list_item_added",
+      resource: "focus_lists",
+      resourceId: String(id),
+      statusCode: 200,
+      details: { sku_id: skuId },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     return handleApiError(err);

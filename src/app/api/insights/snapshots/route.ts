@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertSuperAdmin } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import { listInsightSnapshots } from "@/server/services/insightSnapshotService";
 
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "insights", "read");
+    assertSuperAdmin(user);
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1));
     const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("count") ?? 20)));

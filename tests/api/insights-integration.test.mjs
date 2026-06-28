@@ -1,6 +1,7 @@
 /**
  * Insights / Decision Intelligence API tests.
  * Requires: npm run dev and migrated DB (074_decision_intelligence.sql).
+ * Success-path tests require the logged-in admin email in SUPER_ADMIN_EMAILS on the dev server.
  * Run: TEST_BASE_URL=http://localhost:3001 npm run test:api -- tests/api/insights-integration.test.mjs
  */
 import { describe, it, before } from "node:test";
@@ -9,6 +10,7 @@ import assert from "node:assert";
 const BASE = process.env.TEST_BASE_URL ?? "http://localhost:3000";
 let adminToken = "";
 let viewerToken = "";
+let adminIsSuperAdmin = false;
 
 async function jsonOrNull(response) {
   const ct = response.headers.get("content-type") ?? "";
@@ -22,8 +24,9 @@ async function login(email, password) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (r.status !== 200) return "";
-  return (await jsonOrNull(r))?.token ?? "";
+  if (r.status !== 200) return { token: "", is_super_admin: false };
+  const j = await jsonOrNull(r);
+  return { token: j?.token ?? "", is_super_admin: j?.user?.is_super_admin === true };
 }
 
 async function api(path, opts = {}, token = adminToken) {
@@ -37,8 +40,11 @@ async function api(path, opts = {}, token = adminToken) {
 }
 
 before(async () => {
-  adminToken = await login("admin@example.com", "admin123");
-  viewerToken = await login("viewer@example.com", "viewer123");
+  const admin = await login("admin@example.com", "admin123");
+  adminToken = admin.token;
+  adminIsSuperAdmin = admin.is_super_admin;
+  const viewer = await login("viewer@example.com", "viewer123");
+  viewerToken = viewer.token;
 });
 
 describe("Insights API", () => {
@@ -55,8 +61,16 @@ describe("Insights API", () => {
     assert.strictEqual(r.status, 403);
   });
 
-  it("GET /api/insights worklist shape for admin", async () => {
+  it("GET /api/insights returns 403 for seed admin when not in SUPER_ADMIN_EMAILS", async () => {
     if (!adminToken) return;
+    const r = await api("/api/insights");
+    if (r.status === 503) return;
+    if (adminIsSuperAdmin) return;
+    assert.strictEqual(r.status, 403);
+  });
+
+  it("GET /api/insights worklist shape for super admin", async () => {
+    if (!adminToken || !adminIsSuperAdmin) return;
     const r = await api("/api/insights?page=1&count=10");
     if (r.status === 503) return;
     assert.strictEqual(r.status, 200);
@@ -65,8 +79,8 @@ describe("Insights API", () => {
     assert.ok(typeof j.total === "number");
   });
 
-  it("GET /api/insights/summary shape for admin", async () => {
-    if (!adminToken) return;
+  it("GET /api/insights/summary shape for super admin", async () => {
+    if (!adminToken || !adminIsSuperAdmin) return;
     const r = await api("/api/insights/summary");
     if (r.status === 503) return;
     assert.strictEqual(r.status, 200);
@@ -76,7 +90,7 @@ describe("Insights API", () => {
   });
 
   it("GET /api/insights/segmentation returns matrix and segments", async () => {
-    if (!adminToken) return;
+    if (!adminToken || !adminIsSuperAdmin) return;
     const r = await api("/api/insights/segmentation?limit=5");
     if (r.status === 503) return;
     assert.strictEqual(r.status, 200);
@@ -86,7 +100,7 @@ describe("Insights API", () => {
   });
 
   it("GET /api/insights/forecast/[skuId] returns forecast bundle shape", async () => {
-    if (!adminToken) return;
+    if (!adminToken || !adminIsSuperAdmin) return;
     const listR = await api("/api/insights?page=1&count=1");
     if (listR.status !== 200) return;
     const list = await listR.json();
@@ -113,7 +127,7 @@ describe("Insights API", () => {
   });
 
   it("feedback suppression removes dismissed insight from worklist", async () => {
-    if (!adminToken) return;
+    if (!adminToken || !adminIsSuperAdmin) return;
     const listR = await api("/api/insights?page=1&count=5");
     if (listR.status !== 200) return;
     const list = await listR.json();

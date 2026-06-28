@@ -15,6 +15,7 @@ import {
 
 type AppSidebarProps = {
   isAdmin?: boolean;
+  isSuperAdmin?: boolean;
   onNavigate?: () => void;
   className?: string;
 };
@@ -23,6 +24,7 @@ function SidebarGroup({
   group,
   pathname,
   isAdmin,
+  isSuperAdmin,
   onNavigate,
   open,
   onToggle,
@@ -31,12 +33,13 @@ function SidebarGroup({
   group: NavGroup;
   pathname: string;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   onNavigate?: () => void;
   open: boolean;
   onToggle: () => void;
   groupRef?: React.Ref<HTMLDivElement>;
 }) {
-  const sections = filterNavSections(group.sections, isAdmin);
+  const sections = filterNavSections(group.sections, isAdmin, isSuperAdmin);
   if (sections.length === 0) return null;
 
   const groupActive = group.match(pathname);
@@ -106,6 +109,7 @@ function SidebarGroup({
 
 export function AppSidebar({
   isAdmin = false,
+  isSuperAdmin = false,
   onNavigate,
   className,
 }: AppSidebarProps) {
@@ -154,6 +158,7 @@ export function AppSidebar({
           group={group}
           pathname={pathname}
           isAdmin={isAdmin}
+          isSuperAdmin={isSuperAdmin}
           onNavigate={onNavigate}
           open={openGroups[group.id] ?? false}
           onToggle={() => toggleGroup(group.id)}

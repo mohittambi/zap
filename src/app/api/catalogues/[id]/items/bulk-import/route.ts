@@ -4,6 +4,10 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as cataloguesService from "@/server/services/cataloguesService";
 import { assertBlobSize } from "@/server/lib/uploadGuards";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
 
@@ -53,6 +57,15 @@ export async function POST(
       Number(id),
       buf
     );
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "catalogue_items_bulk_imported",
+      resource: "catalogues",
+      resourceId: String(id),
+      statusCode: 200,
+      details: { imported: data.imported, error_count: data.errors?.length ?? 0 },
+    });
     return NextResponse.json(data);
   } catch (err) {
     return handleApiError(err);

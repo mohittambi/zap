@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertAdmin } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { logAdminAction } from "@/server/services/adminAuditService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import * as bulkService from "@/server/services/bulkService";
 import { assertBlobSize } from "@/server/lib/uploadGuards";
 
@@ -13,7 +16,7 @@ const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
  * /bulk/import/master-listings:
  *   post:
  *     summary: Bulk create master listings from CSV/XLSX
- *     description: Requires bulk:import and listings:write. Creates new rows only; duplicate sku_id returns per-row errors.
+ *     description: Requires admin (*:*). Creates new rows only; duplicate sku_id returns per-row errors.
  *     tags: [Bulk]
  *     requestBody:
  *       required: true
@@ -33,8 +36,7 @@ const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "bulk", "import");
-    assertPermission(user, "listings", "write");
+    assertAdmin(user);
     const form = await request.formData();
     const file = form.get("file");
     if (!file || !(file instanceof Blob)) {
@@ -45,9 +47,17 @@ export async function POST(request: Request) {
     const data = await bulkService.importMasterListingsFromBuffer(buf, user.email);
 
     if (data.imported > 0) {
-      await logAdminAction(user.id, "listings_bulk_created", null, {
-        imported: data.imported,
-        sku_ids: data.created_sku_ids.slice(0, 50),
+      const ctx = buildActivityContext(request, user.id);
+      await logActivity({
+        ...ctx,
+        action: "listings_bulk_imported",
+        resource: "listings",
+        statusCode: 200,
+        details: {
+          imported: data.imported,
+          error_count: data.errors?.length ?? 0,
+          sku_ids: data.created_sku_ids?.slice(0, 50) ?? [],
+        },
       });
     }
 

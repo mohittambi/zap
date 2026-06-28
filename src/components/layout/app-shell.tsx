@@ -32,10 +32,11 @@ import { CommandPalette } from "./command-palette";
 import { KeyboardShortcutsGuide } from "./keyboard-shortcuts-guide";
 import { GlobalKeyboardShortcuts } from "./global-keyboard-shortcuts";
 import { cn } from "@/lib/utils";
+import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, isSuperAdmin } = useAuth();
   const {
     sidebarOpen,
     toggleSidebar,
@@ -43,6 +44,8 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     mobileNavOpen,
     setMobileNavOpen,
   } = useShellUi();
+
+  useActivityTracker(Boolean(user));
 
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
@@ -74,7 +77,11 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                 <SheetTitle>eCraft Zap</SheetTitle>
               </SheetHeader>
               <ScrollArea className="h-[calc(100dvh-4.5rem)]">
-                <AppSidebar isAdmin={isAdmin} onNavigate={() => setMobileNavOpen(false)} />
+                <AppSidebar
+                  isAdmin={isAdmin}
+                  isSuperAdmin={isSuperAdmin}
+                  onNavigate={() => setMobileNavOpen(false)}
+                />
               </ScrollArea>
             </SheetContent>
           </Sheet>
@@ -169,7 +176,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           aria-hidden={!sidebarOpen}
         >
           <ScrollArea className="h-full min-h-0 w-60 flex-1">
-            <AppSidebar isAdmin={isAdmin} />
+            <AppSidebar isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} />
           </ScrollArea>
         </aside>
 

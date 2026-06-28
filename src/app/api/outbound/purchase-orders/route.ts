@@ -7,6 +7,10 @@ import { parsePagination } from "@/server/validators/pagination";
 import { OUTBOUND_PO_TYPES } from "@/lib/outbound-po-types";
 import * as outboundPoService from "@/server/services/outboundPurchaseOrdersService";
 import { uploadBufferToBucket, getOutboundBucket } from "@/server/zapStorage";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 const MAX_PO_FILES = 2;
 const MAX_PO_FILE_BYTES = 2 * 1024 * 1024;
@@ -319,6 +323,16 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "outbound_po_created",
+      resource: "outbound",
+      resourceId: String(id),
+      statusCode: 201,
+      details: { po_number, company_id: companyId },
+    });
 
     return NextResponse.json({ id, po_number });
   } catch (err) {

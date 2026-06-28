@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Search, Star } from "lucide-react";
+import { Search, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,17 @@ import { useListQueryState } from "@/hooks/use-list-query-state";
 import { ListingsFilters } from "@/components/listings/listings-filters";
 import { ListingsSort } from "@/components/listings/listings-sort";
 import { CreateListingDialog } from "@/components/listings/create-listing-dialog";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Row = {
   sku_id: string;
@@ -37,6 +48,7 @@ type PageResponse = {
 const PAGE_SIZE = 24;
 
 export default function WarehouseListingsPage() {
+  const { isAdmin } = useAuth();
   const { state, set, toApiParams, clearAll } = useListQueryState();
   const [draft, setDraft] = React.useState(state.search);
   const [data, setData] = React.useState<PageResponse | null>(null);
@@ -45,6 +57,8 @@ export default function WarehouseListingsPage() {
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
   const [focusLoading, setFocusLoading] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+  const [deleteLoading, setDeleteLoading] = React.useState(false);
 
   // Keep the local draft in sync if the URL search param changes externally.
   React.useEffect(() => {
@@ -119,6 +133,25 @@ export default function WarehouseListingsPage() {
     }
   }
 
+  async function deleteSelectedListing() {
+    if (!selected || !isAdmin) return;
+    setDeleteLoading(true);
+    try {
+      await apiFetch(`/api/listings/sku/${encodeURIComponent(selected.sku_id)}`, {
+        method: "DELETE",
+      });
+      toast.success(`Deleted listing ${selected.sku_id}`);
+      setDeleteOpen(false);
+      setSelected(null);
+      setDetail(null);
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   const totalPages = data
     ? Math.max(1, Math.ceil(data.total / data.per_page_count))
     : 1;
@@ -167,6 +200,8 @@ export default function WarehouseListingsPage() {
               variant="outline"
               className="min-h-11 shrink-0"
               onClick={() => setCreateOpen(true)}
+              disabled={!isAdmin}
+              title={isAdmin ? undefined : "Admin only"}
             >
               + New Listing
             </Button>
@@ -175,12 +210,33 @@ export default function WarehouseListingsPage() {
       </div>
 
       <CreateListingDialog
-        open={createOpen}
+        open={createOpen && isAdmin}
         onOpenChange={setCreateOpen}
         onCreated={(skuId) => {
           set({ search: skuId, page: 1 });
         }}
       />
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete master listing?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Soft-deletes SKU <span className="font-mono">{selected?.sku_id}</span>. This
+              action is admin-only and cannot be undone from the UI.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteLoading}
+              onClick={() => void deleteSelectedListing()}
+            >
+              {deleteLoading ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
         <ListingsFilters
@@ -310,6 +366,16 @@ export default function WarehouseListingsPage() {
                 <Star className="size-4" />
                 Add to Focus List
               </Button>
+              {isAdmin && (
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="size-4" />
+                  Delete Listing
+                </Button>
+              )}
               <dl className="space-y-1 text-sm">
                 <div>
                   <dt className="text-muted-foreground">SKU ID</dt>

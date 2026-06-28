@@ -5,6 +5,10 @@ import { query } from "@/server/db";
 import { apiKeyPrefixFromToken, requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import { logAdminAction } from "@/server/services/adminAuditService";
 
 /**
@@ -34,6 +38,14 @@ export async function POST(request: Request) {
     );
 
     await logAdminAction(user.id, "api_key_regenerated", user.id);
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "api_key_regenerated",
+      resource: "auth",
+      resourceId: String(user.id),
+      statusCode: 200,
+    });
 
     return NextResponse.json({
       api_key: rawKey,

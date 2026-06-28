@@ -101,7 +101,7 @@ function entityLink(entity?: { type: string; id: string }) {
 }
 
 export default function InsightsOverviewPage() {
-  const { isAdmin } = useAuth();
+  const { isSuperAdmin } = useAuth();
   const [summary, setSummary] = React.useState<Summary | null>(null);
   const [insights, setInsights] = React.useState<Insight[]>([]);
   const [snapshots, setSnapshots] = React.useState<SnapshotRow[]>([]);
@@ -180,9 +180,9 @@ export default function InsightsOverviewPage() {
     }
   }
 
-  if (!isAdmin) {
+  if (!isSuperAdmin) {
     return (
-      <InsightsShell title="Insights" description="Admin access required.">
+      <InsightsShell title="Insights" description="Super admin access required.">
         <p className="text-muted-foreground text-sm">You do not have permission to view this hub.</p>
       </InsightsShell>
     );

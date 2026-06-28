@@ -19,19 +19,25 @@ export type { CreateListingInput };
 
 export async function getSkuNames() {
   const result = await query(
-    `SELECT sku_id, description FROM listings ORDER BY sku_id`
+    `SELECT sku_id, description FROM listings
+     WHERE COALESCE(is_deleted, false) = false
+     ORDER BY sku_id`
   );
   return result.rows;
 }
 
-export async function getListingBySku(skuId) {
+export async function getListingBySku(skuId, opts?: { includeDeleted?: boolean }) {
+  const deletedClause = opts?.includeDeleted
+    ? ""
+    : " AND COALESCE(is_deleted, false) = false";
   const listingResult = await query(
     `SELECT id, sku_id, master_sku, inventory_sku_id, pack_combo_sku_id, sku_type,
             inventory_bypass_on, ops_tag, category, description, meta_fields,
             img_hd, img_white, img_wdim, img_link1, img_link2, no_of_constituents,
             actual_weight, dimension, bulk_price, keyword_pool, material_info,
-            available_quantity, raw_created_at, raw_updated_at
-     FROM listings WHERE sku_id = $1`,
+            available_quantity, raw_created_at, raw_updated_at,
+            COALESCE(is_deleted, false) AS is_deleted, deleted_at, deleted_by
+     FROM listings WHERE sku_id = $1${deletedClause}`,
     [skuId]
   );
   const listing = listingResult.rows[0];
@@ -94,7 +100,7 @@ export async function getListingsByPage(
   }
 ) {
   const offset = (page - 1) * count;
-  const conditions: string[] = [];
+  const conditions: string[] = ["COALESCE(l.is_deleted, false) = false"];
   const params: unknown[] = [];
 
   if (searchKeyword) {
@@ -298,6 +304,20 @@ export async function createListing(
   return getListingBySku(input.sku_id);
 }
 
+export async function softDeleteListing(skuId: string, deletedBy: string) {
+  const result = await query(
+    `UPDATE listings
+     SET is_deleted = true, deleted_at = NOW(), deleted_by = $2, updated_at = NOW()
+     WHERE sku_id = $1 AND COALESCE(is_deleted, false) = false
+     RETURNING sku_id`,
+    [skuId, deletedBy.slice(0, 200)]
+  );
+  if (result.rows.length === 0) {
+    throw new AppError("SKU not found", 404);
+  }
+  return String(result.rows[0].sku_id);
+}
+
 export async function updateListingBySku(
   skuId: string,
   fields: {
@@ -337,7 +357,9 @@ export async function updateListingBySku(
 
   params.push(skuId);
   const result = await query(
-    `UPDATE listings SET ${setClauses.join(', ')} WHERE sku_id = $${idx} RETURNING sku_id`,
+    `UPDATE listings SET ${setClauses.join(', ')}
+     WHERE sku_id = $${idx} AND COALESCE(is_deleted, false) = false
+     RETURNING sku_id`,
     params
   );
   if (result.rows.length === 0) return null;

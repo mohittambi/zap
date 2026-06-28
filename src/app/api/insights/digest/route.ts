@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertSuperAdmin } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { getRankedInsights } from "@/server/services/decisionIntelligenceService";
 import { getInsightConfig } from "@/server/services/insightConfigService";
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   try {
     if (!isDigestCronRequest(request)) {
       const user = await requireAuth(request);
-      assertPermission(user, "insights", "manage");
+      assertSuperAdmin(user);
     }
 
     const config = await getInsightConfig();

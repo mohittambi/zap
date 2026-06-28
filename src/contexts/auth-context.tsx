@@ -9,6 +9,10 @@ import {
   apiFetch,
   TOKEN_KEY,
 } from "@/lib/api-browser";
+import {
+  getActivitySessionId,
+  resetActivitySessionId,
+} from "@/hooks/use-activity-tracker";
 
 export type AuthPermission = { resource: string; action: string };
 
@@ -17,6 +21,7 @@ export type AuthUser = {
   email: string;
   roles: string[];
   permissions?: AuthPermission[];
+  is_super_admin?: boolean;
 };
 
 function userHasPermission(
@@ -37,6 +42,7 @@ type AuthContextValue = {
   logout: () => void;
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   hasPermission: (resource: string, action: string) => boolean;
 };
 
@@ -114,13 +120,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const data = (await res.json()) as { token: string; user: AuthUser };
       setStoredToken(data.token);
+      resetActivitySessionId();
+      getActivitySessionId();
       setUser(data.user);
     },
     []
   );
 
   const logout = React.useCallback(() => {
+    const sessionId = getActivitySessionId();
+    void apiFetch("/api/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    }).catch(() => {
+      /* best effort */
+    });
     clearStoredToken();
+    resetActivitySessionId();
     setUser(null);
     router.replace("/login");
   }, [router]);
@@ -134,6 +150,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (user?.roles?.includes("admin") ?? false) ||
     userHasPermission(user, "*", "*");
 
+  const isSuperAdmin = user?.is_super_admin === true;
+
   const value: AuthContextValue = React.useMemo(
     () => ({
       user,
@@ -142,9 +160,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       refreshUser,
       isAdmin,
+      isSuperAdmin,
       hasPermission,
     }),
-    [user, loading, login, logout, refreshUser, isAdmin, hasPermission]
+    [user, loading, login, logout, refreshUser, isAdmin, isSuperAdmin, hasPermission]
   );
 
   return (

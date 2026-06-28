@@ -4,7 +4,13 @@ import { NextResponse } from "next/server";
 import { query } from "@/server/db";
 import { getJwtSecret, loadUserWithRoles } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
+import { isSuperAdminUser } from "@/server/rbac";
 import { checkRateLimit } from "@/server/lib/rateLimiter";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
+import { clientIpFromRequest, userAgentFromRequest } from "@/lib/requestMeta";
 
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
 const LOGIN_RATE_LIMIT = 5;
@@ -85,6 +91,17 @@ export async function POST(request: Request) {
       [email.trim().toLowerCase()]
     );
     if (result.rows.length === 0) {
+      await logActivity({
+        userId: 0,
+        action: "login_failed",
+        resource: "auth",
+        ipAddress: clientIpFromRequest(request),
+        userAgent: userAgentFromRequest(request),
+        path: new URL(request.url).pathname,
+        method: "POST",
+        statusCode: 401,
+        details: { email: email.trim().toLowerCase(), reason: "unknown_user" },
+      });
       return NextResponse.json(
         { error: "Invalid credentials" },
         { status: 401 }
@@ -105,6 +122,17 @@ export async function POST(request: Request) {
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
+      await logActivity({
+        userId: user.id,
+        action: "login_failed",
+        resource: "auth",
+        ipAddress: clientIpFromRequest(request),
+        userAgent: userAgentFromRequest(request),
+        path: new URL(request.url).pathname,
+        method: "POST",
+        statusCode: 401,
+        details: { email: user.email, reason: "bad_password" },
+      });
       return NextResponse.json(
         { error: "Invalid credentials" },
         { status: 401 }
@@ -125,6 +153,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const ctx = buildActivityContext(request, full.id);
+    await logActivity({
+      ...ctx,
+      action: "login",
+      resource: "auth",
+      statusCode: 200,
+      details: { email: full.email, roles: full.roles },
+    });
+
     return NextResponse.json({
       token,
       user: {
@@ -132,6 +169,7 @@ export async function POST(request: Request) {
         email: full.email,
         roles: full.roles,
         permissions: full.permissions,
+        is_super_admin: isSuperAdminUser(full),
       },
     });
   } catch (err) {

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertSuperAdmin } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { addInsightFeedback } from "@/server/services/insightFeedbackService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import type { InsightFeedbackAction } from "@/lib/insightTypes";
 
 const ACTIONS = new Set<InsightFeedbackAction>(["DISMISSED", "SNOOZED", "ACTED"]);
@@ -10,7 +14,7 @@ const ACTIONS = new Set<InsightFeedbackAction>(["DISMISSED", "SNOOZED", "ACTED"]
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "insights", "manage");
+    assertSuperAdmin(user);
     const body = (await request.json()) as Record<string, unknown>;
     const insight_key =
       typeof body.insight_key === "string" ? body.insight_key.trim() : "";
@@ -29,6 +33,15 @@ export async function POST(request: Request) {
       snooze_until: action === "SNOOZED" ? snooze_until : null,
       note,
       created_by: user.email,
+    });
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "insight_feedback",
+      resource: "insights",
+      resourceId: insight_key,
+      statusCode: 200,
+      details: { action, note },
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

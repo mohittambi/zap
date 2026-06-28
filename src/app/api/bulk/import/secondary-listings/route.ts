@@ -4,6 +4,10 @@ import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as bulkService from "@/server/services/bulkService";
 import { assertBlobSize } from "@/server/lib/uploadGuards";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
 
@@ -41,6 +45,14 @@ export async function POST(request: Request) {
     assertBlobSize(file, MAX_BULK_IMPORT_BYTES);
     const buf = Buffer.from(await file.arrayBuffer());
     const data = await bulkService.importSecondaryListingsFromBuffer(buf);
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "bulk_import_secondary",
+      resource: "bulk",
+      statusCode: 200,
+      details: { imported: data.imported, error_count: data.errors?.length ?? 0 },
+    });
     return NextResponse.json(data);
   } catch (err) {
     return handleApiError(err);

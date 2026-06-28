@@ -3,6 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as inboundGrnsService from "@/server/services/inboundGrnsService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 /**
  * @swagger
@@ -60,6 +64,15 @@ export async function POST(request: Request) {
       vendorInvoiceNumber: body.vendor_invoice_number,
       boxCountInvoice: body.box_count_invoice,
       actualBoxCountReceived: body.actual_box_count_received,
+    });
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "grn_created",
+      resource: "inbound_grns",
+      resourceId: String(row.grn_id ?? ""),
+      statusCode: 201,
+      details: { vendor_id: vendorId, po_id: poId },
     });
     return NextResponse.json(row, { status: 201 });
   } catch (err) {

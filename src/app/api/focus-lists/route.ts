@@ -3,6 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as focusListsService from "@/server/services/focusListsService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 /**
  * @swagger
@@ -65,6 +69,15 @@ export async function POST(request: Request) {
       description: body.description,
       is_public: Boolean(body.is_public),
       created_by: user.email,
+    });
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "focus_list_created",
+      resource: "focus_lists",
+      resourceId: String(data.id ?? ""),
+      statusCode: 201,
+      details: { title: body.title },
     });
     return NextResponse.json(data);
   } catch (err) {

@@ -3,6 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import * as cataloguesService from "@/server/services/cataloguesService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import { parsePagination } from "@/server/validators/pagination";
 
 /**
@@ -73,6 +77,15 @@ export async function POST(request: Request) {
       name: body.name,
       description: body.description,
       created_by: user.email,
+    });
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "catalogue_created",
+      resource: "catalogues",
+      resourceId: String(data.id ?? ""),
+      statusCode: 201,
+      details: { name: body.name },
     });
     return NextResponse.json(data);
   } catch (err) {

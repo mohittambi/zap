@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertSuperAdmin } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import {
   getInsightConfig,
@@ -10,7 +10,7 @@ import {
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "insights", "read");
+    assertSuperAdmin(user);
     const config = await getInsightConfig();
     return NextResponse.json(config);
   } catch (err) {
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertPermission(user, "insights", "manage");
+    assertSuperAdmin(user);
     const body = (await request.json()) as Record<string, unknown>;
     const fields: Record<string, number | boolean> = {};
     const numericKeys = [

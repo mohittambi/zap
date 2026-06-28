@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       : 50;
 
     const params: unknown[] = [];
-    let where = `(category IS NOT NULL AND TRIM(category) NOT IN ('', '-'))`;
+    let where = `COALESCE(is_deleted, false) = false AND (category IS NOT NULL AND TRIM(category) NOT IN ('', '-'))`;
     if (keyword) {
       params.push(`%${keyword}%`);
       where += ` AND category ILIKE $${params.length}`;
@@ -60,7 +60,8 @@ export async function GET(request: Request) {
       const u2 = await query(
         `SELECT COUNT(*)::int AS count
          FROM   listings
-         WHERE  category IS NULL OR TRIM(category) IN ('', '-')`
+         WHERE  COALESCE(is_deleted, false) = false
+           AND  (category IS NULL OR TRIM(category) IN ('', '-'))`
       );
       const c = Number(u2.rows[0]?.count ?? 0);
       if (c > 0) categories.push({ name: "(uncategorised)", count: c });

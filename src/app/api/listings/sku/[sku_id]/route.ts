@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertAdmin, assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 import * as listingsService from "@/server/services/listingsService";
 
 /**
@@ -46,6 +50,13 @@ import * as listingsService from "@/server/services/listingsService";
  *       200: { description: OK }
  *       400: { description: Bad request }
  *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: SKU not found }
+ *   delete:
+ *     summary: Soft-delete a master listing (admin only)
+ *     tags: [Listings]
+ *     responses:
+ *       200: { description: OK }
  *       403: { description: Forbidden }
  *       404: { description: SKU not found }
  */
@@ -132,7 +143,45 @@ export async function PATCH(
     if (!updated) {
       throw new AppError("SKU not found", 404);
     }
+
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "listing_updated",
+      resource: "listings",
+      resourceId: sku_id,
+      statusCode: 200,
+      details: { fields },
+    });
+
     return NextResponse.json(updated);
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  context: { params: Promise<{ sku_id: string }> }
+) {
+  try {
+    const user = await requireAuth(request);
+    assertAdmin(user);
+    const { sku_id } = await context.params;
+
+    const deletedSku = await listingsService.softDeleteListing(sku_id, user.email);
+
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "listing_deleted",
+      resource: "listings",
+      resourceId: deletedSku,
+      statusCode: 200,
+      details: { sku_id: deletedSku, soft_delete: true },
+    });
+
+    return NextResponse.json({ ok: true, sku_id: deletedSku });
   } catch (err) {
     return handleApiError(err);
   }

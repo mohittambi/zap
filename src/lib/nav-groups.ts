@@ -49,6 +49,8 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  /** Activity Log, Insights — email allowlist via SUPER_ADMIN_EMAILS */
+  superAdminOnly?: boolean;
 };
 
 export type NavSection = {
@@ -239,17 +241,17 @@ export const navGroups: NavGroup[] = [
       {
         title: "Intelligence",
         items: [
-          { href: "/insights", label: "Overview", icon: Sparkles, adminOnly: true },
-          { href: "/insights/forecasting", label: "Forecasting", icon: BarChart3, adminOnly: true },
-          { href: "/insights/segmentation", label: "Segmentation", icon: Grid3x3, adminOnly: true },
-          { href: "/insights/vendors", label: "Vendor Scores", icon: Store, adminOnly: true },
+          { href: "/insights", label: "Overview", icon: Sparkles, superAdminOnly: true },
+          { href: "/insights/forecasting", label: "Forecasting", icon: BarChart3, superAdminOnly: true },
+          { href: "/insights/segmentation", label: "Segmentation", icon: Grid3x3, superAdminOnly: true },
+          { href: "/insights/vendors", label: "Vendor Scores", icon: Store, superAdminOnly: true },
           {
             href: "/insights/working-capital",
             label: "Working Capital",
             icon: Wallet,
-            adminOnly: true,
+            superAdminOnly: true,
           },
-          { href: "/insights/settings", label: "Settings", icon: Settings, adminOnly: true },
+          { href: "/insights/settings", label: "Settings", icon: Settings, superAdminOnly: true },
         ],
       },
     ],
@@ -270,17 +272,31 @@ export const navGroups: NavGroup[] = [
             icon: Barcode,
             adminOnly: true,
           },
+          {
+            href: "/settings/activity-log",
+            label: "Activity Log",
+            icon: ScrollText,
+            superAdminOnly: true,
+          },
         ],
       },
     ],
   },
 ];
 
-export function filterNavSections(sections: NavSection[], isAdmin: boolean): NavSection[] {
+export function filterNavSections(
+  sections: NavSection[],
+  isAdmin: boolean,
+  isSuperAdmin = false
+): NavSection[] {
   return sections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.adminOnly || isAdmin),
+      items: section.items.filter((item) => {
+        if (item.superAdminOnly) return isSuperAdmin;
+        if (item.adminOnly) return isAdmin;
+        return true;
+      }),
     }))
     .filter((section) => section.items.length > 0);
 }

@@ -5,6 +5,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { logAdminAction } from "@/server/services/adminAuditService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 export type AdminUserRow = {
   id: number;
@@ -143,6 +147,15 @@ export async function POST(request: Request) {
     }
 
     await logAdminAction(admin.id, "user_created", newId, { email });
+    const ctx = buildActivityContext(request, admin.id);
+    await logActivity({
+      ...ctx,
+      action: "user_created",
+      resource: "admin",
+      resourceId: String(newId),
+      statusCode: 201,
+      details: { email, roles: uniqueNames },
+    });
 
     return NextResponse.json(
       {

@@ -107,11 +107,12 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 
 export function flattenNavItems(
   groups: NavGroup[] = navGroups,
-  isAdmin = false
+  isAdmin = false,
+  isSuperAdmin = false
 ): FlatNavItem[] {
   const rows: FlatNavItem[] = [];
   for (const group of groups) {
-    const sections = filterNavSections(group.sections, isAdmin);
+    const sections = filterNavSections(group.sections, isAdmin, isSuperAdmin);
     for (const section of sections) {
       for (const item of section.items) {
         rows.push({

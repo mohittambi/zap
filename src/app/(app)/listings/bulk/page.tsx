@@ -206,9 +206,8 @@ export default function BulkOperationsPage() {
               <span className="font-mono">description</span>; optional classification,
               pricing, and image URL columns — see sample CSV. Duplicate{" "}
               <span className="font-mono">sku_id</span> values are reported as row errors
-              (existing eAutomate or Zap rows are not overwritten). Requires{" "}
-              <span className="font-mono">listings:write</span> in addition to{" "}
-              <span className="font-mono">bulk:import</span>. Secondary / AIS: snake_case
+              (existing eAutomate or Zap rows are not overwritten). Requires admin (
+              <span className="font-mono">*:*</span>). Secondary / AIS: snake_case
               headers (
               <span className="font-mono">secondary_sku</span>,{" "}
               <span className="font-mono">master_sku</span>, …) or legacy headers from sample

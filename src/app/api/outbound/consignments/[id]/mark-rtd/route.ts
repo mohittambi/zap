@@ -3,6 +3,10 @@ import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { markOutboundConsignmentRtd } from "@/server/services/outboundConsignmentsService";
+import {
+  buildActivityContext,
+  logActivity,
+} from "@/server/services/activityLogService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -41,6 +45,16 @@ export async function POST(request: Request, context: Ctx) {
       shipmentType,
       docketNumber,
       markedBy: user.email ?? "unknown",
+    });
+
+    const ctx = buildActivityContext(request, user.id);
+    await logActivity({
+      ...ctx,
+      action: "consignment_dispatched",
+      resource: "outbound_consignments",
+      resourceId: String(consignmentId),
+      statusCode: 200,
+      details: { shipment_type: shipmentType, docket_number: docketNumber },
     });
 
     return NextResponse.json({ ok: true, consignment: row });

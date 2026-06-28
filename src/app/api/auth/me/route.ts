@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { handleApiError } from "@/server/errors";
+import { isSuperAdminUser } from "@/server/rbac";
 
 /**
  * @swagger
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
       email: user.email,
       roles: user.roles,
       permissions: user.permissions,
+      is_super_admin: isSuperAdminUser(user),
     });
   } catch (err) {
     return handleApiError(err);
