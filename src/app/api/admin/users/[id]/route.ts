@@ -1,8 +1,11 @@
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/server/auth";
+import { getJwtSecret, requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
+
+const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
 import { logAdminAction } from "@/server/services/adminAuditService";
 import {
   buildActivityContext,
@@ -83,6 +86,7 @@ export async function PATCH(
       );
     }
 
+    let passwordChanged = false;
     if (typeof body.password === "string" && body.password.length > 0) {
       if (body.password.length < 8) {
         throw new AppError("Password must be at least 8 characters", 400);
@@ -92,6 +96,7 @@ export async function PATCH(
         `UPDATE users SET password_hash = $1, token_invalidated_at = NOW(), updated_at = NOW() WHERE id = $2`,
         [hash, userId]
       );
+      passwordChanged = true;
     }
 
     if (Array.isArray(body.roles)) {
@@ -168,7 +173,19 @@ export async function PATCH(
       },
     });
 
-    return NextResponse.json({ ok: true, message: "User updated." });
+    // Changing a password invalidates all existing tokens for that user. When
+    // an admin changes their own password, reissue a token so the current
+    // session continues (other sessions are still logged out by invalidation).
+    let token: string | undefined;
+    if (passwordChanged && userId === admin.id) {
+      token = jwt.sign(
+        { userId: admin.id, email: admin.email },
+        getJwtSecret(),
+        { expiresIn: JWT_EXPIRY } as jwt.SignOptions
+      );
+    }
+
+    return NextResponse.json({ ok: true, message: "User updated.", token });
   } catch (err) {
     return handleApiError(err);
   }

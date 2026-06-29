@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
+import jwt from "jsonwebtoken";
 import {
   apiKeyPrefixFromToken,
   getJwtSecret,
@@ -69,6 +70,23 @@ describe("isJwtIssuedBeforeInvalidation", () => {
     const issuedAtSec = Math.floor(invalidatedAt.getTime() / 1000) + 1;
     assert.strictEqual(
       isJwtIssuedBeforeInvalidation(issuedAtSec, invalidatedAt),
+      false
+    );
+  });
+
+  it("a token reissued at/after a self password change is not invalidated", () => {
+    // Simulates the admin self password-change flow: invalidation is stamped,
+    // then a fresh token is signed. The reissued token must remain valid.
+    process.env.JWT_SECRET = "test-secret-for-unit-tests";
+    const invalidatedAt = new Date();
+    const token = jwt.sign(
+      { userId: 4, email: "self@example.com" },
+      getJwtSecret(),
+      { expiresIn: "7d" }
+    );
+    const decoded = jwt.verify(token, getJwtSecret()) as { iat: number };
+    assert.strictEqual(
+      isJwtIssuedBeforeInvalidation(decoded.iat, invalidatedAt),
       false
     );
   });

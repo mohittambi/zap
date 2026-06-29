@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, Key, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/api-browser";
+import { apiFetch, setStoredToken } from "@/lib/api-browser";
 import { ENABLE_API_KEY_REGENERATION } from "@/lib/featureFlags";
 import { openSelectDropdownOnArrowKey } from "@/lib/open-select-dropdown-on-arrow-key";
 import { useAuth } from "@/contexts/auth-context";
@@ -268,7 +268,7 @@ function RolePermissionsPanel({
 /* ══════════════ Main page ══════════════ */
 export default function AdminUsersSettingsPage() {
   const router = useRouter();
-  const { isAdmin, user: currentUser } = useAuth();
+  const { isAdmin, user: currentUser, refreshUser } = useAuth();
   const [users, setUsers] = React.useState<AdminUserRow[]>([]);
   const [rolesCatalog, setRolesCatalog] = React.useState<AdminRoleRow[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -403,10 +403,19 @@ export default function AdminUsersSettingsPage() {
         roles: editRoles,
       };
       if (trimmedPassword.length > 0) body.password = trimmedPassword;
-      await apiFetch(`/api/admin/users/${editing.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
+      const res = await apiFetch<{ ok: boolean; token?: string }>(
+        `/api/admin/users/${editing.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        }
+      );
+      // Editing your own password rotates the session token; persist the new
+      // one so subsequent requests don't 401 against the invalidated token.
+      if (res?.token && currentUser?.id === editing.id) {
+        setStoredToken(res.token);
+        await refreshUser();
+      }
       toast.success("User updated");
       setEditOpen(false);
       await refresh();
