@@ -17,6 +17,15 @@ export function apiKeyPrefixFromToken(token: string): string | null {
   return token.slice(0, 12);
 }
 
+/** Seconds-level comparison: JWT iat is whole seconds; DB timestamps may have ms. */
+export function isJwtIssuedBeforeInvalidation(
+  issuedAtSec: number,
+  invalidatedAt: Date | null | undefined
+): boolean {
+  if (!invalidatedAt) return false;
+  return issuedAtSec < Math.floor(invalidatedAt.getTime() / 1000);
+}
+
 async function isJwtInvalidated(userId: number, issuedAtSec: number): Promise<boolean> {
   const res = await query(
     `SELECT token_invalidated_at FROM users WHERE id = $1`,
@@ -24,8 +33,7 @@ async function isJwtInvalidated(userId: number, issuedAtSec: number): Promise<bo
   );
   if (res.rows.length === 0) return true;
   const invalidatedAt = res.rows[0].token_invalidated_at as Date | null;
-  if (!invalidatedAt) return false;
-  return issuedAtSec * 1000 < invalidatedAt.getTime();
+  return isJwtIssuedBeforeInvalidation(issuedAtSec, invalidatedAt);
 }
 
 async function resolveUserIdFromApiKey(token: string): Promise<number | null> {

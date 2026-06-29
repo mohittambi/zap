@@ -391,13 +391,18 @@ export default function AdminUsersSettingsPage() {
       toast.error("Select at least one role.");
       return;
     }
+    const trimmedPassword = editPassword.trim();
+    if (trimmedPassword.length > 0 && trimmedPassword.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
     setSaving(true);
     try {
       const body: { is_active: boolean; roles: string[]; password?: string } = {
         is_active: editIsActive,
         roles: editRoles,
       };
-      if (editPassword.trim().length >= 8) body.password = editPassword;
+      if (trimmedPassword.length > 0) body.password = trimmedPassword;
       await apiFetch(`/api/admin/users/${editing.id}`, {
         method: "PATCH",
         body: JSON.stringify(body),

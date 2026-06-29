@@ -3,6 +3,7 @@ import assert from "node:assert";
 import {
   apiKeyPrefixFromToken,
   getJwtSecret,
+  isJwtIssuedBeforeInvalidation,
 } from "../../src/server/auth";
 
 describe("getJwtSecret", () => {
@@ -33,5 +34,42 @@ describe("apiKeyPrefixFromToken", () => {
   it("returns null for non-zap tokens", () => {
     assert.strictEqual(apiKeyPrefixFromToken("not-a-key"), null);
     assert.strictEqual(apiKeyPrefixFromToken("zap_short"), null);
+  });
+});
+
+describe("isJwtIssuedBeforeInvalidation", () => {
+  it("returns false when token_invalidated_at is null", () => {
+    assert.strictEqual(isJwtIssuedBeforeInvalidation(1_700_000_000, null), false);
+    assert.strictEqual(
+      isJwtIssuedBeforeInvalidation(1_700_000_000, undefined),
+      false
+    );
+  });
+
+  it("treats token issued in same second as invalidation as still valid", () => {
+    const invalidatedAt = new Date("2026-06-28T12:00:00.750Z");
+    const issuedAtSec = Math.floor(invalidatedAt.getTime() / 1000);
+    assert.strictEqual(
+      isJwtIssuedBeforeInvalidation(issuedAtSec, invalidatedAt),
+      false
+    );
+  });
+
+  it("invalidates token issued strictly before invalidation second", () => {
+    const invalidatedAt = new Date("2026-06-28T12:00:01.000Z");
+    const issuedAtSec = Math.floor(invalidatedAt.getTime() / 1000) - 1;
+    assert.strictEqual(
+      isJwtIssuedBeforeInvalidation(issuedAtSec, invalidatedAt),
+      true
+    );
+  });
+
+  it("keeps token issued after invalidation second valid", () => {
+    const invalidatedAt = new Date("2026-06-28T12:00:00.999Z");
+    const issuedAtSec = Math.floor(invalidatedAt.getTime() / 1000) + 1;
+    assert.strictEqual(
+      isJwtIssuedBeforeInvalidation(issuedAtSec, invalidatedAt),
+      false
+    );
   });
 });
