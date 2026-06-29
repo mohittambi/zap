@@ -15,7 +15,7 @@ import {
  *     summary: Query activity log (admin only)
  *     tags: [Admin]
  *     parameters:
- *       - { in: query, name: user_id, schema: { type: integer } }
+ *       - { in: query, name: email, schema: { type: string } }
  *       - { in: query, name: action, schema: { type: string } }
  *       - { in: query, name: resource, schema: { type: string } }
  *       - { in: query, name: from, schema: { type: string, format: date-time } }
@@ -44,12 +44,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ resources });
     }
 
-    const userIdRaw = u.searchParams.get("user_id");
-    const userId =
-      userIdRaw != null && userIdRaw !== "" ? Number(userIdRaw) : undefined;
+    const email = u.searchParams.get("email")?.trim().toLowerCase() || undefined;
 
     const data = await queryActivityLog({
-      userId: Number.isFinite(userId) ? userId : undefined,
+      userEmail: email,
       action: u.searchParams.get("action") ?? undefined,
       resource: u.searchParams.get("resource") ?? undefined,
       from: u.searchParams.get("from") ?? undefined,

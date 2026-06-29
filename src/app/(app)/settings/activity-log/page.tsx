@@ -103,7 +103,7 @@ export default function ActivityLogPage() {
   const [actions, setActions] = React.useState<string[]>([]);
   const [resources, setResources] = React.useState<string[]>([]);
 
-  const [userId, setUserId] = React.useState("");
+  const [userEmail, setUserEmail] = React.useState("");
   const [action, setAction] = React.useState("");
   const [resource, setResource] = React.useState("");
   const [from, setFrom] = React.useState("");
@@ -132,7 +132,7 @@ export default function ActivityLogPage() {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("limit", "100");
-      if (userId.trim()) params.set("user_id", userId.trim());
+      if (userEmail.trim()) params.set("email", userEmail.trim());
       if (action) params.set("action", action);
       if (resource) params.set("resource", resource);
       if (from) params.set("from", new Date(from).toISOString());
@@ -146,7 +146,7 @@ export default function ActivityLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [isSuperAdmin, page, userId, action, resource, from, to]);
+  }, [isSuperAdmin, page, userEmail, action, resource, from, to]);
 
   React.useEffect(() => {
     if (!isSuperAdmin) return;
@@ -202,15 +202,17 @@ export default function ActivityLogPage() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-1">
-            <Label htmlFor="user_id">User ID</Label>
+            <Label htmlFor="user_email">User email</Label>
             <Input
-              id="user_id"
-              value={userId}
+              id="user_email"
+              type="text"
+              autoComplete="email"
+              value={userEmail}
               onChange={(e) => {
-                setUserId(e.target.value);
+                setUserEmail(e.target.value);
                 setPage(1);
               }}
-              placeholder="e.g. 1"
+              placeholder="e.g. admin@zap.app"
             />
           </div>
           <div className="space-y-1">

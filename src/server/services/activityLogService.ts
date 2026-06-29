@@ -34,7 +34,7 @@ export function buildActivityContext(request: Request, userId: number) {
 }
 
 export interface ActivityLogFilters {
-  userId?: number;
+  userEmail?: string;
   action?: string;
   resource?: string;
   from?: string;
@@ -98,10 +98,12 @@ export async function queryActivityLog(filters: ActivityLogFilters = {}) {
 
   const conditions: string[] = [];
   const params: unknown[] = [];
+  const emailFilter = filters.userEmail?.trim().toLowerCase();
+  const joinUsers = Boolean(emailFilter);
 
-  if (filters.userId != null) {
-    params.push(filters.userId);
-    conditions.push(`a.user_id = $${params.length}`);
+  if (emailFilter) {
+    params.push(`%${emailFilter}%`);
+    conditions.push(`u.email ILIKE $${params.length}`);
   }
   if (filters.action?.trim()) {
     params.push(filters.action.trim());
@@ -121,9 +123,12 @@ export async function queryActivityLog(filters: ActivityLogFilters = {}) {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const fromClause = joinUsers
+    ? `FROM activity_log a LEFT JOIN users u ON u.id = a.user_id`
+    : `FROM activity_log a`;
 
   const countResult = await query(
-    `SELECT COUNT(*)::int AS total FROM activity_log a ${where}`,
+    `SELECT COUNT(*)::int AS total ${fromClause} ${where}`,
     params
   );
   const total = Number(countResult.rows[0]?.total ?? 0);
