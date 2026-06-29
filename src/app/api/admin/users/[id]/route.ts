@@ -61,6 +61,8 @@ export async function PATCH(
     if (!Number.isFinite(userId) || userId < 1) {
       throw new AppError("Invalid user id", 400);
     }
+    // admin.id may be a string (pg returns BIGINT as text); compare numerically.
+    const isSelf = Number(admin.id) === userId;
 
     const body = (await request.json().catch(() => ({}))) as PatchBody;
 
@@ -74,7 +76,7 @@ export async function PATCH(
     }
 
     if (typeof body.is_active === "boolean") {
-      if (body.is_active === false && userId === admin.id) {
+      if (body.is_active === false && isSelf) {
         throw new AppError("You cannot deactivate your own account.", 400);
       }
       await query(
@@ -123,7 +125,7 @@ export async function PATCH(
       const targetHasAdmin = hasAdminRole.rows.length > 0;
       const stillHasAdmin = roleNames.includes("admin");
 
-      if (userId === admin.id && targetHasAdmin && !stillHasAdmin) {
+      if (isSelf && targetHasAdmin && !stillHasAdmin) {
         throw new AppError("You cannot remove the admin role from your own account.", 400);
       }
 
@@ -177,9 +179,9 @@ export async function PATCH(
     // an admin changes their own password, reissue a token so the current
     // session continues (other sessions are still logged out by invalidation).
     let token: string | undefined;
-    if (passwordChanged && userId === admin.id) {
+    if (passwordChanged && isSelf) {
       token = jwt.sign(
-        { userId: admin.id, email: admin.email },
+        { userId: Number(admin.id), email: admin.email },
         getJwtSecret(),
         { expiresIn: JWT_EXPIRY } as jwt.SignOptions
       );
