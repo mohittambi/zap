@@ -49,7 +49,7 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   adminOnly?: boolean;
-  /** Activity Log, Insights — email allowlist via SUPER_ADMIN_EMAILS */
+  /** Insights — email allowlist via SUPER_ADMIN_EMAILS */
   superAdminOnly?: boolean;
 };
 
@@ -276,7 +276,7 @@ export const navGroups: NavGroup[] = [
             href: "/settings/activity-log",
             label: "Activity Log",
             icon: ScrollText,
-            superAdminOnly: true,
+            adminOnly: true,
           },
         ],
       },

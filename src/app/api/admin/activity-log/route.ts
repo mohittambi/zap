@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertSuperAdmin } from "@/server/rbac";
+import { assertAdmin } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import {
   listDistinctActivityActions,
@@ -30,7 +30,7 @@ import {
 export async function GET(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertSuperAdmin(user);
+    assertAdmin(user);
 
     const u = new URL(request.url);
     const meta = u.searchParams.get("meta");

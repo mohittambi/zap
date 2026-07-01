@@ -16,11 +16,11 @@ SUPER_ADMIN_EMAILS=er.mohittambi@gmail.com
 
 | Feature | UI | API |
 |---------|----|-----|
-| Activity Log | `/settings/activity-log` | `GET /api/admin/activity-log` |
 | Insights (all) | `/insights/*` | `/api/insights/*` |
 
 ## Not gated (regular admin `*:*` still works)
 
+- Activity Log (`/settings/activity-log`, `GET /api/admin/activity-log`)
 - User management
 - EAN mappings
 - Master listing create / delete / bulk import
@@ -31,7 +31,7 @@ SUPER_ADMIN_EMAILS=er.mohittambi@gmail.com
 - `isSuperAdminUser()` / `assertSuperAdmin()` in `web/src/server/rbac.ts`
 - Auth payloads include `is_super_admin` from login and `/api/auth/me`
 - Client: `useAuth().isSuperAdmin`
-- Nav: `superAdminOnly: true` on Insights and Activity Log items
+- Nav: `superAdminOnly: true` on Insights items; Activity Log uses `adminOnly: true`
 
 ## Future
 

@@ -6,12 +6,12 @@ Admin-only audit trail for authentication, navigation, CRUD, queues, bulk operat
 
 | Capability | Permission |
 |------------|------------|
-| View Activity Log UI | Super admin (`SUPER_ADMIN_EMAILS` allowlist) |
-| Query `GET /api/admin/activity-log` | Super admin |
+| View Activity Log UI | Admin (`*:*`) |
+| Query `GET /api/admin/activity-log` | Admin (`*:*`) |
 | Client navigation tracking | Any authenticated user (writes to log) |
 | Create / bulk-create / delete master listings | `*:*` (admin) |
 
-Super admin is configured via server env `SUPER_ADMIN_EMAILS` (comma-separated emails). The auth API returns `is_super_admin: true` for allowlisted users only. Regular admins with `*:*` do not get Activity Log or Insights unless their email is listed.
+Insights remain super-admin only (`SUPER_ADMIN_EMAILS` allowlist). Activity Log uses the same admin gate as User Management and EAN Mappings (`assertAdmin` / `*:*`).
 
 ## Database
 

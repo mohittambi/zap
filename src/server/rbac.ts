@@ -57,7 +57,7 @@ function superAdminEmails(): Set<string> {
   );
 }
 
-/** Email allowlist gate for Activity Log and Insights (server-only env). */
+/** Email allowlist gate for Insights (server-only env). */
 export function isSuperAdminUser(user: AuthUser | null): boolean {
   if (!user?.email) return false;
   const allowlist = superAdminEmails();

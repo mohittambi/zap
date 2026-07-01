@@ -96,7 +96,7 @@ function rowsToCsv(items: ActivityLogRow[]) {
 
 export default function ActivityLogPage() {
   const router = useRouter();
-  const { isSuperAdmin } = useAuth();
+  const { isAdmin } = useAuth();
   const [loading, setLoading] = React.useState(true);
   const [data, setData] = React.useState<ActivityLogResponse | null>(null);
   const [expandedId, setExpandedId] = React.useState<number | null>(null);
@@ -111,10 +111,10 @@ export default function ActivityLogPage() {
   const [page, setPage] = React.useState(1);
 
   React.useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!isAdmin) {
       router.replace("/listings");
     }
-  }, [isSuperAdmin, router]);
+  }, [isAdmin, router]);
 
   const loadMeta = React.useCallback(async () => {
     const [a, r] = await Promise.all([
@@ -126,7 +126,7 @@ export default function ActivityLogPage() {
   }, []);
 
   const load = React.useCallback(async () => {
-    if (!isSuperAdmin) return;
+    if (!isAdmin) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -146,12 +146,12 @@ export default function ActivityLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [isSuperAdmin, page, userEmail, action, resource, from, to]);
+  }, [isAdmin, page, userEmail, action, resource, from, to]);
 
   React.useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!isAdmin) return;
     void loadMeta();
-  }, [isSuperAdmin, loadMeta]);
+  }, [isAdmin, loadMeta]);
 
   React.useEffect(() => {
     void load();
@@ -171,7 +171,7 @@ export default function ActivityLogPage() {
     URL.revokeObjectURL(url);
   }
 
-  if (!isSuperAdmin) return null;
+  if (!isAdmin) return null;
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
 

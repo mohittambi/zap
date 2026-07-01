@@ -6,7 +6,7 @@ describe("filterNavSections super admin", () => {
   const settingsGroup = navGroups.find((g) => g.id === "settings");
   const insightsGroup = navGroups.find((g) => g.id === "insights");
 
-  it("hides Activity Log and Insights for admin without super admin", () => {
+  it("shows Activity Log but hides Insights for admin without super admin", () => {
     assert.ok(settingsGroup);
     assert.ok(insightsGroup);
 
@@ -14,7 +14,7 @@ describe("filterNavSections super admin", () => {
     const settingsLabels = settingsSections.flatMap((s) => s.items.map((i) => i.label));
     assert.ok(settingsLabels.includes("User Management"));
     assert.ok(settingsLabels.includes("EAN Mappings"));
-    assert.ok(!settingsLabels.includes("Activity Log"));
+    assert.ok(settingsLabels.includes("Activity Log"));
 
     const insightsSections = filterNavSections(insightsGroup!.sections, true, false);
     assert.strictEqual(insightsSections.length, 0);
