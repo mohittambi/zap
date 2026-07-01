@@ -33,8 +33,14 @@ export type OutboundListingsEnvelope = {
 
 export function OutboundPoLineItemsTable({
   listings,
+  fillRateMode = "packed",
+  emptyStateContext = "po",
 }: {
   listings: OutboundListingsEnvelope | Record<string, unknown>;
+  /** packed = packed/demand; dispatched = dispatched/demand */
+  fillRateMode?: "packed" | "dispatched";
+  /** po = PO detail page; consignment = consignment detail bottom table */
+  emptyStateContext?: "po" | "consignment";
 }) {
   const [showImages, setShowImages] = React.useState(false);
   const [openIds, setOpenIds] = React.useState<Set<number>>(() => new Set());
@@ -57,7 +63,9 @@ export function OutboundPoLineItemsTable({
   if (content.length === 0) {
     return (
       <p className="text-muted-foreground rounded-md border border-dashed p-4 text-sm">
-        No line items synced yet. Open this page again to refresh listings from the sync pipeline.
+        {emptyStateContext === "consignment"
+          ? "No PO line items yet. Upload the PO spreadsheet on the purchase order page, or enter packing above."
+          : "No line items yet. Upload a PO spreadsheet on this page or sync from eCraft when configured."}
       </p>
     );
   }
@@ -110,8 +118,9 @@ export function OutboundPoLineItemsTable({
               const dispatched = num(row.dispatched_quantity);
               const packed = num((row as { packed_quantity?: unknown }).packed_quantity);
               const pending = Math.max(0, demand - dispatched - packed);
+              const fillNumerator = fillRateMode === "dispatched" ? dispatched : packed;
               const fillPct =
-                demand > 0 ? Math.round((dispatched / demand) * 1000) / 10 : 0;
+                demand > 0 ? Math.round((fillNumerator / demand) * 1000) / 10 : 0;
               const expanded = openIds.has(rowId);
 
               return (

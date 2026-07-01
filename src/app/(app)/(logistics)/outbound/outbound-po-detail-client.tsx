@@ -1504,7 +1504,7 @@ export function OutboundPoDetailClient({ poId }: { poId: string }) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <OutboundPoLineItemsTable listings={listingsEnvelope} />
+                  <OutboundPoLineItemsTable listings={listingsEnvelope} fillRateMode="packed" />
                 </CardContent>
               </Card>
             </div>

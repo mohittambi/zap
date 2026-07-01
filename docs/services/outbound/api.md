@@ -12,12 +12,12 @@ Base path: `/api/outbound`
 | GET | `/outbound/consignments/[id]/items` | Paginated SKU lines for a consignment (`outbound_consignment_items`, aggregated by SKU) |
 | GET | `/outbound/consignments/[id]/logs` | PO log rows filtered by `consignment_id` |
 | POST | `/outbound/consignments/[id]/boxes` | Append packing lines (`outbound_consignment_items`) for a new box (requires `purchase_orders` write) |
-| GET | `/outbound/consignments/[id]/po-listings` | Enriched PO listings snapshot for tabular line items on consignment detail |
+| GET | `/outbound/consignments/[id]/po-listings` | Zap PO line items for consignment detail: `listings_snapshot` enriched with **this consignment’s** `packed_quantity` from `outbound_consignment_items` |
 | GET | `/outbound/consignments/[id]/po-reference-files` | PO reference documents (Zap + eAutomate originals) for consignment detail |
 | GET | `/outbound/consignments/[id]/logs` | Activity log entries for a consignment |
 | GET | `/outbound/consignments/[id]/line-items/drafts` | Draft or saved SKU packing groups for the editor (`{ skus, source, poNumber }`) |
 | GET | `/outbound/consignments/[id]/line-items/rows` | Flat saved box lines for post-RTD tab views (`{ rows: [...] }`) |
-| POST | `/outbound/consignments/[id]/line-items/save` | Validate and save all consignment line items (`{ skus: [...] }`) |
+| POST | `/outbound/consignments/[id]/line-items/save` | Validate and save all consignment line items (`{ skus: [...] }`); rolls packed qty into PO `listings_snapshot` |
 | POST | `/outbound/consignments/[id]/mark-rtd` | Mark consignment ready to dispatch (transporter, shipment type, docket) |
 | POST | `/outbound/consignments/[id]/packing-upload/preview` | Preview legacy bin packing CSV/XLSX |
 | POST | `/outbound/consignments/[id]/packing-upload/apply` | Apply bin packing upload (append or replace) |

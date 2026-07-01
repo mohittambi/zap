@@ -1,6 +1,7 @@
 import getPool, { query } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { logConsignmentActivityFromZap } from "@/server/services/outboundPoLogsService";
+import { rollupPoPackedQuantitiesFromConsignments } from "@/server/services/outboundConsignmentPoLineItemsService";
 import type {
   ConsignmentLineDraft,
   ConsignmentSkuPacking,
@@ -1617,6 +1618,11 @@ export async function saveConsignmentLineItems(opts: {
     remarks: `${inserted} box line(s) saved for ${distinctSkus} SKU(s). Summary: ${boxCount} box(es), ${skuCount} SKU row(s), ${totalQty} total qty.`,
     createdBy,
   });
+
+  const po = await getOutboundPurchaseOrderByPoNumber(poNumber);
+  if (po?.id) {
+    await rollupPoPackedQuantitiesFromConsignments(po.id, poNumber);
+  }
 
   return { inserted };
 }

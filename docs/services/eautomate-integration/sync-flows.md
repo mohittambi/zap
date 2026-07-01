@@ -1,5 +1,7 @@
 # eAutomate integration — sync flows
 
+**Doctrine:** Sync is **inbound only** (eAutomate → Zap). Sync does **not** update eAutomate; Zap UI saves (e.g. consignment **Save lines**) do **not** push packing upstream. See **[sync-doctrine.md](sync-doctrine.md)**.
+
 ## Orchestrator
 
 `npm run sync:eautomate:all` — runs the ordered shell pipeline in `web/scripts/sync-all-eautomate.sh`. See [../../operations/sync-runbook.md](../../operations/sync-runbook.md) for flags and safety.

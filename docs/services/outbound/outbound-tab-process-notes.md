@@ -75,7 +75,7 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 ## VI. Consignment line items (packing)
 
 - On **Consignment detail** (`/outbound/consignments/[id]`), **Current Consignment Summary** shows **Boxes**, **SKUs**, and **Total Qty** (zeros until lines are saved).
-- Consignment detail includes a **PO line items** table (same columns as the PO detail page) loaded from the linked PO `listings_snapshot` via `GET /api/outbound/consignments/[id]/po-listings`.
+- Consignment detail includes a **PO line items** table (same columns as the PO detail page) via `GET /api/outbound/consignments/[id]/po-listings` — Zap PO snapshot merged with **this consignment’s** packed qty from Save lines.
 - **Consignment-wide box numbers:** Physical bins use one `box_number` across the whole consignment (summary **Boxes** = `COUNT(DISTINCT box_number)`). Multiple SKUs can share the same box before you close it.
 - **`box_name` is box type** (e.g. `MASTER_BOX_3`); **`box_number` is the physical bin**. The editor shows **Physical boxes used** (live count before save).
 - **Current box bar:** Click **Add box** to open the next physical bin (**Box #N**). Select **box type**, then pack SKUs via **Enter packing** (partial qty allowed). **Close box** finishes that bin (requires at least one packed line); the next bin is opened only via **Add box** (not auto-created). Box type carries forward as the default for the next **Add box**. One SKU can span multiple physical boxes via multiple modal lines or bulk rows with explicit box #.
@@ -83,6 +83,8 @@ Initial create already stores PDF + spreadsheet. **SKU line grid** updates when 
 - Draft SKUs prefill from the PO `listings_snapshot`; demand/dispatch/pending are read-only. **Sum of box quantities per SKU must not exceed pending** (blocked server-side and in the modal).
 - **`GET /api/outbound/consignments/[id]/line-items/drafts`** — `{ skus, source, poNumber }`; **`POST …/line-items/save`** — body `{ skus: [...] }`, validate and replace all lines, refresh consignment aggregates.
 - Legacy bin CSV upload remains available via **`POST /api/outbound/consignments/[id]/packing-upload/*`** and **`POST …/boxes`** if needed.
+
+**Zap packing display:** Bottom **PO line items** shows packed qty for **this consignment** (merged Zap view). **Save lines** also updates PO-wide packed rollup on the purchase order snapshot for the PO detail page. Neither updates eAutomate. See [eAutomate sync doctrine](../../services/eautomate-integration/sync-doctrine.md).
 
 #### Packing table vs CSV
 

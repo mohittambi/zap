@@ -6,6 +6,27 @@
 
 This document describes the **orchestrated sync** from eAutomate public APIs into the Zap PostgreSQL database. The entry point is a shell script that invokes the existing `npm run sync:*` scripts in a **dependency-safe order**.
 
+## eAutomate is not updated by sync (read first)
+
+**Sync is one-way: eAutomate → Zap Postgres.** Completing `npm run sync:eautomate:all` or any `sync:*` script **does not write back** to eAutomate.
+
+| Expectation | Reality |
+| ----------- | ------- |
+| “Sync will push our packing to eAutomate” | **No** — Save lines writes Zap DB only |
+| “Packed Quantity on PO table updates after Save lines” | **No** — that table is from eAutomate listings sync, not Zap save |
+| “eAutomate UI should match Zap after sync” | **No** — eAutomate unchanged; only Zap DB refreshes from eAutomate |
+
+Zap UI actions (consignment packing, Mark RTD, Zap-native consignments) stay in Zap unless a specific API route documents an upstream POST.
+
+Full doctrine, misconceptions, and source-of-truth table: **[../services/eautomate-integration/sync-doctrine.md](../services/eautomate-integration/sync-doctrine.md)**.
+
+**Prod reminder:** scripts load `.env.local` by default — use `.env.production.local` for Sydney prod (`bxgmcddxmlsgrflnbywv`). After cutover, run master outbound sync once:
+
+```bash
+set -a && source .env.production.local && set +a
+npm run sync:outbound-consignment-items -- --skip-consignments
+```
+
 ## How to run
 
 From the `web/` directory (after `npm install`, migrations, and `.env.local`):
@@ -89,6 +110,7 @@ The orchestrator does **not** replace individual scripts; it only sequences them
 
 These are **single-entity** or optional flows; run them manually when needed:
 
+- **`npm run sync:outbound-consignment-items -- --skip-consignments`** — valid box names + transporters (**not** in `sync:eautomate:all`; run on prod after cutover). Does **not** update eAutomate.
 - **`npm run sync:vendor -- <vendorId>`** — one vendor + listings (useful for a targeted refresh).
 - **`npm run sync:outbound-po-detail -- <po_number>`** — one outbound PO by number (see `scripts/sync-eautomate-outbound-po-detail.ts`).
 - **`npm run repair:outbound-po-listings`** — repair misaligned commercial fields in `listings_snapshot` (inch-mark / comma title corruption). See [po-listing-commercial-field-repair.md](../services/outbound/po-listing-commercial-field-repair.md). Use `--dry-run`, `--po-number <pn>`, `--all`, or `--sync-consignment-items`.

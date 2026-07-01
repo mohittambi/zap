@@ -1,0 +1,35 @@
+---
+description: eAutomate sync is one-way into Zap; sync and Zap UI saves do not update eAutomate
+alwaysApply: true
+---
+
+# eAutomate sync doctrine
+
+## One-way ingest
+
+- All `npm run sync:*` scripts copy **eAutomate → Zap Postgres** only.
+- **Sync never writes back to eAutomate.** Do not tell users sync will update eAutomate.
+- Zap UI reads **Postgres only**, not eAutomate inline.
+
+## Zap UI does not push outbound packing upstream
+
+- **Save lines** / consignment CSV → `outbound_consignment_items` in Zap only.
+- **Mark RTD**, transporter, docket → Zap consignment row only.
+- **PO line items “Packed Quantity”** on consignment detail = eAutomate `listings_snapshot`, **not** Zap save.
+
+If Save lines succeeds but Packed Quantity stays 0, that is expected unless eAutomate was updated elsewhere.
+
+## Re-sync risks
+
+- Full `sync:outbound-consignment-items` **replaces** consignment items from eAutomate — can wipe Zap packing.
+- Prefer `--skip-consignments` on prod for box names + transporters only.
+
+## Prod vs dev
+
+- Sync scripts load `.env.local` (often Tokyo dev) unless `DATABASE_URL` is overridden.
+- Prod: `bxgmcddxmlsgrflnbywv` (ap-southeast-2) via `.env.production.local`.
+
+## Canonical docs
+
+- `web/docs/services/eautomate-integration/sync-doctrine.md`
+- `web/docs/operations/sync-runbook.md`

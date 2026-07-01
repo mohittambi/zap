@@ -94,6 +94,7 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
   const [savingInvoiceType, setSavingInvoiceType] = React.useState(false);
   const [downloadingExcel, setDownloadingExcel] = React.useState(false);
   const [rtdDialogOpen, setRtdDialogOpen] = React.useState(false);
+  const [poLineItemsRefreshKey, setPoLineItemsRefreshKey] = React.useState(0);
   const { hasPermission } = useAuth();
   const canWritePo = hasPermission("purchase_orders", "write");
 
@@ -413,11 +414,18 @@ export function ConsignmentDetailClient({ id }: Readonly<{ id: string }>) {
             <ConsignmentLineItemsEditor
               consignmentId={consignmentId}
               poNumber={row.po_number ?? "—"}
-              onSaved={() => void refreshConsignmentData()}
+              onSaved={() => {
+                void refreshConsignmentData();
+                setPoLineItemsRefreshKey((k) => k + 1);
+              }}
             />
           )}
 
-          <ConsignmentPoLineItems consignmentId={consignmentId} poNumber={row.po_number} />
+          <ConsignmentPoLineItems
+            consignmentId={consignmentId}
+            poNumber={row.po_number}
+            refreshKey={poLineItemsRefreshKey}
+          />
         </TabsContent>
 
         <TabsContent value="documents" className="mt-0 border bg-card p-4 sm:p-6">

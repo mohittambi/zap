@@ -29,9 +29,12 @@ function countLineItems(listings: OutboundListingsEnvelope | Record<string, unkn
 export function ConsignmentPoLineItems({
   consignmentId,
   poNumber,
+  refreshKey = 0,
 }: Readonly<{
   consignmentId: number;
   poNumber: string | null | undefined;
+  /** Increment after Save lines to refetch merged PO line view. */
+  refreshKey?: number;
 }>) {
   const [loading, setLoading] = React.useState(true);
   const [err, setErr] = React.useState<string | null>(null);
@@ -66,7 +69,7 @@ export function ConsignmentPoLineItems({
     return () => {
       cancelled = true;
     };
-  }, [consignmentId, poNumber]);
+  }, [consignmentId, poNumber, refreshKey]);
 
   if (!poNumber?.trim()) {
     return null;
@@ -116,7 +119,12 @@ export function ConsignmentPoLineItems({
                 <Loader2 className="text-muted-foreground size-3.5 animate-spin" />
               ) : null}
             </div>
-            <p className="text-muted-foreground mt-0.5 text-xs">{description}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {description}
+              <span className="mt-0.5 block">
+                Packed quantity is for this consignment (Zap).
+              </span>
+            </p>
           </div>
         </div>
         {data?.outboundPoId ? (
@@ -144,7 +152,11 @@ export function ConsignmentPoLineItems({
         ) : err ? (
           <p className="text-destructive text-sm">{err}</p>
         ) : data ? (
-          <OutboundPoLineItemsTable listings={data.listings} />
+          <OutboundPoLineItemsTable
+            listings={data.listings}
+            fillRateMode="packed"
+            emptyStateContext="consignment"
+          />
         ) : null}
       </div>
     </details>

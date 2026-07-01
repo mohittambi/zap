@@ -2,16 +2,11 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
 import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
-import { enrichListingsSnapshotWithZapEan } from "@/server/services/eanMappingsService";
-import {
-  enrichListingsSnapshotWithListingImages,
-  getOutboundPurchaseOrderByPoNumber,
-} from "@/server/services/outboundPurchaseOrdersService";
-import { getOutboundConsignmentById } from "@/server/services/outboundConsignmentsService";
+import { buildConsignmentPoLineItemsView } from "@/server/services/outboundConsignmentPoLineItemsService";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** PO line items (listings snapshot) for the consignment's linked purchase order. */
+/** PO line items for consignment: Zap snapshot + this consignment's packed qty. */
 export async function GET(_request: Request, context: Ctx) {
   try {
     const user = await requireAuth(_request);
@@ -22,42 +17,12 @@ export async function GET(_request: Request, context: Ctx) {
       return NextResponse.json({ error: "Invalid consignment id" }, { status: 400 });
     }
 
-    const consignment = await getOutboundConsignmentById(id);
-    if (!consignment) {
+    const view = await buildConsignmentPoLineItemsView(id);
+    if (!view) {
       return NextResponse.json({ error: "Consignment not found" }, { status: 404 });
     }
 
-    const poNumber =
-      consignment.po_number != null ? String(consignment.po_number).trim() : "";
-    if (!poNumber) {
-      return NextResponse.json(
-        { error: "Consignment has no linked PO number" },
-        { status: 400 }
-      );
-    }
-
-    const po = await getOutboundPurchaseOrderByPoNumber(poNumber);
-    if (!po) {
-      return NextResponse.json(
-        { error: "Purchase order not found for this consignment" },
-        { status: 404 }
-      );
-    }
-
-    const snapshot =
-      po.listings_snapshot && typeof po.listings_snapshot === "object"
-        ? po.listings_snapshot
-        : {};
-    const withEan = await enrichListingsSnapshotWithZapEan(snapshot, po.company_id);
-    const listings = await enrichListingsSnapshotWithListingImages(withEan);
-
-    return NextResponse.json({
-      outboundPoId: po.id,
-      poNumber: po.po_number,
-      poStatus: po.calculated_po_status ?? null,
-      poType: po.po_type ?? null,
-      listings,
-    });
+    return NextResponse.json(view);
   } catch (err) {
     return handleApiError(err);
   }

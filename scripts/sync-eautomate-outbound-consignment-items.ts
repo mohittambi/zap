@@ -9,6 +9,7 @@
  *
  * Usage:
  *   npm run sync:outbound-consignment-items
+ *   npm run sync:outbound-consignment-items -- --skip-consignments   # master only (transporters + box names)
  *   npx tsx scripts/sync-eautomate-outbound-consignment-items.ts --consignment-id 6546
  *   npx tsx scripts/sync-eautomate-outbound-consignment-items.ts --dry-run --skip-master
  */
@@ -128,6 +129,7 @@ function parseArgs(argv: string[]) {
   let consignmentId: number | null = null;
   let dryRun = false;
   let skipMaster = false;
+  let skipConsignments = false;
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--consignment-id" && argv[i + 1] !== undefined) {
@@ -138,9 +140,11 @@ function parseArgs(argv: string[]) {
       dryRun = true;
     } else if (a === "--skip-master") {
       skipMaster = true;
+    } else if (a === "--skip-consignments") {
+      skipConsignments = true;
     }
   }
-  return { consignmentId, dryRun, skipMaster };
+  return { consignmentId, dryRun, skipMaster, skipConsignments };
 }
 
 async function syncMasterData(
@@ -295,13 +299,22 @@ async function main() {
     /\/$/,
     ""
   );
-  const { consignmentId, dryRun, skipMaster } = parseArgs(process.argv.slice(2));
+  const { consignmentId, dryRun, skipMaster, skipConsignments } = parseArgs(
+    process.argv.slice(2)
+  );
 
   console.log(
-    `[consignment-items] base=${base} dryRun=${dryRun} consignmentId=${consignmentId ?? "all"}`
+    `[consignment-items] base=${base} dryRun=${dryRun} consignmentId=${consignmentId ?? "all"} skipConsignments=${skipConsignments}`
   );
 
   await syncMasterData(base, dryRun, skipMaster);
+
+  if (skipConsignments) {
+    console.log(
+      "[consignment-items] Skipping consignment item sync (--skip-consignments)."
+    );
+    return;
+  }
 
   let targets: { id: number; po_number: string | null }[];
   if (consignmentId != null) {
