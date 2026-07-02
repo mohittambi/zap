@@ -31,7 +31,7 @@ Operators download a landscape PDF listing **open (pending) line items** for a c
 | 5 | **M.R.P** | `mrp` on the line |
 | 6 | **Pending** | `pending` if set, else `demand - packed - dispatched` |
 
-**Pagination:** Single page today; rows stop when vertical space runs out (~35 lines). Multi-page PDF is not implemented.
+**Pagination:** Multi-page landscape PDF. **All snapshot rows are rendered**; additional pages are added automatically (~32 rows on page 1, ~35 on continuation pages). Column headers repeat on each page; row `#` is continuous across pages.
 
 ---
 

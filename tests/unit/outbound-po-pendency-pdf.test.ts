@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import zlib from "node:zlib";
 import { describe, it } from "node:test";
+import { PDFDocument } from "pdf-lib";
 import {
   buildPendencyRowsFromListings,
+  createOutboundPoPendencyPdf,
   pendencySkuIdCandidates,
   resolvePendencyRowFields,
   type PendencyLookups,
+  type PendencyRow,
 } from "../../src/server/utils/outboundPoPendencyPdf";
 
 function emptyLookups(companyId: number | null = null): PendencyLookups {
@@ -17,6 +21,48 @@ function emptyLookups(companyId: number | null = null): PendencyLookups {
     labelsMrpBySecondarySku: new Map(),
     labelsMrpByMasterSku: new Map(),
   };
+}
+
+function makePendencyRows(rowCount: number): PendencyRow[] {
+  return Array.from({ length: rowCount }, (_, i) => ({
+    po_secondary_sku: `PEND-${String(i + 1).padStart(4, "0")}`,
+    company_code_primary: `MSK-${i + 1}`,
+    warehouse_quantity: i % 3 === 0 ? 10 : null,
+    mrp: 599,
+    pending: 100 - i,
+  }));
+}
+
+async function makePdf(rowCount: number): Promise<Uint8Array> {
+  return createOutboundPoPendencyPdf({
+    companyName: "Amazon Etrade",
+    poNumber: "3ER6PK9W",
+    deliveryLocation: "DED5",
+    rows: makePendencyRows(rowCount),
+  });
+}
+
+function pdfBytesContain(bytes: Uint8Array, text: string): boolean {
+  const raw = Buffer.from(bytes).toString("latin1");
+  if (raw.includes(text)) return true;
+
+  const hex = Buffer.from(text, "utf8").toString("hex").toUpperCase();
+  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let match: RegExpExecArray | null = streamRe.exec(raw);
+  while (match !== null) {
+    try {
+      const decompressed = zlib
+        .inflateSync(Buffer.from(match[1], "binary"))
+        .toString("latin1");
+      if (decompressed.includes(text) || decompressed.toUpperCase().includes(hex)) {
+        return true;
+      }
+    } catch {
+      // not a flate stream
+    }
+    match = streamRe.exec(raw);
+  }
+  return false;
 }
 
 describe("outboundPoPendencyPdf", () => {
@@ -322,5 +368,38 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(rows[0].company_code_primary, "CCP-1");
     assert.equal(rows[0].warehouse_quantity, 250);
     assert.equal(rows[0].mrp, 2999);
+  });
+
+  describe("createOutboundPoPendencyPdf pagination", () => {
+    it("renders 0 rows on a single page", async () => {
+      const bytes = await makePdf(0);
+      const pdf = await PDFDocument.load(bytes);
+      assert.equal(pdf.getPageCount(), 1);
+    });
+
+    it("renders 10 rows on a single page", async () => {
+      const bytes = await makePdf(10);
+      const pdf = await PDFDocument.load(bytes);
+      assert.equal(pdf.getPageCount(), 1);
+      assert.ok(pdfBytesContain(bytes, "PEND-0001"));
+      assert.ok(pdfBytesContain(bytes, "PEND-0010"));
+    });
+
+    it("paginates 40 rows across multiple pages", async () => {
+      const bytes = await makePdf(40);
+      const pdf = await PDFDocument.load(bytes);
+      assert.ok(pdf.getPageCount() >= 2);
+      assert.ok(pdfBytesContain(bytes, "PEND-0001"));
+      assert.ok(pdfBytesContain(bytes, "PEND-0040"));
+    });
+
+    it("renders all 290 rows across multiple pages (regression)", async () => {
+      const bytes = await makePdf(290);
+      const pdf = await PDFDocument.load(bytes);
+      assert.ok(pdf.getPageCount() >= 8);
+      assert.ok(pdfBytesContain(bytes, "PEND-0001"));
+      assert.ok(pdfBytesContain(bytes, "PEND-0290"));
+      assert.ok(pdfBytesContain(bytes, "MSK-290"));
+    });
   });
 });
