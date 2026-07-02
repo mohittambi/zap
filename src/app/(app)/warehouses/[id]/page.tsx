@@ -3,15 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { ArrowLeft, MapPinIcon, PackageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { WarehouseIcon, MapPinIcon, PackageIcon } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -130,22 +131,31 @@ export default function WarehouseDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+      <AppPageShell className="space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-40 w-full rounded-xl" />
-      </div>
+      </AppPageShell>
     );
   }
 
   if (!data) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-6 space-y-4">
-        <p className="text-muted-foreground">Warehouse not found.</p>
-        <Button asChild variant="outline">
-          <Link href="/warehouses">← Back to Warehouses</Link>
-        </Button>
-      </div>
+      <AppPageShell className="space-y-6">
+        <div className="flex items-start justify-between gap-4">
+          <AppPageTitle
+            title="Warehouse not found"
+            description="This warehouse ID does not exist or you do not have access."
+            className="mb-0"
+          />
+          <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+            <Link href="/warehouses">
+              <ArrowLeft className="size-4 shrink-0" />
+              Warehouses
+            </Link>
+          </Button>
+        </div>
+      </AppPageShell>
     );
   }
 
@@ -170,23 +180,28 @@ export default function WarehouseDetailPage() {
   );
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
-      <div>
-        <Button variant="ghost" size="sm" asChild className="mb-2 -ml-2">
-          <Link href="/warehouses">← Warehouses</Link>
-        </Button>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-semibold">
-            <WarehouseIcon className="mr-2 inline size-6 opacity-70" />
-            {name || `Warehouse #${id}`}
-          </h1>
-          {status ? <StatusBadge status={status} /> : null}
-          {type ? <Badge variant="outline">{type}</Badge> : null}
+    <AppPageShell className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2">
+          <AppPageTitle
+            title={name || `Warehouse #${id}`}
+            description={`Warehouse ID ${id}${code ? ` · Code ${code}` : ""}`}
+            className="mb-0"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            {status ? <StatusBadge status={status} /> : null}
+            {type ? <Badge variant="outline">{type}</Badge> : null}
+          </div>
         </div>
-        <p className="text-muted-foreground font-mono text-sm">ID: {id}</p>
+        <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+          <Link href="/warehouses">
+            <ArrowLeft className="size-4 shrink-0" />
+            Warehouses
+          </Link>
+        </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:max-w-3xl">
         <StatBox label="Warehouse ID" value={id} />
         {code ? <StatBox label="Code" value={code} /> : null}
         {city ? <StatBox label="City" value={city} /> : null}
@@ -230,14 +245,11 @@ export default function WarehouseDetailPage() {
       ) : null}
 
       <Separator />
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <PackageIcon className="size-4" />
-            Bins in this warehouse
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+      <div className="overflow-hidden rounded-lg border bg-card">
+          <div className="flex items-center gap-2 border-b px-4 py-3">
+            <PackageIcon className="size-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Bins in this warehouse</h2>
+          </div>
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/60 hover:bg-muted/60">
@@ -251,8 +263,7 @@ export default function WarehouseDetailPage() {
               {renderBinsRows(skusLoading, skus)}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
-    </div>
+      </div>
+    </AppPageShell>
   );
 }

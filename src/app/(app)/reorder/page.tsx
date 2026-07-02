@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api-browser";
 import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -190,36 +191,50 @@ export default function ReorderPage() {
   const alertCount = pageData?.data.filter(m => m.is_below_reorder).length ?? 0;
 
   return (
-    <AppPageShell>
+    <AppPageShell className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <AppPageTitle title="Reorder Alerts" description="SKUs where available qty (current + expected) falls below the reorder threshold." className="mb-0" />
 
         {pageData && alertCount > 0 && (
-          <Badge className="mt-1 shrink-0 bg-red-100 text-red-700 border-red-200 hover:bg-red-100 text-sm px-3 py-1">
+          <Badge className="mt-1 shrink-0 border-red-200 bg-red-100 px-3 py-1 text-sm text-red-700 hover:bg-red-100">
             {alertCount} alert{alertCount !== 1 ? "s" : ""}
           </Badge>
         )}
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <Input
-          value={keyword}
-          onChange={e => setKeyword(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Search SKU / description…"
-          className="h-9 w-56 text-sm"
-        />
-        <Button className="h-9" onClick={handleApply}>Search</Button>
-        <Button
-          variant={alertsOnly ? "default" : "outline"}
-          className="h-9"
-          onClick={handleAlertToggle}
-        >
-          {alertsOnly ? "Showing alerts only" : "Show alerts only"}
-        </Button>
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border bg-card p-5">
+        <div className="min-w-[12rem] flex-1 space-y-1.5 sm:min-w-[16rem]">
+          <Label htmlFor="reorder-keyword">Search SKU / description</Label>
+          <Input
+            id="reorder-keyword"
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Search…"
+            className="h-9 w-full text-sm"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="pointer-events-none text-xs invisible" aria-hidden="true">
+            Search
+          </Label>
+          <Button className="h-9 min-w-[5.5rem]" onClick={handleApply}>
+            Search
+          </Button>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Filter</Label>
+          <Button
+            variant={alertsOnly ? "default" : "outline"}
+            className="h-9"
+            onClick={handleAlertToggle}
+          >
+            {alertsOnly ? "Alerts only" : "All SKUs"}
+          </Button>
+        </div>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      <div className="overflow-hidden rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/60 hover:bg-muted/60">

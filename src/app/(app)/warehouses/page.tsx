@@ -5,7 +5,6 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -39,13 +38,13 @@ export default function WarehousesPage() {
   }, []);
 
   return (
-    <AppPageShell>
-      <AppPageTitle title="Warehouses" description="Master warehouse directory." />
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">All</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
+    <AppPageShell className="space-y-6">
+      <AppPageTitle
+        title="Warehouses"
+        description="Master warehouse directory."
+        className="mb-0"
+      />
+      <div className="overflow-hidden rounded-lg border bg-card">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/60 hover:bg-muted/60">
@@ -85,8 +84,7 @@ export default function WarehousesPage() {
                   ))}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+      </div>
     </AppPageShell>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { apiUrl, getStoredToken } from "@/lib/api-browser";
 import { useAuth } from "@/contexts/auth-context";
@@ -341,11 +343,22 @@ export default function OutboundNewPoPage() {
 
   if (!canCreate) {
     return (
-      <div className="mx-auto max-w-3xl space-y-4 px-2 py-4 md:px-4">
-        <AppPageTitle
-          title="Add New Purchase Order"
-          description="You do not have permission to create outbound purchase orders."
-        />
+      <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <AppPageTitle
+              title="Add New Purchase Order"
+              description="You do not have permission to create outbound purchase orders."
+              className="mb-0"
+            />
+          </div>
+          <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+            <Link href="/outbound">
+              <ArrowLeft className="size-4 shrink-0" />
+              Outbound
+            </Link>
+          </Button>
+        </div>
         <Card>
           <CardContent className="text-muted-foreground pt-6 text-sm">
             Ask an administrator to grant <span className="font-mono">purchase_orders</span>{" "}
@@ -357,13 +370,27 @@ export default function OutboundNewPoPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-2 py-4 md:px-4">
-      <AppPageTitle title="Add New Purchase Order" />
+    <div className="mx-auto max-w-[1600px] space-y-6 px-2 py-4 md:px-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <AppPageTitle
+            title="Add New Purchase Order"
+            description="Enter buyer and PO details, then upload the original PDF and spreadsheet to create the order."
+            className="mb-0"
+          />
+        </div>
+        <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+          <Link href="/outbound">
+            <ArrowLeft className="size-4 shrink-0" />
+            Outbound
+          </Link>
+        </Button>
+      </div>
 
       {loading ? (
         <p className="text-muted-foreground text-sm">Loading form…</p>
       ) : (
-        <form onSubmit={(e) => void onSubmit(e)} className="space-y-4" noValidate>
+        <form onSubmit={(e) => void onSubmit(e)} className="max-w-5xl space-y-4" noValidate>
           <Card className="border-primary/15 shadow-sm">
             <CardContent className="space-y-8 p-4 sm:p-6">
               {/* Identity */}
