@@ -28,6 +28,18 @@ describe("eanMappingsService helpers", () => {
     assert.equal(eanValueToString(0), "");
   });
 
+  it("eanValueToString expands Excel scientific notation", () => {
+    assert.equal(eanValueToString("8.91E+12"), "8910000000000");
+    assert.equal(eanValueToString("8.91e+12"), "8910000000000");
+    assert.equal(eanValueToString("8.906176480269E+12"), "8906176480269");
+    assert.equal(eanValueToString(8906176480269), "8906176480269");
+  });
+
+  it("eanValueToString preserves non-numeric marketplace codes", () => {
+    assert.equal(eanValueToString("10149918"), "10149918");
+    assert.equal(eanValueToString("SHIDYGGRWYPZMWGN"), "SHIDYGGRWYPZMWGN");
+  });
+
   it("mappingSkuKeysFromRow includes master_sku and marketplace po_secondary_sku", () => {
     const keys = mappingSkuKeysFromRow({
       po_secondary_sku: "10149864",

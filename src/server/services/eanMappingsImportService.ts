@@ -5,6 +5,7 @@ import {
   isValidEanValue,
   normalizeCompanyName,
   upsertEanMappings,
+  eanValueToString,
 } from "@/server/services/eanMappingsService";
 
 export type EanImportRowStatus =
@@ -53,6 +54,11 @@ type ParsedImportRow = {
   ean_type: string;
   universal_ean: string | null;
 };
+
+function eanCellValue(raw: string): string | null {
+  const s = eanValueToString(raw);
+  return s || null;
+}
 
 function csvEscape(v: string): string {
   if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
@@ -163,10 +169,10 @@ export function parseEanMappingsImportCsv(buf: Buffer): ParsedImportRow[] {
         companyIdIdx >= 0 && (cells[companyIdIdx] ?? "").trim()
           ? Number(cells[companyIdIdx]) || null
           : null,
-      zap_ean: zapIdx >= 0 ? (cells[zapIdx] ?? "").trim() || null : null,
+      zap_ean: zapIdx >= 0 ? eanCellValue(cells[zapIdx] ?? "") : null,
       ean_type: typeIdx >= 0 ? (cells[typeIdx] ?? "").trim() || "code" : "code",
       universal_ean:
-        universalIdx >= 0 ? (cells[universalIdx] ?? "").trim() || null : null,
+        universalIdx >= 0 ? eanCellValue(cells[universalIdx] ?? "") : null,
     });
   }
   return rows;

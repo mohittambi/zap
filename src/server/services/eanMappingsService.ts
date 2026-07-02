@@ -593,9 +593,37 @@ export function isValidEanValue(v: unknown): boolean {
   return true;
 }
 
+/** Expand Excel-style scientific notation (e.g. `8.91E+12`) to a plain integer string. */
+function expandScientificEanString(s: string): string | null {
+  const m = s.match(/^([+-]?)(\d+(?:\.\d+)?)[eE]([+-]?\d+)$/);
+  if (!m) return null;
+  const sign = m[1] === "-" ? "-" : "";
+  const [intPart, fracPart = ""] = m[2].replace(/^\+?/, "").split(".");
+  const exp = Number(m[3]);
+  if (!Number.isFinite(exp)) return null;
+
+  const digits = intPart + fracPart;
+  const decimalPos = intPart.length + exp;
+  if (decimalPos <= 0) return null;
+
+  const result =
+    decimalPos >= digits.length
+      ? digits + "0".repeat(decimalPos - digits.length)
+      : digits.slice(0, decimalPos);
+  const normalized = result.replace(/^0+(?=\d)/, "");
+  return sign + (normalized || "0");
+}
+
 export function eanValueToString(v: unknown): string {
   if (!isValidEanValue(v)) return "";
-  return String(v).trim();
+
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return String(Math.trunc(v));
+  }
+
+  const s = String(v).trim();
+  const expanded = expandScientificEanString(s);
+  return expanded ?? s;
 }
 
 /** @deprecated Use mappingSkuKeysFromRow — po_secondary_sku matches company_code_primary, not dump SKU Code. */
@@ -629,8 +657,9 @@ export async function batchGetZapEanByCompany(opts: {
   for (const row of r.rows) {
     const hit: ZapEanLookup = {
       sku_code: row.sku_code != null ? String(row.sku_code).trim() : "",
-      channel_ean: row.zap_ean != null ? String(row.zap_ean) : "",
-      universal_ean: row.universal_ean != null ? String(row.universal_ean) : "",
+      channel_ean: row.zap_ean != null ? eanValueToString(row.zap_ean) : "",
+      universal_ean:
+        row.universal_ean != null ? eanValueToString(row.universal_ean) : "",
       ean_type: row.ean_type != null ? String(row.ean_type) : "",
     };
     const sku = String(row.sku_code).trim();
@@ -795,9 +824,10 @@ export async function listEanMappingsPaginated(opts: {
     sku_code: String(row.sku_code),
     company_id: Number(row.company_id),
     company_name: row.company_name != null ? String(row.company_name) : null,
-    zap_ean: row.zap_ean != null ? String(row.zap_ean) : null,
+    zap_ean: row.zap_ean != null ? eanValueToString(row.zap_ean) || null : null,
     ean_type: row.ean_type != null ? String(row.ean_type) : null,
-    universal_ean: row.universal_ean != null ? String(row.universal_ean) : null,
+    universal_ean:
+      row.universal_ean != null ? eanValueToString(row.universal_ean) || null : null,
     created_at: new Date(row.created_at as string).toISOString(),
     updated_at: new Date(row.updated_at as string).toISOString(),
   }));
@@ -1075,8 +1105,9 @@ export async function listEanMappingsMatrixPaginated(opts: {
     mapR.rows.map((row) => ({
       sku_code: String(row.sku_code),
       company_id: Number(row.company_id),
-      zap_ean: row.zap_ean != null ? String(row.zap_ean) : null,
-      universal_ean: row.universal_ean != null ? String(row.universal_ean) : null,
+      zap_ean: row.zap_ean != null ? eanValueToString(row.zap_ean) || null : null,
+      universal_ean:
+        row.universal_ean != null ? eanValueToString(row.universal_ean) || null : null,
     })),
     companyIdToColumnKey
   );

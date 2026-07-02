@@ -15,6 +15,15 @@ describe("eanMappingsImportService", () => {
     assert.equal(rows[0].company_name, "Blinkit");
     assert.equal(rows[0].zap_ean, "10151234");
   });
+
+  it("normalizes scientific notation in import CSV", () => {
+    const csv = Buffer.from(
+      "sku_code,company_name,zap_ean,ean_type,universal_ean\nAAC500,Zepto,8.906176480269E+12,ean,8906176480269\n",
+      "utf8"
+    );
+    const rows = parseEanMappingsImportCsv(csv);
+    assert.equal(rows[0].zap_ean, "8906176480269");
+  });
 });
 
 describe("outboundPoSpreadsheetIngest warnings", () => {
