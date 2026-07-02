@@ -2,8 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
+import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -164,15 +166,17 @@ export default function BinScanUpdatePage() {
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Bin inventory update</h1>
-          <p className="text-sm text-muted-foreground">
-            Select a bin and product SKU, then add or remove stock.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/bins">← Bins</Link>
+      <div className="flex items-start justify-between gap-4">
+        <AppPageTitle
+          title="Scan update"
+          description="Select a bin and product SKU, then add or remove stock."
+          className="mb-0"
+        />
+        <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+          <Link href="/bins">
+            <ArrowLeft className="size-4 shrink-0" />
+            Bins
+          </Link>
         </Button>
       </div>
 

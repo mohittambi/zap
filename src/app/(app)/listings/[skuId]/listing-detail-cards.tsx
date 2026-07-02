@@ -7,6 +7,14 @@ import { apiFetch } from "@/lib/api-browser";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/auth-context";
@@ -330,17 +338,11 @@ function BinCombobox({
   loading,
   selected,
   onSelect,
-  onAdd,
-  onCancel,
-  adding,
 }: {
   locations: BinLocation[];
   loading: boolean;
   selected: string;
   onSelect: (v: string) => void;
-  onAdd: () => void;
-  onCancel: () => void;
-  adding: boolean;
 }) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
@@ -400,9 +402,7 @@ function BinCombobox({
   }
 
   return (
-    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
-      <p className="text-xs font-medium">Add Bin Location</p>
-
+    <div className="space-y-3">
       <div className="space-y-1" ref={containerRef}>
         <Label className="text-xs">Search bin</Label>
         <div className="relative">
@@ -461,15 +461,6 @@ function BinCombobox({
           </p>
         )}
         {loading && <p className="text-xs text-muted-foreground">Loading bins…</p>}
-      </div>
-
-      <div className="flex gap-2">
-        <Button size="sm" onClick={onAdd} disabled={adding || !selected}>
-          {adding ? "Adding…" : "Add"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
       </div>
     </div>
   );
@@ -647,17 +638,30 @@ export function AvailableQuantityCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {canManage && showAddBin && (
-          <BinCombobox
-            locations={binLocations}
-            loading={locationsLoading}
-            selected={selectedLocation}
-            onSelect={setSelectedLocation}
-            onAdd={() => void handleAddBin()}
-            onCancel={() => setShowAddBin(false)}
-            adding={addingBin}
-          />
-        )}
+        <Dialog open={showAddBin} onOpenChange={setShowAddBin}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Bin Location</DialogTitle>
+              <DialogDescription>
+                Search and assign an existing warehouse bin to this SKU.
+              </DialogDescription>
+            </DialogHeader>
+            <BinCombobox
+              locations={binLocations}
+              loading={locationsLoading}
+              selected={selectedLocation}
+              onSelect={setSelectedLocation}
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddBin(false)} disabled={addingBin}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleAddBin()} disabled={addingBin || !selectedLocation}>
+                {addingBin ? "Adding…" : "Add"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {isEditing
             ? bins.map((b) => (

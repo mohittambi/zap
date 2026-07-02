@@ -3,10 +3,18 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Trash2, ChevronDown, ChevronRight, History, PackageMinus, Plus, ScanLine } from "lucide-react";
 import { apiFetch } from "@/lib/api-browser";
 import { AppPageShell, AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,13 +104,32 @@ function applyStockFilter(skus: SkuSummary[], filter: StockFilter, threshold: nu
   return skus.filter(s => getStockStatus(s.total_quantity, threshold) === filter);
 }
 
-// ── Add Bin Panel ─────────────────────────────────────────────────────────────
+// ── Add Bin Dialog ────────────────────────────────────────────────────────────
 
-function AddBinPanel({ onCreated }: { onCreated: () => void }) {
+function AddBinDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: () => void;
+}) {
   const [warehouseId, setWarehouseId] = React.useState("");
   const [skuId, setSkuId] = React.useState("");
   const [binId, setBinId] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+
+  function resetForm() {
+    setWarehouseId("");
+    setSkuId("");
+    setBinId("");
+  }
+
+  function handleClose(nextOpen: boolean) {
+    if (!nextOpen && !saving) resetForm();
+    onOpenChange(nextOpen);
+  }
 
   async function handleCreate() {
     const wid = Number(warehouseId.trim());
@@ -117,10 +144,9 @@ function AddBinPanel({ onCreated }: { onCreated: () => void }) {
         body: JSON.stringify({ warehouse_id: wid, sku_id: skuId.trim(), bin_id: binId.trim() }),
       });
       toast.success(`Bin "${binId.trim()}" created for SKU ${skuId.trim()}.`);
-      setWarehouseId("");
-      setSkuId("");
-      setBinId("");
+      resetForm();
       onCreated();
+      onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create bin");
     } finally {
@@ -133,49 +159,61 @@ function AddBinPanel({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
-      <p className="text-sm font-medium">Add Bin Location</p>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="nb-wh" className="text-xs">Warehouse ID</Label>
-          <Input
-            id="nb-wh"
-            type="number"
-            min={1}
-            value={warehouseId}
-            onChange={e => setWarehouseId(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="e.g. 1"
-            className="h-9 w-28 font-mono text-sm"
-          />
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Bin Location</DialogTitle>
+          <DialogDescription>
+            Create a new bin location for a SKU in a warehouse.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="nb-wh">Warehouse ID</Label>
+            <Input
+              id="nb-wh"
+              type="number"
+              min={1}
+              value={warehouseId}
+              onChange={e => setWarehouseId(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. 1"
+              className="font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="nb-sku">SKU ID</Label>
+            <Input
+              id="nb-sku"
+              value={skuId}
+              onChange={e => setSkuId(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. ABC-001"
+              className="font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="nb-bin">Bin ID</Label>
+            <Input
+              id="nb-bin"
+              value={binId}
+              onChange={e => setBinId(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. A-01-02"
+              className="font-mono"
+            />
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="nb-sku" className="text-xs">SKU ID</Label>
-          <Input
-            id="nb-sku"
-            value={skuId}
-            onChange={e => setSkuId(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="e.g. ABC-001"
-            className="h-9 w-40 font-mono text-sm"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="nb-bin" className="text-xs">Bin ID</Label>
-          <Input
-            id="nb-bin"
-            value={binId}
-            onChange={e => setBinId(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="e.g. A-01-02"
-            className="h-9 w-32 font-mono text-sm"
-          />
-        </div>
-        <Button className="h-9" onClick={() => void handleCreate()} disabled={saving}>
-          {saving ? "Creating…" : "Create"}
-        </Button>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleClose(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={() => void handleCreate()} disabled={saving}>
+            {saving ? "Creating…" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -208,8 +246,8 @@ const SkuCard = React.memo(function SkuCard({
   }
 
   return (
-    <div className={`rounded-lg border bg-white p-3 shadow-sm ${cfg.borderClass}`}>
-      <div className="flex items-start justify-between gap-2">
+    <div className={`rounded-lg border bg-white p-4 shadow-sm ${cfg.borderClass}`}>
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate font-mono text-sm font-bold text-primary">{sku.sku_id}</p>
           {sku.description ? (
@@ -220,7 +258,7 @@ const SkuCard = React.memo(function SkuCard({
           {sku.total_quantity}
         </span>
       </div>
-      <div className="mt-2 flex items-center justify-between">
+      <div className="mt-3 flex items-center justify-between">
         <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.pillClass}`}>
           {cfg.label}
         </span>
@@ -260,7 +298,7 @@ const SkuCard = React.memo(function SkuCard({
 
 function SkuGridSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <Skeleton key={i} className="h-24 rounded-lg" />
       ))}
@@ -283,7 +321,7 @@ export default function BinsPage() {
 
   const [allSkus, setAllSkus] = React.useState<SkuSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [showAddPanel, setShowAddPanel] = React.useState(false);
+  const [showAddBin, setShowAddBin] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -317,36 +355,52 @@ export default function BinsPage() {
   }
 
   return (
-    <AppPageShell>
-      <div className="flex items-start justify-between gap-4">
-        <AppPageTitle title="Bins" description="SKU-level stock view with bin breakdown." className="mb-0" />
-        <div className="flex shrink-0 flex-wrap gap-2">
+    <AppPageShell className="space-y-6">
+      <AppPageTitle title="Bins" description="SKU-level stock view with bin breakdown." className="mb-0" />
+
+      <div className="rounded-xl border bg-card p-3 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:justify-between">
           {canManage ? (
             <Button
-              variant={showAddPanel ? "default" : "outline"}
-              className="min-h-11"
-              onClick={() => setShowAddPanel(v => !v)}
+              className="order-first h-10 w-full gap-2 lg:order-last lg:w-auto lg:min-w-[9.5rem]"
+              onClick={() => setShowAddBin(true)}
             >
-              {showAddPanel ? "Close" : "Add Bin"}
+              <Plus className="size-4 shrink-0" />
+              Add Bin
             </Button>
           ) : null}
-          <Button asChild variant="outline" className="min-h-11">
-            <Link href="/bins/changes">Bin changes</Link>
-          </Button>
-          <Button asChild variant="outline" className="min-h-11">
-            <Link href="/bins/outward">Bulk outward</Link>
-          </Button>
-          <Button asChild className="min-h-11">
-            <Link href="/bins/scan-update">Scan update</Link>
-          </Button>
+          <div className="order-last grid flex-1 grid-cols-1 gap-2 sm:grid-cols-3 lg:order-first">
+            <Button asChild variant="outline" size="sm" className="h-10 justify-start gap-2">
+              <Link href="/bins/changes">
+                <History className="size-4 shrink-0" />
+                Bin changes
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-10 justify-start gap-2">
+              <Link href="/bins/outward">
+                <PackageMinus className="size-4 shrink-0" />
+                Bulk outward
+              </Link>
+            </Button>
+            <Button asChild variant="secondary" size="sm" className="h-10 justify-start gap-2">
+              <Link href="/bins/scan-update">
+                <ScanLine className="size-4 shrink-0" />
+                Scan update
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
 
-      {canManage && showAddPanel ? (
-        <AddBinPanel onCreated={() => { void load(); }} />
+      {canManage ? (
+        <AddBinDialog
+          open={showAddBin}
+          onOpenChange={setShowAddBin}
+          onCreated={() => { void load(); }}
+        />
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-end gap-4 rounded-lg border bg-card p-5">
         <div className="space-y-1.5">
           <Label htmlFor="wh" className="text-xs">Warehouse ID</Label>
           <Input
@@ -358,7 +412,7 @@ export default function BinsPage() {
             className="h-9 w-32 font-mono text-sm"
           />
         </div>
-        <div className="space-y-1.5">
+        <div className="min-w-[12rem] flex-1 space-y-1.5 sm:min-w-[16rem]">
           <Label htmlFor="kw" className="text-xs">Search SKU / description</Label>
           <Input
             id="kw"
@@ -366,7 +420,7 @@ export default function BinsPage() {
             onChange={e => dispatch({ type: "SET_KEYWORD", value: e.target.value })}
             onKeyDown={handleKeyDown}
             placeholder="Search…"
-            className="h-9 w-52 text-sm"
+            className="h-9 w-full text-sm"
           />
         </div>
         <div className="space-y-1.5">
@@ -380,7 +434,14 @@ export default function BinsPage() {
             className="h-9 w-24 text-sm"
           />
         </div>
-        <Button className="h-9" onClick={handleApply}>Apply</Button>
+        <div className="space-y-1.5">
+          <Label className="pointer-events-none text-xs invisible" aria-hidden="true">
+            Apply
+          </Label>
+          <Button className="h-9" onClick={handleApply}>
+            Apply
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -413,7 +474,7 @@ export default function BinsPage() {
           {allSkus.length === 0 ? "No bins found. Try adjusting the warehouse or search." : "No SKUs match the selected stock filter."}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {visibleSkus.map(sku => (
             <SkuCard
               key={`${sku.warehouse_id}-${sku.sku_id}`}
