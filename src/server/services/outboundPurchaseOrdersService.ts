@@ -1,3 +1,5 @@
+import { PDFDocument } from "pdf-lib";
+import JSZip from "jszip";
 import * as XLSX from "xlsx";
 import { resolveCompanyLogoFromAttributes } from "@/lib/company-brand-logo";
 import { pickListingImageFromRow } from "@/lib/listing-image-url";
@@ -23,6 +25,11 @@ import {
   repairOutboundListingCommercialFields,
   type OutboundListingNormalizeResult,
 } from "@/server/utils/outboundListingNormalize";
+import {
+  buildPendencyRowsFromListings,
+  createOutboundPoPendencyPdf,
+  loadPendencyLookups,
+} from "@/server/utils/outboundPoPendencyPdf";
 
 export {
   normalizeOutboundListingRow,
@@ -1617,6 +1624,253 @@ export async function buildSkuReportXlsxForPo(
 ): Promise<{ buffer: Buffer; filename: string }> {
   const rows = await buildSkuReportRowsForPo(po);
   return buildSkuReportXlsxFromRows(rows, po);
+}
+
+export const BULK_PO_REPORT_MAX_IDS = 50;
+
+export type BulkPoReportResult = {
+  buffer: Buffer;
+  filename: string;
+  skippedPoNumbers: string[];
+};
+
+/** Column headers for SKU Level Report exports (single-PO and bulk). */
+export const SKU_REPORT_COLUMN_HEADERS = [...SKU_REPORT_COLUMNS] as const;
+
+export function parseBulkPoIds(raw: unknown): number[] {
+  if (!Array.isArray(raw)) {
+    throw new AppError("ids must be an array", 400);
+  }
+  if (raw.length === 0) {
+    throw new AppError("ids must be a non-empty array", 400);
+  }
+  if (raw.length > BULK_PO_REPORT_MAX_IDS) {
+    throw new AppError(
+      `At most ${BULK_PO_REPORT_MAX_IDS} purchase orders per download`,
+      400
+    );
+  }
+  const seen = new Set<number>();
+  const uniqueIds: number[] = [];
+  for (const v of raw) {
+    const id = Math.trunc(Number(v));
+    if (!Number.isFinite(id) || id < 1) {
+      throw new AppError(`Invalid purchase order id: ${v}`, 400);
+    }
+    if (!seen.has(id)) {
+      seen.add(id);
+      uniqueIds.push(id);
+    }
+  }
+  return uniqueIds;
+}
+
+export async function loadPosForBulkReport(ids: number[]): Promise<OutboundPoRow[]> {
+  const pos: OutboundPoRow[] = [];
+  const missing: number[] = [];
+  for (const id of ids) {
+    const po = await getOutboundPurchaseOrderById(id);
+    if (!po) missing.push(id);
+    else pos.push(po);
+  }
+  if (missing.length > 0) {
+    throw new AppError(`Purchase order(s) not found: ${missing.join(", ")}`, 404);
+  }
+  return pos;
+}
+
+function bulkReportDateSlug(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function pendencyPdfSafeFilename(poNumber: string): string {
+  return String(poNumber || "po").replace(/[/\\?%*:|"<>]/g, "_").slice(0, 200);
+}
+
+async function buildPendencyPdfBytesForPo(
+  po: OutboundPoRow
+): Promise<Uint8Array | null> {
+  const rows = extractListingsRowsFromSnapshotNormalized(po.listings_snapshot);
+  if (rows.length === 0) return null;
+  const lookups = await loadPendencyLookups(rows, po.company_id);
+  const pendRows = buildPendencyRowsFromListings(rows, lookups);
+  return createOutboundPoPendencyPdf({
+    companyName: po.company_name,
+    poNumber: po.po_number,
+    deliveryLocation: po.delivery_city,
+    rows: pendRows,
+  });
+}
+
+export type BulkSkuRowResolver = (
+  po: OutboundPoRow
+) => Promise<Record<string, unknown>[]>;
+
+export type BulkPendencyPdfBuilder = (
+  po: OutboundPoRow
+) => Promise<Uint8Array | null>;
+
+export type BulkSkuReportDeps = {
+  resolveRows?: BulkSkuRowResolver;
+  loadLookups?: typeof loadOutboundSkuLookups;
+  enrichRows?: typeof enrichRowsWithZapEan;
+};
+
+export type BulkPendencyReportDeps = {
+  buildPdf?: BulkPendencyPdfBuilder;
+};
+
+async function defaultBulkSkuRowResolver(
+  po: OutboundPoRow
+): Promise<Record<string, unknown>[]> {
+  return buildSkuReportRowsForPo(po);
+}
+
+export async function buildBulkSkuReportXlsxFromPos(
+  pos: OutboundPoRow[],
+  deps: BulkSkuReportDeps = {}
+): Promise<BulkPoReportResult> {
+  const resolveRows = deps.resolveRows ?? defaultBulkSkuRowResolver;
+  const loadLookupsFn = deps.loadLookups ?? loadOutboundSkuLookups;
+  const enrichRowsFn = deps.enrichRows ?? enrichRowsWithZapEan;
+
+  const skippedPoNumbers: string[] = [];
+  let header: string[] | null = null;
+  const allDataRows: string[][] = [];
+
+  for (const po of pos) {
+    const rows = await resolveRows(po);
+    if (rows.length === 0) {
+      const pn = String(po.po_number ?? "").trim();
+      if (pn) skippedPoNumbers.push(pn);
+      continue;
+    }
+    const normalized = normalizeOutboundListingRows(rows).rows;
+    const lookups = await loadLookupsFn(normalized, po.company_id);
+    const enriched = await enrichRowsFn(normalized, po.company_id);
+    const aoa = buildSkuReportAoa(enriched, po, lookups);
+    if (!header) header = aoa[0];
+    allDataRows.push(...aoa.slice(1));
+  }
+
+  if (!header || allDataRows.length === 0) {
+    throw new AppError(
+      "No SKU line items found for the selected purchase order(s).",
+      422
+    );
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([header, ...allDataRows]),
+    "SKU Report"
+  );
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return {
+    buffer,
+    filename: `bulk-sku-report-${bulkReportDateSlug()}.xlsx`,
+    skippedPoNumbers,
+  };
+}
+
+export async function buildBulkSkuReportXlsx(
+  ids: number[]
+): Promise<BulkPoReportResult> {
+  const uniqueIds = parseBulkPoIds(ids);
+  const pos = await loadPosForBulkReport(uniqueIds);
+  return buildBulkSkuReportXlsxFromPos(pos);
+}
+
+export async function buildBulkPendencyPdfZipFromPos(
+  pos: OutboundPoRow[],
+  deps: BulkPendencyReportDeps = {}
+): Promise<BulkPoReportResult> {
+  const buildPdf = deps.buildPdf ?? buildPendencyPdfBytesForPo;
+  const skippedPoNumbers: string[] = [];
+  const zip = new JSZip();
+  let added = 0;
+
+  for (const po of pos) {
+    const pdfBytes = await buildPdf(po);
+    if (!pdfBytes) {
+      const pn = String(po.po_number ?? "").trim();
+      if (pn) skippedPoNumbers.push(pn);
+      continue;
+    }
+    const fname = `pendency-${pendencyPdfSafeFilename(String(po.po_number ?? "po"))}.pdf`;
+    zip.file(fname, pdfBytes);
+    added += 1;
+  }
+
+  if (added === 0) {
+    throw new AppError(
+      "No SKU line items found for the selected purchase order(s).",
+      422
+    );
+  }
+
+  const buffer = Buffer.from(
+    await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" })
+  );
+  return {
+    buffer,
+    filename: `bulk-pendency-pdf-${bulkReportDateSlug()}.zip`,
+    skippedPoNumbers,
+  };
+}
+
+export async function buildBulkPendencyPdfMergedFromPos(
+  pos: OutboundPoRow[],
+  deps: BulkPendencyReportDeps = {}
+): Promise<BulkPoReportResult> {
+  const buildPdf = deps.buildPdf ?? buildPendencyPdfBytesForPo;
+  const skippedPoNumbers: string[] = [];
+  const merged = await PDFDocument.create();
+  let hasPages = false;
+
+  for (const po of pos) {
+    const pdfBytes = await buildPdf(po);
+    if (!pdfBytes) {
+      const pn = String(po.po_number ?? "").trim();
+      if (pn) skippedPoNumbers.push(pn);
+      continue;
+    }
+    const src = await PDFDocument.load(pdfBytes);
+    const copied = await merged.copyPages(src, src.getPageIndices());
+    for (const page of copied) merged.addPage(page);
+    hasPages = true;
+  }
+
+  if (!hasPages) {
+    throw new AppError(
+      "No SKU line items found for the selected purchase order(s).",
+      422
+    );
+  }
+
+  const buffer = Buffer.from(await merged.save());
+  return {
+    buffer,
+    filename: `bulk-pendency-pdf-${bulkReportDateSlug()}.pdf`,
+    skippedPoNumbers,
+  };
+}
+
+export async function buildBulkPendencyPdfZip(
+  ids: number[]
+): Promise<BulkPoReportResult> {
+  const uniqueIds = parseBulkPoIds(ids);
+  const pos = await loadPosForBulkReport(uniqueIds);
+  return buildBulkPendencyPdfZipFromPos(pos);
+}
+
+export async function buildBulkPendencyPdfMerged(
+  ids: number[]
+): Promise<BulkPoReportResult> {
+  const uniqueIds = parseBulkPoIds(ids);
+  const pos = await loadPosForBulkReport(uniqueIds);
+  return buildBulkPendencyPdfMergedFromPos(pos);
 }
 
 export function skuReportFromEnrichedRows(

@@ -18,7 +18,8 @@ This folder contains **plain-English documentation** for the Zap platform. No co
 |---------------------------|-----------|
 | What Zap is and why it exists | [Platform Overview](platform-overview.md) |
 | How to get started and who does what | [Getting Started & Roles](getting-started.md) |
-| Who can access what | [Roles and Access](roles-and-access.md) |
+| Who can access what | [Roles and Access](roles-and-access.md) — **current production** |
+| RBAC redesign (proposed roles & admin permission editor) | [RBAC review pack](../enhancements/rbac-redesign/README.md) |
 | How goods come in (vendor POs, GRNs, invoices) | [Inbound Operations](modules/inbound.md) |
 | Inbound journey (steps, web routes, APIs) | [Inbound journey](../inbound-journey.md) |
 | How goods go out (channel orders, dispatch, labels) | [Outbound Operations](modules/outbound.md) |

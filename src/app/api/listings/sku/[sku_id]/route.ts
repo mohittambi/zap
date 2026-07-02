@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertAdmin, assertPermission } from "@/server/rbac";
+import { assertPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import {
   buildActivityContext,
@@ -166,7 +166,7 @@ export async function DELETE(
 ) {
   try {
     const user = await requireAuth(request);
-    assertAdmin(user);
+    assertPermission(user, "listings", "delete");
     const { sku_id } = await context.params;
 
     const deletedSku = await listingsService.softDeleteListing(sku_id, user.email);

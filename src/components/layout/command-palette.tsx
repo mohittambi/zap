@@ -33,13 +33,13 @@ function groupFilteredItems(items: FlatNavItem[]) {
 
 export function CommandPalette() {
   const router = useRouter();
-  const { isAdmin, isSuperAdmin } = useAuth();
+  const { isAdmin, isSuperAdmin, hasPermission } = useAuth();
   const { commandPaletteOpen, setCommandPaletteOpen, setMobileNavOpen } =
     useShellUi();
 
   const allItems = React.useMemo(
-    () => flattenNavItems(undefined, isAdmin, isSuperAdmin),
-    [isAdmin, isSuperAdmin]
+    () => flattenNavItems(undefined, isAdmin, isSuperAdmin, hasPermission),
+    [isAdmin, isSuperAdmin, hasPermission]
   );
 
   const [query, setQuery] = React.useState("");

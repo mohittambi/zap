@@ -12,10 +12,12 @@ import {
   navGroups,
   type NavGroup,
 } from "@/lib/nav-groups";
+import { canAccessNavGroup } from "@/lib/permission-catalog";
 
 type AppSidebarProps = {
   isAdmin?: boolean;
   isSuperAdmin?: boolean;
+  hasPermission?: (resource: string, action: string) => boolean;
   onNavigate?: () => void;
   className?: string;
 };
@@ -25,6 +27,7 @@ function SidebarGroup({
   pathname,
   isAdmin,
   isSuperAdmin,
+  hasPermission,
   onNavigate,
   open,
   onToggle,
@@ -34,12 +37,18 @@ function SidebarGroup({
   pathname: string;
   isAdmin: boolean;
   isSuperAdmin: boolean;
+  hasPermission?: (resource: string, action: string) => boolean;
   onNavigate?: () => void;
   open: boolean;
   onToggle: () => void;
   groupRef?: React.Ref<HTMLDivElement>;
 }) {
-  const sections = filterNavSections(group.sections, isAdmin, isSuperAdmin);
+  const sections = filterNavSections(
+    group.sections,
+    isAdmin,
+    isSuperAdmin,
+    hasPermission
+  );
   if (sections.length === 0) return null;
 
   const groupActive = group.match(pathname);
@@ -110,6 +119,7 @@ function SidebarGroup({
 export function AppSidebar({
   isAdmin = false,
   isSuperAdmin = false,
+  hasPermission,
   onNavigate,
   className,
 }: AppSidebarProps) {
@@ -152,13 +162,18 @@ export function AppSidebar({
       className={cn("py-2", className)}
       aria-label="Main navigation"
     >
-      {navGroups.map((group) => (
+      {navGroups.map((group) => {
+        if (hasPermission && !canAccessNavGroup(group.id, hasPermission)) {
+          return null;
+        }
+        return (
         <SidebarGroup
           key={group.id}
           group={group}
           pathname={pathname}
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
+          hasPermission={hasPermission}
           onNavigate={onNavigate}
           open={openGroups[group.id] ?? false}
           onToggle={() => toggleGroup(group.id)}
@@ -166,7 +181,8 @@ export function AppSidebar({
             groupRefs.current[group.id] = el;
           }}
         />
-      ))}
+        );
+      })}
     </nav>
   );
 }

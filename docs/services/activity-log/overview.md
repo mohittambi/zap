@@ -9,7 +9,7 @@ Admin-only audit trail for authentication, navigation, CRUD, queues, bulk operat
 | View Activity Log UI | Admin (`*:*`) |
 | Query `GET /api/admin/activity-log` | Admin (`*:*`) |
 | Client navigation tracking | Any authenticated user (writes to log) |
-| Create / bulk-create / delete master listings | `*:*` (admin) |
+| Create / bulk-create / delete master listings | `listings:create`, `listings:delete`, `bulk:import` (or `*:*`) |
 
 Insights remain super-admin only (`SUPER_ADMIN_EMAILS` allowlist). Activity Log uses the same admin gate as User Management and EAN Mappings (`assertAdmin` / `*:*`).
 
@@ -36,7 +36,7 @@ Instrumented categories:
 | Outbound | `outbound_po_created`, `consignment_dispatched` |
 | Insights | `forecast_run`, `insight_feedback` |
 | Bulk | `bulk_import_secondary`, `listings_bulk_imported` |
-| Admin | `user_created`, `user_updated`, `user_deactivated` |
+| Admin | `user_created`, `user_updated`, `user_deactivated`, `role_permissions_updated` |
 | Focus lists | `focus_list_created`, `focus_list_item_added` |
 | Navigation | `navigation` (client) |
 

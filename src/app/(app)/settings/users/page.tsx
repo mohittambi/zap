@@ -64,6 +64,11 @@ const ROLE_COLORS: Record<string, string> = {
   warehouse_manager:
     "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300",
   vendor: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300",
+  inventory_management:
+    "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300",
+  ops_management:
+    "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+  qc: "bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-300",
 };
 
 function RoleBadge({ name }: { name: string }) {
@@ -518,10 +523,10 @@ export default function AdminUsersSettingsPage() {
                                   <button
                                     key={rn}
                                     type="button"
-                                    title="View permissions"
+                                    title="Edit role permissions"
                                     onClick={() =>
-                                      setViewingRolePerms(
-                                        viewingRolePerms === rn ? null : rn
+                                      router.push(
+                                        `/settings/roles?role=${encodeURIComponent(rn)}`
                                       )
                                     }
                                   >

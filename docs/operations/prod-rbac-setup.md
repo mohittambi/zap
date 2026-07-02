@@ -2,13 +2,15 @@
 
 **Last updated:** 2026-06-27
 **Audience:** Operators, IT admins
-**Related:** [roles-and-access.md](../business/roles-and-access.md) (business guide), [prod-supabase-migration.md](./prod-supabase-migration.md)
+**Related:** [roles-and-access.md](../business/roles-and-access.md) (business guide), [prod-supabase-migration.md](./prod-supabase-migration.md), [RBAC redesign review pack](../enhancements/rbac-redesign/README.md) (proposed — not deployed)
 
 ---
 
 ## Summary
 
 Production RBAC uses six database roles seeded by migration `045_business_roles_and_permissions.sql`. Migration `073_rbac_assign_catalogued_permissions.sql` attaches four previously admin-only permissions to business roles.
+
+> **Note:** Production today matches this document. A separate [RBAC redesign proposal](../enhancements/rbac-redesign/README.md) (DRAFT FOR REVIEW) describes planned changes: admin-editable role permissions, fine-grained listings gates, and four new business roles. Do not apply that pack operationally until implementation is signed off and deployed.
 
 | Admin user | Email | Role |
 | ---------- | ----- | ---- |

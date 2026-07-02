@@ -1,0 +1,6 @@
+{
+  "grnId": 0,
+  "noteId": 0,
+  "vendorId": 1,
+  "comment": "Set grnId and noteId to real dev fixture IDs for elevated GRN integration tests. Tests skip when 0."
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertAdmin } from "@/server/rbac";
+import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import {
   buildActivityContext,
@@ -16,7 +16,7 @@ const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
  * /bulk/import/master-listings:
  *   post:
  *     summary: Bulk create master listings from CSV/XLSX
- *     description: Requires admin (*:*). Creates new rows only; duplicate sku_id returns per-row errors.
+ *     description: Requires listings:create and bulk:import. Creates new rows only; duplicate sku_id returns per-row errors.
  *     tags: [Bulk]
  *     requestBody:
  *       required: true
@@ -36,7 +36,8 @@ const MAX_BULK_IMPORT_BYTES = 5 * 1024 * 1024;
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertAdmin(user);
+    assertPermission(user, "listings", "create");
+    assertPermission(user, "bulk", "import");
     const form = await request.formData();
     const file = form.get("file");
     if (!file || !(file instanceof Blob)) {

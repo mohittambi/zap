@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertAdmin } from "@/server/rbac";
+import { assertPermission } from "@/server/rbac";
 import { handleApiError } from "@/server/errors";
 import {
   buildActivityContext,
@@ -13,7 +13,7 @@ import * as listingsService from "@/server/services/listingsService";
  * /listings:
  *   post:
  *     summary: Create a new master listing
- *     description: Requires admin (*:*). Allocates a stub ID and marks source=zap.
+ *     description: Requires listings:create. Allocates a stub ID and marks source=zap.
  *     tags: [Listings]
  *     requestBody:
  *       required: true
@@ -46,7 +46,7 @@ import * as listingsService from "@/server/services/listingsService";
 export async function POST(request: Request) {
   try {
     const user = await requireAuth(request);
-    assertAdmin(user);
+    assertPermission(user, "listings", "create");
 
     const body = (await request.json()) as Record<string, unknown>;
     const listing = await listingsService.createListing(body, user.email);

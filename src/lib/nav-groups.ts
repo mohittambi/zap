@@ -1,4 +1,6 @@
 import type { LucideIcon } from "lucide-react";
+import type { PermissionCheck } from "@/lib/permission-catalog";
+import { canAccessNavItem } from "@/lib/permission-catalog";
 import {
   ArrowLeftRight,
   Barcode,
@@ -30,6 +32,7 @@ import {
   ScrollText,
   Send,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Store,
@@ -266,6 +269,7 @@ export const navGroups: NavGroup[] = [
         title: "Admin",
         items: [
           { href: "/settings/users", label: "User Management", icon: Users, adminOnly: true },
+          { href: "/settings/roles", label: "Role Management", icon: ShieldCheck, adminOnly: true },
           {
             href: "/settings/ean-mappings",
             label: "EAN Mappings",
@@ -287,15 +291,19 @@ export const navGroups: NavGroup[] = [
 export function filterNavSections(
   sections: NavSection[],
   isAdmin: boolean,
-  isSuperAdmin = false
+  isSuperAdmin = false,
+  hasPermission?: PermissionCheck
 ): NavSection[] {
+  const check: PermissionCheck =
+    hasPermission ?? (() => true);
+
   return sections
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
         if (item.superAdminOnly) return isSuperAdmin;
         if (item.adminOnly) return isAdmin;
-        return true;
+        return canAccessNavItem(item.href, check);
       }),
     }))
     .filter((section) => section.items.length > 0);

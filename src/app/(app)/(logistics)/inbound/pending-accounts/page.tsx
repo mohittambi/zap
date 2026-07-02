@@ -115,7 +115,8 @@ function FilterableHead({
 }
 
 export default function InboundPendingAccountsPage() {
-  const { isAdmin } = useAuth();
+  const { hasPermission } = useAuth();
+  const canApproveAccounts = hasPermission("grn", "accounts_approve");
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -415,7 +416,7 @@ export default function InboundPendingAccountsPage() {
                           {formatDisplayDateTime(row.created_at)}
                         </TableCell>
                         <TableCell>
-                          {isAdmin ? (
+                          {canApproveAccounts ? (
                             <div className="flex gap-1">
                               <Button
                                 size="sm"
@@ -443,7 +444,7 @@ export default function InboundPendingAccountsPage() {
                           ) : (
                             <span
                               className="text-muted-foreground text-xs"
-                              title="Only admins can approve or reject accounts"
+                              title="Permission grn:accounts_approve required to approve or reject accounts"
                             >
                               Admin only
                             </span>

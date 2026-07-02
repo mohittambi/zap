@@ -11,5 +11,6 @@ Priorities are **not commitments** — adjust per quarter.
 
 ## See also
 
+- [rbac-redesign/README.md](rbac-redesign/README.md) — role & permission management (DRAFT FOR REVIEW)
 - [gaps-analysis.md](gaps-analysis.md)
 - [../final/migration-plan.md](../final/migration-plan.md)

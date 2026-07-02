@@ -17,6 +17,7 @@ This folder is the **single entry point** for understanding the Zap system: web 
 | DevOps / deploy | [deployment/web-setup.md](deployment/web-setup.md), [deployment/env-reference.md](deployment/env-reference.md) |
 | **Prod migration (Jun 2026)** | [operations/prod-supabase-migration.md](operations/prod-supabase-migration.md) — cutover status, env split, Vercel `main` |
 | **Prod RBAC** | [operations/prod-rbac-setup.md](operations/prod-rbac-setup.md) — roles, permissions, admin user management |
+| **RBAC redesign (review)** | [enhancements/rbac-redesign/README.md](enhancements/rbac-redesign/README.md) — proposed roles, fine-grained permissions, Role Management UI |
 | Sync / scripts | [operations/sync-runbook.md](operations/sync-runbook.md) |
 | Roadmap | [enhancements/roadmap.md](enhancements/roadmap.md), [final/to-be-system.md](final/to-be-system.md) |
 
@@ -40,6 +41,7 @@ web/docs/
 ├── deployment/               ← setup, env, migrations, seeds
 ├── operations/               ← sync runbooks, Postman, **prod migration**
 ├── enhancements/             ← gaps, proposals, roadmap
+│   └── rbac-redesign/        ← RBAC role & permission management (DRAFT FOR REVIEW)
 └── final/                    ← to-be vision + migration plan
 ```
 

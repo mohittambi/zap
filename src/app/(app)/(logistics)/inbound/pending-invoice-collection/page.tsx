@@ -124,7 +124,8 @@ function invoiceCollectionStatusClass(value: string | null): string {
 }
 
 export default function InboundPendingInvoiceCollectionPage() {
-  const { isAdmin } = useAuth();
+  const { hasPermission } = useAuth();
+  const canCollectInvoice = hasPermission("grn", "invoice_collect");
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -463,11 +464,11 @@ export default function InboundPendingInvoiceCollectionPage() {
                     variant="secondary"
                     size="sm"
                     disabled={
-                      !isAdmin || selectedIds.length === 0 || bulkMarking || loading
+                      !canCollectInvoice || selectedIds.length === 0 || bulkMarking || loading
                     }
                     title={
-                      !isAdmin
-                        ? "Only admins can mark invoice as collected"
+                      !canCollectInvoice
+                        ? "Permission grn:invoice_collect required to mark invoice as collected"
                         : "Set invoice collection to Collected for all selected GRNs"
                     }
                     className={cn(
@@ -654,7 +655,7 @@ export default function InboundPendingInvoiceCollectionPage() {
                           {formatDisplayDateTime(row.created_at)}
                         </TableCell>
                         <TableCell>
-                          {isAdmin ? (
+                          {canCollectInvoice ? (
                             <Button
                               size="sm"
                               variant="outline"

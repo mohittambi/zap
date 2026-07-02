@@ -64,3 +64,14 @@ describe("assertPermission", () => {
     );
   });
 });
+
+describe("hasPermission grn elevated", () => {
+  it("returns true for grn invoice_collect", () => {
+    const u: AuthUser = {
+      ...userWithListingRead,
+      permissions: [{ resource: "grn", action: "invoice_collect" }],
+    };
+    assert.strictEqual(hasPermission(u, "grn", "invoice_collect"), true);
+    assert.strictEqual(hasPermission(u, "grn", "audit"), false);
+  });
+});

@@ -163,7 +163,7 @@ function isUploadedStatus(value: string | null): boolean {
 type PendingRowProps = Readonly<{
   row: NoteRow;
   rowIndex: number;
-  isAdmin: boolean;
+  canDecideDebitCredit: boolean;
   uploadingNoteId: number | null;
   decidingNoteId: number | null;
   onUpload: (noteId: number, grnId: number) => void;
@@ -174,7 +174,7 @@ type PendingRowProps = Readonly<{
 function PendingDebitCreditTableRow({
   row,
   rowIndex,
-  isAdmin,
+  canDecideDebitCredit,
   uploadingNoteId,
   decidingNoteId,
   onUpload,
@@ -325,7 +325,7 @@ function PendingDebitCreditTableRow({
             </Button>
           ) : null}
           {canDecide ? (
-            isAdmin ? (
+            canDecideDebitCredit ? (
               <>
                 <Button
                   type="button"
@@ -348,7 +348,7 @@ function PendingDebitCreditTableRow({
             ) : (
               <span
                 className="text-muted-foreground text-xs"
-                title="Only admins can accept or decline debit/credit notes"
+                title="Permission debit_credit:decide required to accept or decline debit/credit notes"
               >
                 Admin only
               </span>
@@ -364,7 +364,8 @@ function PendingDebitCreditTableRow({
 }
 
 export default function InboundPendingDebitCreditPage() {
-  const { isAdmin } = useAuth();
+  const { hasPermission } = useAuth();
+  const canDecideDebitCredit = hasPermission("debit_credit", "decide");
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -693,7 +694,7 @@ export default function InboundPendingDebitCreditPage() {
                         key={row.note_id}
                         row={row}
                         rowIndex={idx}
-                        isAdmin={isAdmin}
+                        canDecideDebitCredit={canDecideDebitCredit}
                         uploadingNoteId={uploadingNoteId}
                         decidingNoteId={decidingNoteId}
                         onUpload={handleUpload}

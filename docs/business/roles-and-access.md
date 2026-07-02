@@ -3,6 +3,8 @@
 **Audience:** Managers, IT administrators, HR, Compliance  
 **Plain-language guide to:** Who can see and do what in Zap
 
+> **Review in progress:** This document describes **current production** behavior. For the proposed RBAC redesign (four business roles, fine-grained permissions, admin-editable Role Management UI), see the [RBAC review pack](../enhancements/rbac-redesign/README.md).
+
 ---
 
 ## Why role-based access matters

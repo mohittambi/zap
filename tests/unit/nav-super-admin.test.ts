@@ -13,6 +13,7 @@ describe("filterNavSections super admin", () => {
     const settingsSections = filterNavSections(settingsGroup!.sections, true, false);
     const settingsLabels = settingsSections.flatMap((s) => s.items.map((i) => i.label));
     assert.ok(settingsLabels.includes("User Management"));
+    assert.ok(settingsLabels.includes("Role Management"));
     assert.ok(settingsLabels.includes("EAN Mappings"));
     assert.ok(settingsLabels.includes("Activity Log"));
 

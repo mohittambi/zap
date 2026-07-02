@@ -1,0 +1,69 @@
+{
+  "inventory_management": [
+    "listings:read",
+    "secondary_listings:read",
+    "analytics:read",
+    "packs_combos:read",
+    "bins:read",
+    "bins:write",
+    "bins:manage",
+    "warehouses:read",
+    "warehouse_inventory:read",
+    "inventory:read",
+    "purchase_orders:read",
+    "purchase_orders:write"
+  ],
+  "ops_management": [
+    "listings:read",
+    "secondary_listings:read",
+    "analytics:read",
+    "packs_combos:read",
+    "purchase_orders:read",
+    "purchase_orders:create",
+    "purchase_orders:write",
+    "bins:read",
+    "bins:write",
+    "bins:manage",
+    "warehouses:read",
+    "warehouse_inventory:read",
+    "inventory:read",
+    "forms:write",
+    "query_builder:read"
+  ],
+  "qc": [
+    "listings:read",
+    "secondary_listings:read",
+    "purchase_orders:read",
+    "purchase_orders:create",
+    "purchase_orders:write",
+    "vendors:read"
+  ],
+  "finance_additions_078": [
+    "grn:invoice_collect"
+  ],
+  "merchandising_additions_078": [
+    "listings:create",
+    "listings:delete"
+  ],
+  "admin_additions_078": [
+    "listings:create",
+    "listings:delete",
+    "grn:audit",
+    "grn:accounts_approve",
+    "grn:invoice_collect",
+    "debit_credit:decide"
+  ],
+  "new_permissions_078": [
+    "listings:create",
+    "listings:delete",
+    "grn:audit",
+    "grn:accounts_approve",
+    "grn:invoice_collect",
+    "debit_credit:decide"
+  ],
+  "new_roles_078": [
+    "inventory_management",
+    "ops_management",
+    "qc"
+  ]
+}

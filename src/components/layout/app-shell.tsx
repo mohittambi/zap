@@ -36,7 +36,7 @@ import { useActivityTracker } from "@/hooks/use-activity-tracker";
 
 function AppShellInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, logout, isAdmin, isSuperAdmin } = useAuth();
+  const { user, logout, isAdmin, isSuperAdmin, hasPermission } = useAuth();
   const {
     sidebarOpen,
     toggleSidebar,
@@ -80,6 +80,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
                 <AppSidebar
                   isAdmin={isAdmin}
                   isSuperAdmin={isSuperAdmin}
+                  hasPermission={hasPermission}
                   onNavigate={() => setMobileNavOpen(false)}
                 />
               </ScrollArea>
@@ -176,7 +177,11 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           aria-hidden={!sidebarOpen}
         >
           <ScrollArea className="h-full min-h-0 w-60 flex-1">
-            <AppSidebar isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} />
+            <AppSidebar
+              isAdmin={isAdmin}
+              isSuperAdmin={isSuperAdmin}
+              hasPermission={hasPermission}
+            />
           </ScrollArea>
         </aside>
 

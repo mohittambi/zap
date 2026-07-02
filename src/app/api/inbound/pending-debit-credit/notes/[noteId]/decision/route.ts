@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertPermission, hasPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import { decidePendingDebitCreditNote } from "@/server/services/inboundPendingDebitCreditService";
 import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
@@ -12,7 +12,7 @@ type RouteContext = { params: Promise<{ noteId: string }> };
  * /inbound/pending-debit-credit/notes/{noteId}/decision:
  *   post:
  *     summary: Decide on a pending debit/credit note
- *     description: Requires purchase_orders:write and admin role for Accept/Decline decisions.
+ *     description: Requires purchase_orders:write and debit_credit:decide for Accept/Decline decisions.
  *     tags: [Inbound]
  *     parameters:
  *       - in: path
@@ -43,7 +43,7 @@ export async function POST(request: Request, ctx: RouteContext) {
     const { noteId } = await ctx.params;
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
-    if (!user.roles.includes("admin")) {
+    if (!hasPermission(user, "debit_credit", "decide")) {
       const grnIdForLog =
         typeof body.grn_id === "string" || typeof body.grn_id === "number"
           ? Number(body.grn_id)
@@ -52,7 +52,7 @@ export async function POST(request: Request, ctx: RouteContext) {
         await appendInboundGrnLogSafe({
           grnId: grnIdForLog,
           logType: "DCN_DECISION_DENIED",
-          operationPerformed: "Debit/credit note accept/decline attempt blocked — not an admin",
+          operationPerformed: "Debit/credit note accept/decline attempt blocked — missing debit_credit:decide",
           createdBy: user.email,
           raw: {
             note_id: noteId,
@@ -61,7 +61,7 @@ export async function POST(request: Request, ctx: RouteContext) {
           },
         });
       }
-      throw new AppError("Admin role required to accept or decline debit/credit notes", 403);
+      throw new AppError("Permission debit_credit:decide required to accept or decline debit/credit notes", 403);
     }
 
     const grnId = body.grn_id;

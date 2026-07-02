@@ -111,7 +111,8 @@ for f in migrations/001_create_warehouses.sql \
          migrations/074_decision_intelligence.sql \
         migrations/075_warehouse_inventory_dump_sales_index.sql \
         migrations/076_listings_source_column.sql \
-        migrations/077_activity_log_and_listing_soft_delete.sql; do
+        migrations/077_activity_log_and_listing_soft_delete.sql \
+        migrations/078_rbac_fine_grained_permissions.sql; do
   if [ -f "$f" ]; then
     echo "  $f"
     psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f "$f"

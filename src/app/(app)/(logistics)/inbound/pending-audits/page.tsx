@@ -233,7 +233,8 @@ function FilterableHead({
 }
 
 export default function InboundPendingAuditsPage() {
-  const { isAdmin } = useAuth();
+  const { hasPermission } = useAuth();
+  const canAudit = hasPermission("grn", "audit");
   const [page, setPage] = React.useState(1);
   const [searchDraft, setSearchDraft] = React.useState("");
   const [searchApplied, setSearchApplied] = React.useState("");
@@ -687,7 +688,7 @@ export default function InboundPendingAuditsPage() {
                       <TableHead className="text-right whitespace-nowrap">
                         Actual box count recieved
                       </TableHead>
-                      {isAdmin ? (
+                      {canAudit ? (
                         <TableHead className="text-right whitespace-nowrap">
                           Audited Price Total
                         </TableHead>
@@ -789,7 +790,7 @@ export default function InboundPendingAuditsPage() {
                         <TableCell className="text-right font-mono text-xs">
                           {row.actual_box_count_recieved}
                         </TableCell>
-                        {isAdmin ? (
+                        {canAudit ? (
                           <TableCell className="text-right font-mono text-xs">
                             {row.grn_audit_price_total != null &&
                             row.grn_audit_price_total > 0
@@ -812,11 +813,11 @@ export default function InboundPendingAuditsPage() {
                             variant="outline"
                             className="h-7 whitespace-nowrap px-2 text-xs"
                             disabled={
-                              !isAdmin || markingId === row.grn_id || audited
+                              !canAudit || markingId === row.grn_id || audited
                             }
                             title={
-                              !isAdmin
-                                ? "Only admins can mark a GRN as audited"
+                              !canAudit
+                                ? "Permission grn:audit required to mark a GRN as audited"
                                 : undefined
                             }
                             onClick={() => openConfirmDialog(row)}

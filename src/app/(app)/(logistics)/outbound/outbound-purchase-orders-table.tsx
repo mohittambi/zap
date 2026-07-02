@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
-import { apiFetch } from "@/lib/api-browser";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Loader2 } from "lucide-react";
+import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
@@ -168,6 +169,8 @@ export function OutboundPurchaseOrdersTable({
 }: Readonly<{
   wipOnly?: boolean;
 }>) {
+  const { hasPermission } = useAuth();
+  const canMutate = hasPermission("purchase_orders", "create");
   const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
   const [applied, setApplied] = React.useState("");
@@ -175,6 +178,9 @@ export function OutboundPurchaseOrdersTable({
   const [err, setErr] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Paginated | null>(null);
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const [downloadingBulk, setDownloadingBulk] = React.useState<
+    null | "sku_report" | "pendency_zip" | "pendency_merged"
+  >(null);
   const [companies, setCompanies] = React.useState<FilterCompanyOption[]>([]);
   const [deliveryLocations, setDeliveryLocations] = React.useState<FilterDeliveryLocationOption[]>([]);
   const [companyIds, setCompanyIds] = React.useState<string[]>([]);
@@ -300,6 +306,80 @@ export function OutboundPurchaseOrdersTable({
     toast.success(`Exported ${selectedRows.length} rows`);
   }
 
+  async function handleBulkDownload(
+    kind: "sku_report" | "pendency_zip" | "pendency_merged"
+  ) {
+    const ids = Array.from(selected);
+    if (ids.length === 0) {
+      toast.error("No rows selected");
+      return;
+    }
+    setDownloadingBulk(kind);
+    try {
+      const token = getStoredToken();
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+
+      const url =
+        kind === "sku_report"
+          ? apiUrl("/api/outbound/purchase-orders/bulk-sku-report")
+          : apiUrl("/api/outbound/purchase-orders/bulk-pendency-pdf");
+
+      const body =
+        kind === "sku_report"
+          ? { ids }
+          : { ids, format: kind === "pendency_zip" ? "zip" : "merged" };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? res.statusText);
+      }
+
+      const skipped = res.headers.get("X-Skipped-Po-Numbers")?.trim();
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const fallback =
+        kind === "sku_report"
+          ? `bulk-sku-report-${new Date().toISOString().slice(0, 10)}.xlsx`
+          : kind === "pendency_zip"
+            ? `bulk-pendency-pdf-${new Date().toISOString().slice(0, 10)}.zip`
+            : `bulk-pendency-pdf-${new Date().toISOString().slice(0, 10)}.pdf`;
+      const downloadName = match?.[1] ?? fallback;
+
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+
+      const label =
+        kind === "sku_report"
+          ? "SKU Level Report"
+          : kind === "pendency_zip"
+            ? "Pendency PDF (ZIP)"
+            : "Pendency PDF (Combined)";
+      toast.success(`Downloaded ${label} for ${ids.length} PO(s)`);
+      if (skipped) {
+        toast.warning(`Skipped PO(s) with no line items: ${skipped}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Download failed");
+    } finally {
+      setDownloadingBulk(null);
+    }
+  }
+
+  const bulkBtnClass =
+    "border-blue-400 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/30 whitespace-normal";
+
   const companyOptions = React.useMemo(
     () =>
       companies.map((c) => ({
@@ -345,8 +425,54 @@ export function OutboundPurchaseOrdersTable({
           </Button>
         </div>
         {someSelected ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="text-muted-foreground text-xs">{selected.size} selected</span>
+            {canMutate ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={bulkBtnClass}
+                  disabled={downloadingBulk !== null || loading}
+                  onClick={() => void handleBulkDownload("sku_report")}
+                >
+                  {downloadingBulk === "sku_report" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    "Download SKU Level Report"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={bulkBtnClass}
+                  disabled={downloadingBulk !== null || loading}
+                  onClick={() => void handleBulkDownload("pendency_zip")}
+                >
+                  {downloadingBulk === "pendency_zip" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    "Download Pendency PDF (ZIP)"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className={bulkBtnClass}
+                  disabled={downloadingBulk !== null || loading}
+                  onClick={() => void handleBulkDownload("pendency_merged")}
+                >
+                  {downloadingBulk === "pendency_merged" ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    "Download Pendency PDF (Combined)"
+                  )}
+                </Button>
+              </>
+            ) : null}
             <Button type="button" size="sm" variant="outline" onClick={exportSelectedCsv}>
               Export CSV
             </Button>

@@ -1715,7 +1715,8 @@ function GrnSkuDetailSheet(props: {
 export default function InboundGrnDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { isAdmin } = useAuth();
+  const { hasPermission } = useAuth();
+  const canApproveAccounts = hasPermission("grn", "accounts_approve");
   const grnId = typeof params.grnId === "string" ? params.grnId : "";
   const [bundle, setBundle] = React.useState<GrnDetailsBundle | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -4665,7 +4666,7 @@ export default function InboundGrnDetailPage() {
                   </dl>
 
                   {row?.accounts_status !== "APPROVED" && row?.accounts_status !== "REJECTED" ? (
-                    isAdmin ? (
+                    canApproveAccounts ? (
                       <div className="flex gap-3">
                         <Button
                           size="sm"
@@ -4686,7 +4687,7 @@ export default function InboundGrnDetailPage() {
                       </div>
                     ) : (
                       <p className="text-muted-foreground text-sm">
-                        Only admins can approve or reject accounts.
+                        Permission grn:accounts_approve required to approve or reject accounts.
                       </p>
                     )
                   ) : (

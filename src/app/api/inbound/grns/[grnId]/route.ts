@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/server/auth";
-import { assertPermission } from "@/server/rbac";
+import { assertPermission, hasPermission } from "@/server/rbac";
 import { AppError, handleApiError } from "@/server/errors";
 import * as inboundGrnsService from "@/server/services/inboundGrnsService";
 import { appendInboundGrnLogSafe } from "@/server/services/inboundGrnLogService";
@@ -33,7 +33,7 @@ type RouteContext = { params: Promise<{ grnId: string }> };
  *       403: { description: Forbidden }
  *   patch:
  *     summary: Update GRN status fields (audit / invoice-collection / accounts)
- *     description: Requires purchase_orders:write. Terminal grn_audit_status, accounts_status (APPROVED/REJECTED), and grn_invoice_collection_status (COLLECTED) require admin role.
+ *     description: Requires purchase_orders:write. Terminal grn_audit_status, accounts_status (APPROVED/REJECTED), and grn_invoice_collection_status (COLLECTED) require grn:audit, grn:accounts_approve, and grn:invoice_collect respectively.
  *     tags: [Inbound]
  *     parameters:
  *       - in: path
@@ -97,48 +97,48 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const auditVal = String(fields.grn_audit_status ?? "").trim().toUpperCase();
-    if (AUDIT_TERMINAL.has(auditVal) && !user.roles.includes("admin")) {
+    if (AUDIT_TERMINAL.has(auditVal) && !hasPermission(user, "grn", "audit")) {
       const gid = Number(grnId);
       if (Number.isFinite(gid) && gid !== 0) {
         await appendInboundGrnLogSafe({
           grnId: gid,
           logType: "AUDIT_DENIED",
-          operationPerformed: "Mark-audited attempt blocked — not an admin",
+          operationPerformed: "Mark-audited attempt blocked — missing grn:audit",
           createdBy: user.email,
           raw: { attempted_value: auditVal, user_roles: user.roles },
         });
       }
-      throw new AppError("Admin role required to mark GRN as audited", 403);
+      throw new AppError("Permission grn:audit required to mark GRN as audited", 403);
     }
 
     const accountsVal = String(fields.accounts_status ?? "").trim().toUpperCase();
-    if (ACCOUNTS_TERMINAL.has(accountsVal) && !user.roles.includes("admin")) {
+    if (ACCOUNTS_TERMINAL.has(accountsVal) && !hasPermission(user, "grn", "accounts_approve")) {
       const gid = Number(grnId);
       if (Number.isFinite(gid) && gid !== 0) {
         await appendInboundGrnLogSafe({
           grnId: gid,
           logType: "ACCOUNTS_DENIED",
-          operationPerformed: "Accounts approve/reject attempt blocked — not an admin",
+          operationPerformed: "Accounts approve/reject attempt blocked — missing grn:accounts_approve",
           createdBy: user.email,
           raw: { attempted_value: accountsVal, user_roles: user.roles },
         });
       }
-      throw new AppError("Admin role required to approve or reject GRN accounts", 403);
+      throw new AppError("Permission grn:accounts_approve required to approve or reject GRN accounts", 403);
     }
 
     const invoiceCollectionVal = String(fields.grn_invoice_collection_status ?? "").trim().toUpperCase();
-    if (invoiceCollectionVal === INVOICE_COLLECTION_COLLECTED && !user.roles.includes("admin")) {
+    if (invoiceCollectionVal === INVOICE_COLLECTION_COLLECTED && !hasPermission(user, "grn", "invoice_collect")) {
       const gid = Number(grnId);
       if (Number.isFinite(gid) && gid !== 0) {
         await appendInboundGrnLogSafe({
           grnId: gid,
           logType: "INVOICE_COLLECTION_DENIED",
-          operationPerformed: "Mark invoice collected attempt blocked — not an admin",
+          operationPerformed: "Mark invoice collected attempt blocked — missing grn:invoice_collect",
           createdBy: user.email,
           raw: { attempted_value: invoiceCollectionVal, user_roles: user.roles },
         });
       }
-      throw new AppError("Admin role required to mark GRN invoice as collected", 403);
+      throw new AppError("Permission grn:invoice_collect required to mark GRN invoice as collected", 403);
     }
 
     const updated = await inboundGrnsService.updateGrnStatus(grnId, fields, user.email);

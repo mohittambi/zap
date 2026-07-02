@@ -1,0 +1,407 @@
+[
+  {
+    "resource": "listings",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/listings/by_page_v4?page=1&limit=1",
+    "sourceFile": "src/app/api/listings/by_page_v4/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "listings",
+    "action": "write",
+    "method": "PATCH",
+    "path": "/api/listings/sku/TEST-SKU",
+    "body": { "title": "rbac-test" },
+    "sourceFile": "src/app/api/listings/sku/[sku_id]/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "listings",
+    "action": "create",
+    "method": "POST",
+    "path": "/api/listings",
+    "body": {},
+    "sourceFile": "src/app/api/listings/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "listings",
+    "action": "delete",
+    "method": "DELETE",
+    "path": "/api/listings/sku/TEST-SKU",
+    "sourceFile": "src/app/api/listings/sku/[sku_id]/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "analytics",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/listings/analytics/sku/TEST-SKU",
+    "sourceFile": "src/app/api/listings/analytics/sku/[sku_id]/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "packs_combos",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/packs_combos/sku/TEST-SKU",
+    "sourceFile": "src/app/api/packs_combos/sku/[sku_id]/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "secondary_listings",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/inventory/secondary_listings/logs?secondary_sku=TEST",
+    "sourceFile": "src/app/api/inventory/secondary_listings/logs/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "secondary_listings",
+    "action": "manage",
+    "method": "PATCH",
+    "path": "/api/inventory/secondary_listings/labels",
+    "body": { "secondary_sku": "TEST" },
+    "sourceFile": "src/app/api/inventory/secondary_listings/labels/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "catalogues",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/catalogues?page=1&limit=1",
+    "sourceFile": "src/app/api/catalogues/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "catalogues",
+    "action": "write",
+    "method": "POST",
+    "path": "/api/catalogues",
+    "body": { "name": "rbac-test", "type": "standard" },
+    "sourceFile": "src/app/api/catalogues/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "focus_lists",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/focus-lists?page=1&limit=1",
+    "sourceFile": "src/app/api/focus-lists/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "focus_lists",
+    "action": "write",
+    "method": "POST",
+    "path": "/api/focus-lists",
+    "body": { "name": "rbac-test" },
+    "sourceFile": "src/app/api/focus-lists/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "labels",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/labels-master?page=1&limit=1",
+    "sourceFile": "src/app/api/labels-master/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "labels",
+    "action": "write",
+    "authCanOnly": true,
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local",
+    "note": "POST /api/labels/upload requires multipart; use /auth/can"
+  },
+  {
+    "resource": "company_relations",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/company-sku-relations?page=1&limit=1",
+    "sourceFile": "src/app/api/company-sku-relations/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "company_relations",
+    "action": "write",
+    "authCanOnly": true,
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "bulk",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/bulk/export/master-sku-details",
+    "sourceFile": "src/app/api/bulk/export/master-sku-details/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "bulk",
+    "action": "import",
+    "method": "POST",
+    "path": "/api/bulk/import/secondary-listings",
+    "body": { "rows": [] },
+    "sourceFile": "src/app/api/bulk/import/secondary-listings/route.ts",
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "vendors",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/vendors/all",
+    "sourceFile": "src/app/api/vendors/all/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "vendors",
+    "action": "create",
+    "method": "POST",
+    "path": "/api/vendors",
+    "body": { "name": "rbac-test-vendor" },
+    "sourceFile": "src/app/api/vendors/route.ts",
+    "allowUser": "rbac-qc@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "vendors",
+    "action": "write",
+    "method": "PATCH",
+    "path": "/api/vendors/1",
+    "body": { "name": "rbac-test" },
+    "sourceFile": "src/app/api/vendors/[id]/route.ts",
+    "allowUser": "rbac-finance@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "vendors",
+    "action": "delete",
+    "method": "DELETE",
+    "path": "/api/vendors/999999",
+    "sourceFile": "src/app/api/vendors/[id]/route.ts",
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "purchase_orders",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/inbound/grns?page=1&limit=1",
+    "sourceFile": "src/app/api/inbound/grns/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local",
+    "note": "inbound"
+  },
+  {
+    "resource": "purchase_orders",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/outbound/purchase-orders?page=1&limit=1",
+    "sourceFile": "src/app/api/outbound/purchase-orders/route.ts",
+    "allowUser": "rbac-ops@test.local",
+    "denyUser": "rbac-none@test.local",
+    "note": "outbound"
+  },
+  {
+    "resource": "purchase_orders",
+    "action": "create",
+    "method": "POST",
+    "path": "/api/outbound/purchase-orders",
+    "body": {},
+    "sourceFile": "src/app/api/outbound/purchase-orders/route.ts",
+    "allowUser": "rbac-ops@test.local",
+    "denyUser": "rbac-inv@test.local"
+  },
+  {
+    "resource": "purchase_orders",
+    "action": "write",
+    "method": "PATCH",
+    "path": "/api/inbound/grns/1",
+    "body": { "remarks": "rbac-test" },
+    "sourceFile": "src/app/api/inbound/grns/[grnId]/route.ts",
+    "allowUser": "rbac-qc@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "grn",
+    "action": "audit",
+    "method": "PATCH",
+    "path": "/api/inbound/grns/{{grnId}}",
+    "body": { "grn_audit_status": "AUDITED" },
+    "sourceFile": "src/app/api/inbound/grns/[grnId]/route.ts",
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-finance@test.local",
+    "elevated": true,
+    "fixtureKey": "grnId"
+  },
+  {
+    "resource": "grn",
+    "action": "accounts_approve",
+    "method": "PATCH",
+    "path": "/api/inbound/grns/{{grnId}}",
+    "body": { "accounts_status": "APPROVED" },
+    "sourceFile": "src/app/api/inbound/grns/[grnId]/route.ts",
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-finance@test.local",
+    "elevated": true,
+    "fixtureKey": "grnId"
+  },
+  {
+    "resource": "grn",
+    "action": "invoice_collect",
+    "method": "PATCH",
+    "path": "/api/inbound/grns/{{grnId}}",
+    "body": { "grn_invoice_collection_status": "COLLECTED" },
+    "sourceFile": "src/app/api/inbound/grns/[grnId]/route.ts",
+    "allowUser": "rbac-finance@test.local",
+    "denyUser": "rbac-qc@test.local",
+    "elevated": true,
+    "fixtureKey": "grnId"
+  },
+  {
+    "resource": "debit_credit",
+    "action": "decide",
+    "method": "POST",
+    "path": "/api/inbound/pending-debit-credit/notes/{{noteId}}/decision",
+    "body": { "grn_id": 1, "status": "DECLINED" },
+    "sourceFile": "src/app/api/inbound/pending-debit-credit/notes/[noteId]/decision/route.ts",
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-finance@test.local",
+    "elevated": true,
+    "fixtureKey": "noteId"
+  },
+  {
+    "resource": "warehouses",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/warehouses",
+    "sourceFile": "src/app/api/warehouses/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "bins",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/bins?page=1&limit=1",
+    "sourceFile": "src/app/api/bins/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "bins",
+    "action": "write",
+    "method": "POST",
+    "path": "/api/bins/scan-update",
+    "body": { "sku_id": "TEST", "bin_id": "TEST", "warehouse_id": 1, "quantity": 0 },
+    "sourceFile": "src/app/api/bins/scan-update/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "bins",
+    "action": "manage",
+    "method": "POST",
+    "path": "/api/bins",
+    "body": { "warehouse_id": 1, "sku_id": "TEST", "bin_id": "RBAC-TEST" },
+    "sourceFile": "src/app/api/bins/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "warehouse_inventory",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/warehouse_inventory_dump/sku_id/by_page/TEST?page=1&limit=1",
+    "sourceFile": "src/app/api/warehouse_inventory_dump/sku_id/by_page/[sku_id]/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "inventory",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/inventory/secondary_listings/paginated?page=1&limit=1",
+    "sourceFile": "src/app/api/inventory/secondary_listings/paginated/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "inventory",
+    "action": "write",
+    "authCanOnly": true,
+    "allowUser": "rbac-merch@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "forms",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/forms/categories",
+    "sourceFile": "src/app/api/forms/categories/route.ts",
+    "allowUser": "rbac-viewer@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "forms",
+    "action": "write",
+    "authCanOnly": true,
+    "allowUser": "rbac-ops@test.local",
+    "denyUser": "rbac-viewer@test.local"
+  },
+  {
+    "resource": "query_builder",
+    "action": "read",
+    "method": "POST",
+    "path": "/api/home/custom-query/run",
+    "body": { "module": "listings", "conditions": [], "columns": [], "result_shape": "table" },
+    "sourceFile": "src/app/api/home/custom-query/run/route.ts",
+    "allowUser": "rbac-ops@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
+    "resource": "insights",
+    "action": "read",
+    "authCanOnly": true,
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-inv@test.local",
+    "note": "GET /api/insights uses assertSuperAdmin, not insights:read"
+  },
+  {
+    "resource": "insights",
+    "action": "manage",
+    "authCanOnly": true,
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-inv@test.local",
+    "note": "Insights feedback uses assertSuperAdmin"
+  },
+  {
+    "resource": "*",
+    "action": "*",
+    "method": "GET",
+    "path": "/api/admin/permissions",
+    "sourceFile": "src/app/api/admin/permissions/route.ts",
+    "allowUser": "rbac-admin@test.local",
+    "denyUser": "rbac-ops@test.local"
+  }
+]

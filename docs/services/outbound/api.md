@@ -33,6 +33,8 @@ Base path: `/api/outbound`
 | GET | `/outbound/purchase-orders/[id]/attachments/[attachmentId]` | Download Zap attachment |
 | GET, POST | `/outbound/purchase-orders/[id]/consignments` | List consignments; **POST creates empty consignment in Zap** (PO must be WIP and acknowledged; lines entered on detail) |
 | POST | `/outbound/purchase-orders/[id]/eautomate-actions` | Workflow actions: `acknowledge`, `cancel`, `download_sku_report`, `download_pendency_pdf`, label prep — see [pendency-pdf.md](pendency-pdf.md) |
+| POST | `/outbound/purchase-orders/bulk-sku-report` | Merged SKU Level Report XLSX for multiple PO ids (`{ ids: number[] }`, max 50) |
+| POST | `/outbound/purchase-orders/bulk-pendency-pdf` | Pendency PDFs for multiple PO ids (`{ ids: number[], format: "zip" \| "merged" }`, max 50) |
 | GET | `/outbound/purchase-orders/[id]/eautomate-files/[fileId]` | Download eAutomate-sourced file (or Storage) |
 | POST | `/outbound/purchase-orders/[id]/files-zap` | Upload file to Zap Storage |
 

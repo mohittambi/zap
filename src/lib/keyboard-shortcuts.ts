@@ -4,6 +4,7 @@ import {
   navGroups,
   type NavGroup,
 } from "@/lib/nav-groups";
+import { canAccessNavGroup } from "@/lib/permission-catalog";
 
 export type ShortcutCategory = "navigation" | "shell" | "help";
 
@@ -108,11 +109,15 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 export function flattenNavItems(
   groups: NavGroup[] = navGroups,
   isAdmin = false,
-  isSuperAdmin = false
+  isSuperAdmin = false,
+  hasPermission?: (resource: string, action: string) => boolean
 ): FlatNavItem[] {
   const rows: FlatNavItem[] = [];
   for (const group of groups) {
-    const sections = filterNavSections(group.sections, isAdmin, isSuperAdmin);
+    if (hasPermission && !canAccessNavGroup(group.id, hasPermission)) {
+      continue;
+    }
+    const sections = filterNavSections(group.sections, isAdmin, isSuperAdmin, hasPermission);
     for (const section of sections) {
       for (const item of section.items) {
         rows.push({
