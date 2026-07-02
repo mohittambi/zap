@@ -2,8 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, apiUrl, getStoredToken } from "@/lib/api-browser";
+import { AppPageTitle } from "@/components/layout/app-page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -521,12 +523,18 @@ export default function BulkOutwardPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Bulk Outward</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Enter SKUs and required quantities. The system suggests which bins to draw from, and
-          commits all deductions in a single transaction.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <AppPageTitle
+          title="Bulk outward"
+          description="Enter SKUs and required quantities. The system suggests which bins to draw from, and commits all deductions in a single transaction."
+          className="mb-0"
+        />
+        <Button asChild variant="outline" className="min-h-11 shrink-0 gap-2">
+          <Link href="/bins">
+            <ArrowLeft className="size-4 shrink-0" />
+            Bins
+          </Link>
+        </Button>
       </div>
 
       <div className="flex gap-3 text-sm">
