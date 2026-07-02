@@ -14,6 +14,7 @@ import {
   buildBulkSkuReportXlsxFromPos,
   extractListingsRowsFromSnapshotNormalized,
   parseBulkPoIds,
+  resolvePendencyTotalPoQty,
   type OutboundPoRow,
 } from "../../src/server/services/outboundPurchaseOrdersService";
 import {
@@ -48,6 +49,9 @@ async function testPendencyPdfBuilder(po: OutboundPoRow): Promise<Uint8Array | n
     companyName: po.company_name,
     poNumber: po.po_number,
     deliveryLocation: po.delivery_city,
+    expiryDate: po.expiry_date,
+    additionDate: po.created_at,
+    totalPoQty: resolvePendencyTotalPoQty(po, rows),
     rows: pendRows,
   });
 }
@@ -261,6 +265,9 @@ describe("buildBulkPendencyPdfZipFromPos", () => {
     assert.ok(pdfBytesContain(pdfA, "P4782416"));
     assert.ok(pdfBytesContain(pdfA, "10149918"));
     assert.ok(pdfBytesContain(pdfA, "1299"));
+    assert.ok(pdfBytesContain(pdfA, "Total PO Qty: 100"));
+    assert.ok(pdfBytesContain(pdfA, "Expiry:"));
+    assert.ok(pdfBytesContain(pdfA, "Addition:"));
   });
 
   it("omits empty POs from zip and lists them as skipped", async () => {

@@ -842,6 +842,18 @@ function lineDemandFromRow(row: Record<string, unknown>): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Total PO demand for pendency PDF header (matches Outbound list Demand Quantity). */
+export function resolvePendencyTotalPoQty(
+  po: OutboundPoRow,
+  snapshotRows: Record<string, unknown>[]
+): number {
+  const fromAnalytics = Number(po.analytics_object?.total_demand);
+  if (Number.isFinite(fromAnalytics) && fromAnalytics >= 0) {
+    return fromAnalytics;
+  }
+  return snapshotRows.reduce((sum, row) => sum + lineDemandFromRow(row), 0);
+}
+
 function lineNum(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -1698,6 +1710,9 @@ async function buildPendencyPdfBytesForPo(
     companyName: po.company_name,
     poNumber: po.po_number,
     deliveryLocation: po.delivery_city,
+    expiryDate: po.expiry_date,
+    additionDate: po.created_at,
+    totalPoQty: resolvePendencyTotalPoQty(po, rows),
     rows: pendRows,
   });
 }

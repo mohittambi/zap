@@ -326,6 +326,9 @@ export async function POST(request: Request, context: Ctx) {
         companyName: po.company_name,
         poNumber: po.po_number,
         deliveryLocation: po.delivery_city,
+        expiryDate: po.expiry_date,
+        additionDate: po.created_at,
+        totalPoQty: outboundPoService.resolvePendencyTotalPoQty(po, rows),
         rows: pendRows,
       });
       const fname = `pendency-${safeFilename(po.po_number)}.pdf`;

@@ -5,11 +5,17 @@ import { PDFDocument } from "pdf-lib";
 import {
   buildPendencyRowsFromListings,
   createOutboundPoPendencyPdf,
+  fmtPendencyPdfDate,
+  formatPendencyQty,
   pendencySkuIdCandidates,
   resolvePendencyRowFields,
   type PendencyLookups,
   type PendencyRow,
 } from "../../src/server/utils/outboundPoPendencyPdf";
+import {
+  resolvePendencyTotalPoQty,
+  type OutboundPoRow,
+} from "../../src/server/services/outboundPurchaseOrdersService";
 
 function emptyLookups(companyId: number | null = null): PendencyLookups {
   return {
@@ -38,6 +44,9 @@ async function makePdf(rowCount: number): Promise<Uint8Array> {
     companyName: "Amazon Etrade",
     poNumber: "3ER6PK9W",
     deliveryLocation: "DED5",
+    expiryDate: "2026-07-15 00:00:00",
+    additionDate: "2026-01-02 10:00:00",
+    totalPoQty: 1934,
     rows: makePendencyRows(rowCount),
   });
 }
@@ -368,6 +377,83 @@ describe("outboundPoPendencyPdf", () => {
     assert.equal(rows[0].company_code_primary, "CCP-1");
     assert.equal(rows[0].warehouse_quantity, 250);
     assert.equal(rows[0].mrp, 2999);
+  });
+
+  describe("fmtPendencyPdfDate and formatPendencyQty", () => {
+    it("formats ISO-like date strings in en-GB", () => {
+      const got = fmtPendencyPdfDate("2026-07-02 00:00:00");
+      assert.ok(got.includes("Jul"));
+      assert.ok(got.includes("2026"));
+    });
+
+    it("returns hyphen for empty dates", () => {
+      assert.equal(fmtPendencyPdfDate(null), "-");
+      assert.equal(fmtPendencyPdfDate(""), "-");
+    });
+
+    it("formats qty as integer and hyphen when missing", () => {
+      assert.equal(formatPendencyQty(1934.7), "1935");
+      assert.equal(formatPendencyQty(0), "0");
+      assert.equal(formatPendencyQty(null), "-");
+    });
+  });
+
+  describe("resolvePendencyTotalPoQty", () => {
+    const basePo = {
+      id: 1,
+      po_number: "P1",
+      analytics_object: {},
+    } as OutboundPoRow;
+
+    it("prefers analytics_object.total_demand", () => {
+      const po = {
+        ...basePo,
+        analytics_object: { total_demand: 1934 },
+      } as OutboundPoRow;
+      const got = resolvePendencyTotalPoQty(po, [{ demand: 10 }]);
+      assert.equal(got, 1934);
+    });
+
+    it("falls back to sum of line demands", () => {
+      const got = resolvePendencyTotalPoQty(basePo, [
+        { demand: 100 },
+        { original_demand: 50 },
+        { box_quantity: 25 },
+      ]);
+      assert.equal(got, 175);
+    });
+  });
+
+  describe("createOutboundPoPendencyPdf header", () => {
+    it("renders total qty, expiry, addition, and delivery in header", async () => {
+      const bytes = await createOutboundPoPendencyPdf({
+        companyName: "Zepto",
+        poNumber: "P4782416",
+        deliveryLocation: "DED5",
+        expiryDate: "2026-07-15 00:00:00",
+        additionDate: "2026-01-02 10:00:00",
+        totalPoQty: 1934,
+        rows: makePendencyRows(1),
+      });
+      assert.ok(pdfBytesContain(bytes, "Total PO Qty: 1934"));
+      assert.ok(pdfBytesContain(bytes, "Expiry:"));
+      assert.ok(pdfBytesContain(bytes, "Jul"));
+      assert.ok(pdfBytesContain(bytes, "Addition:"));
+      assert.ok(pdfBytesContain(bytes, "Delivery: DED5"));
+    });
+
+    it("shows hyphen for missing dates and zero total qty", async () => {
+      const bytes = await createOutboundPoPendencyPdf({
+        companyName: "Zepto",
+        poNumber: "P-EMPTY-DATES",
+        deliveryLocation: null,
+        totalPoQty: 0,
+        rows: makePendencyRows(1),
+      });
+      assert.ok(pdfBytesContain(bytes, "Total PO Qty: 0"));
+      assert.ok(pdfBytesContain(bytes, "Expiry: -"));
+      assert.ok(pdfBytesContain(bytes, "Addition: -"));
+    });
   });
 
   describe("createOutboundPoPendencyPdf pagination", () => {

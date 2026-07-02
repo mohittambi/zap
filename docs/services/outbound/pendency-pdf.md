@@ -19,8 +19,26 @@ Operators download a landscape PDF listing **open (pending) line items** for a c
 
 ## PDF layout
 
-**Title:** `{company_name} Pendency` (defaults to `Blinkit` when company name is missing)  
-**Subtitle:** `PO: {po_number}   Delivery: {delivery_location}`
+**Title:** `{company_name} Pendency` (defaults to `Blinkit` when company name is missing)
+
+**Header (page 1 only):**
+
+| Line | Content |
+|------|---------|
+| 1 | `{company_name} Pendency` |
+| 2 | `PO: {po_number}   Total PO Qty: {total_demand}` |
+| 3 | `Expiry: {expiry_date}   Addition: {po_addition_date}   Delivery: {delivery_location}` |
+
+**Header field sources:**
+
+| PDF label | Source |
+|-----------|--------|
+| **Total PO Qty** | `analytics_object.total_demand` (Outbound list **Demand Quantity**); fallback = sum of line `demand` / `original_demand` / `box_quantity` from `listings_snapshot` |
+| **Expiry** | `po.expiry_date` (en-GB date); `-` if missing |
+| **Addition** | `po.created_at` (PO **Addition Date**); en-GB date; `-` if missing |
+| **Delivery** | `po.delivery_city`; `-` if missing |
+
+**Continuation pages:** `PO: {po_number}   Delivery: {delivery_location}   Page {n}` (expiry/addition/total not repeated).
 
 | # | Column | Meaning |
 |---|--------|---------|

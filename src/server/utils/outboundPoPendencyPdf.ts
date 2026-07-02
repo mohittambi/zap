@@ -95,12 +95,38 @@ const PENDENCY_HEADERS = [
   "Pending",
 ];
 
-export async function createOutboundPoPendencyPdf(opts: {
+/** Missing-value placeholder (ASCII for StandardFonts WinAnsi PDF output). */
+const PENDENCY_EMPTY = "-";
+
+/** en-GB calendar date for pendency PDF header (matches Outbound list fmtDay). */
+export function fmtPendencyPdfDate(raw: string | null | undefined): string {
+  if (!raw) return PENDENCY_EMPTY;
+  const x = new Date(String(raw).replace(" ", "T"));
+  if (Number.isNaN(x.getTime())) return String(raw);
+  return x.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+export function formatPendencyQty(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return PENDENCY_EMPTY;
+  return String(Math.round(n));
+}
+
+export type PendencyPdfHeaderOpts = {
   companyName: string | null;
   poNumber: string;
   deliveryLocation: string | null;
-  rows: PendencyRow[];
-}): Promise<Uint8Array> {
+  expiryDate?: string | null;
+  additionDate?: string | null;
+  totalPoQty?: number | null;
+};
+
+export async function createOutboundPoPendencyPdf(
+  opts: PendencyPdfHeaderOpts & { rows: PendencyRow[] }
+): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -122,15 +148,22 @@ export async function createOutboundPoPendencyPdf(opts: {
     p.drawText(title, { x: PENDENCY_MARGIN, y, size: 16, font: bold });
     y -= 22;
     p.drawText(
-      `PO: ${opts.poNumber}   Delivery: ${opts.deliveryLocation ?? "-"}`,
+      `PO: ${opts.poNumber}   Total PO Qty: ${formatPendencyQty(opts.totalPoQty)}`,
       { x: PENDENCY_MARGIN, y, size: 10, font }
     );
-    return y - 20;
+    y -= 14;
+    const delivery = (opts.deliveryLocation ?? "").trim() || PENDENCY_EMPTY;
+    p.drawText(
+      `Expiry: ${fmtPendencyPdfDate(opts.expiryDate)}   Addition: ${fmtPendencyPdfDate(opts.additionDate)}   Delivery: ${delivery}`,
+      { x: PENDENCY_MARGIN, y, size: 10, font }
+    );
+    return y - 16;
   }
 
   function drawContinuationHeader(p: PDFPage, y: number, num: number): number {
+    const delivery = (opts.deliveryLocation ?? "").trim() || PENDENCY_EMPTY;
     p.drawText(
-      `PO: ${opts.poNumber}   Delivery: ${opts.deliveryLocation ?? "-"}   Page ${num}`,
+      `PO: ${opts.poNumber}   Delivery: ${delivery}   Page ${num}`,
       { x: PENDENCY_MARGIN, y, size: 10, font }
     );
     return y - 20;

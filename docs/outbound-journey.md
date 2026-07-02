@@ -70,6 +70,8 @@ New Zap PO rows default **`is_wip = Y`**. Mark **WIP → Y** on the PO **Details
 
 Downloaded via **`download_pendency_pdf`** → `pendency-{po_number}.pdf`.
 
+**Header (page 1):** `PO: {po_number}   Total PO Qty: {total_demand}`; `Expiry: {expiry_date}   Addition: {po_addition_date}   Delivery: {delivery_location}` — see [pendency-pdf.md](services/outbound/pendency-pdf.md).
+
 | PDF column | Source |
 |------------|--------|
 | **PO SKU** | `po_secondary_sku` (channel item code, e.g. `10149918`) |
