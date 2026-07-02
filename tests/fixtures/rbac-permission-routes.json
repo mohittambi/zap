@@ -338,6 +338,15 @@
     "denyUser": "rbac-none@test.local"
   },
   {
+    "resource": "warehouse_inventory",
+    "action": "read",
+    "method": "GET",
+    "path": "/api/warehouse_inventory_dump/sku_ids",
+    "sourceFile": "src/app/api/warehouse_inventory_dump/sku_ids/route.ts",
+    "allowUser": "rbac-inv@test.local",
+    "denyUser": "rbac-none@test.local"
+  },
+  {
     "resource": "inventory",
     "action": "read",
     "method": "GET",

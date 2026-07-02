@@ -37,3 +37,18 @@ export async function getWarehouseInventoryBySku(skuId, page, count) {
     content,
   };
 }
+
+export async function getWarehouseInventorySkuIds(): Promise<
+  Array<{ sku_id: string; description: string | null }>
+> {
+  const result = await query(
+    `SELECT DISTINCT w.sku_id, l.description
+     FROM warehouse_inventory_dump w
+     LEFT JOIN listings l ON l.sku_id = w.sku_id AND l.is_deleted = false
+     ORDER BY w.sku_id ASC`
+  );
+  return result.rows.map((r) => ({
+    sku_id: String(r.sku_id),
+    description: r.description != null ? String(r.description) : null,
+  }));
+}
