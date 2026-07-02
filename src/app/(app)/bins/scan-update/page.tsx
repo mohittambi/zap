@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-browser";
 import { AppPageTitle } from "@/components/layout/app-page-shell";
@@ -165,7 +165,7 @@ export default function BinScanUpdatePage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-start justify-between gap-4">
         <AppPageTitle
           title="Scan update"
@@ -180,7 +180,7 @@ export default function BinScanUpdatePage() {
         </Button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="mx-auto w-full max-w-xl space-y-5">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Scan inputs</CardTitle>
@@ -269,18 +269,20 @@ export default function BinScanUpdatePage() {
                 <Button
                   type="button"
                   variant={operation === "ADD" ? "default" : "outline"}
-                  className="min-h-11 flex-1"
+                  className="min-h-11 flex-1 gap-2"
                   onClick={() => setOperation("ADD")}
                 >
-                  ➕ Add
+                  <Plus className="size-4 shrink-0" />
+                  Add
                 </Button>
                 <Button
                   type="button"
                   variant={operation === "REMOVE" ? "default" : "outline"}
-                  className="min-h-11 flex-1"
+                  className="min-h-11 flex-1 gap-2"
                   onClick={() => setOperation("REMOVE")}
                 >
-                  ➖ Remove
+                  <Minus className="size-4 shrink-0" />
+                  Remove
                 </Button>
               </div>
             </div>
